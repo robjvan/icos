@@ -34,6 +34,25 @@ function clampPollInterval(value: number): number {
   );
 }
 
+/** Guard a pushed payload: it must look like a `HealthResponse`. */
+function isHealthResponse(value: unknown): value is HealthResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const report = value as Record<string, unknown>;
+  if (typeof report['status'] !== 'string') return false;
+  if (typeof report['runtime'] !== 'object' || report['runtime'] === null) {
+    return false;
+  }
+  if (typeof report['host'] !== 'object' || report['host'] === null) {
+    return false;
+  }
+  const host = report['host'] as Record<string, unknown>;
+  return (
+    typeof host['os'] === 'string' &&
+    typeof host['memoryUsedBytes'] === 'number' &&
+    typeof host['memoryTotalBytes'] === 'number'
+  );
+}
+
 /** RAM usage percent from a health payload, one-decimal precision. */
 export function ramPercent(health: HealthResponse): number {
   const { memoryUsedBytes, memoryTotalBytes } = health.host;
@@ -67,6 +86,18 @@ export class HealthService {
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /**
+   * Apply a server-pushed health report (the one state-carrying event,
+   * per D2). Same validation as a fetch: the payload must look like a
+   * `HealthResponse` or it is ignored — the socket never becomes a
+   * second source of truth.
+   */
+  applyPush(payload: Record<string, unknown> | undefined): void {
+    if (!isHealthResponse(payload)) return;
+    this.error.set(null);
+    this.health.set(payload);
   }
 
   setPollInterval(seconds: number): void {

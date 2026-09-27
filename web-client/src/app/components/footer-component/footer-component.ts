@@ -11,10 +11,12 @@ import {
 import { LucideMoon, LucideSun } from '@lucide/angular';
 
 import { HealthService, ramPercent } from '../../services/health.service';
+import { RealtimeService } from '../../services/realtime.service';
 import { ThemeService } from '../../services/theme.service';
 
-enum ServerStatus {
+export enum ServerStatus {
   ONLINE = 'Online',
+  DEGRADED = 'Degraded',
   OFFLINE = 'Offline',
 }
 
@@ -28,6 +30,7 @@ enum ServerStatus {
 export class FooterComponent implements OnInit, OnDestroy {
   private readonly themeService = inject(ThemeService);
   private readonly healthService = inject(HealthService);
+  private readonly realtime = inject(RealtimeService);
 
   private readonly now = signal(new Date());
   private readonly clockTimer = setInterval(() => {
@@ -71,19 +74,29 @@ export class FooterComponent implements OnInit, OnDestroy {
     return health === null ? 'n/a' : ramPercent(health);
   });
 
-  readonly serverStatus = computed(() =>
-    this.healthService.health()?.status === 'healthy' &&
-    this.healthService.error() === null
-      ? ServerStatus.ONLINE
-      : ServerStatus.OFFLINE,
-  );
+  readonly serverStatus = computed(() => {
+    const restOk =
+      this.healthService.health()?.status === 'healthy' &&
+      this.healthService.error() === null;
+    if (!restOk) {
+      return ServerStatus.OFFLINE;
+    }
+    // REST healthy + socket live ⇒ Online; REST healthy + socket down ⇒
+    // Degraded (polling fallback covers the gap, and says so).
+    return this.realtime.connected() ? ServerStatus.ONLINE : ServerStatus.DEGRADED;
+  });
 
-  readonly serverStatusClass = computed(() =>
-    // Badge-grade text colors: both pass 4.5:1 on either theme background.
-    this.serverStatus() === ServerStatus.OFFLINE
-      ? 'text-(--accent-red)'
-      : 'text-(--badge-sage-text)',
-  );
+  readonly serverStatusClass = computed(() => {
+    // Badge-grade text colors: all pass 4.5:1 on either theme background.
+    switch (this.serverStatus()) {
+      case ServerStatus.OFFLINE:
+        return 'text-(--accent-red)';
+      case ServerStatus.DEGRADED:
+        return 'text-(--badge-amber-text)';
+      case ServerStatus.ONLINE:
+        return 'text-(--badge-sage-text)';
+    }
+  });
 
   readonly healthTitle = computed(() => {
     const error = this.healthService.error();
@@ -114,8 +127,17 @@ export class FooterComponent implements OnInit, OnDestroy {
 
   private restartHealthPoll(intervalSeconds: number): void {
     clearInterval(this.healthTimer);
+    // Polling is the fallback path: while the socket is connected the
+    // server pushes health and zero periodic requests go out (DoD).
+    // Keep the timer armed regardless — when the socket drops, the next
+    // tick covers the gap within one interval (B6-tested).
     this.healthTimer = setInterval(() => {
-      void this.healthService.refresh();
+      if (!this.realtime.connected()) {
+        void this.healthService.refresh();
+      }
+      // Interval change while connected still re-subscribes so the
+      // server-side push cadence follows the slider (D4).
+      this.realtime.resubscribe();
     }, intervalSeconds * 1000);
   }
 }

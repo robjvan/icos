@@ -58,6 +58,10 @@ describe('FooterComponent', () => {
             refresh,
           },
         },
+        {
+          provide: (await import('../../services/realtime.service')).RealtimeService,
+          useValue: { connected: signal(true), resubscribe: vi.fn() },
+        },
       ],
     }).compileComponents();
 
@@ -94,6 +98,19 @@ describe('FooterComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Offline');
     expect(component.serverStatus()).toBe('Offline');
+  });
+
+  it('should show Degraded when REST is healthy but the socket is down', async () => {
+    const { RealtimeService } =
+      await import('../../services/realtime.service');
+    const realtime = TestBed.inject(RealtimeService) as unknown as {
+      connected: ReturnType<typeof signal<boolean>>;
+    };
+    realtime.connected.set(false);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Degraded');
+    expect(component.serverStatus()).toBe('Degraded');
   });
 
   it('should refresh health on init and clean up its timers on destroy', () => {

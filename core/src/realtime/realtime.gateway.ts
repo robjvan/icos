@@ -139,6 +139,42 @@ export class RealtimeGateway
     return count;
   }
 
+  /**
+   * Sockets wanting health pushes: any socket with a health interval
+   * (global room). Session-scoped sockets without one stay quiet —
+   * health fanout must not multiply collection by N clients.
+   */
+  healthSubscriberCount(): number {
+    let count = 0;
+    for (const sub of this.subscriptions.values()) {
+      if (sub.healthIntervalMs !== undefined) count++;
+    }
+    return count;
+  }
+
+  /** Per-socket health intervals (ms), for the push scheduler. */
+  healthIntervals(): number[] {
+    const out: number[] = [];
+    for (const sub of this.subscriptions.values()) {
+      if (sub.healthIntervalMs !== undefined) out.push(sub.healthIntervalMs);
+    }
+    return out;
+  }
+
+  /** Direct send to one socket (health push path). Best-effort. */
+  sendTo(socket: WebSocket, event: RealtimeEvent): void {
+    this.send(socket, event);
+  }
+
+  /** All sockets currently holding a health subscription. */
+  healthSockets(): WebSocket[] {
+    const out: WebSocket[] = [];
+    for (const [socket, sub] of this.subscriptions.entries()) {
+      if (sub.healthIntervalMs !== undefined) out.push(socket);
+    }
+    return out;
+  }
+
   private handleConnection(
     socket: WebSocket,
     request: {
