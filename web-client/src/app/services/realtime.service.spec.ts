@@ -27,7 +27,8 @@ describe('realtime-event', () => {
 class FakeSocket {
   static readonly OPEN = 1;
   static readonly CONNECTING = 0;
-  readonly readyState = FakeSocket.OPEN;
+  static readonly CLOSED = 3;
+  readyState = FakeSocket.OPEN;
   readonly sent: string[] = [];
   readonly listeners = new Map<string, ((event: { data?: string }) => void)[]>();
 
@@ -48,7 +49,8 @@ class FakeSocket {
   }
 
   close(): void {
-    // No-op for the harness.
+    this.readyState = FakeSocket.CLOSED;
+    for (const fn of this.listeners.get('close') ?? []) fn({});
   }
 
   emit(type: string, event: { data?: string }): void {
@@ -222,5 +224,54 @@ describe('RealtimeService', () => {
     expect(service.connected()).toBe(false);
     expect(service.lastEvent()).toBeNull();
     service.stop();
+  });
+
+  it('drops to polling on close and recovers on reconnect with resync', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket(HELLO);
+      current = socket;
+      const service = await setup();
+      const store = TestBed.inject(
+        (await import('./conversation-store')).ConversationStore,
+      ) as unknown as {
+        refreshSessions: ReturnType<typeof vi.fn>;
+      };
+      service.start();
+      socket.emitHello();
+      await Promise.resolve();
+      expect(service.connected()).toBe(true);
+      const resyncCalls = store.refreshSessions.mock.calls.length;
+
+      // Kill the socket mid-session: client degrades, chat keeps working
+      // (fallback polling covers the gap within one footer interval).
+      socket.close();
+      expect(service.connected()).toBe(false);
+      expect(service.transport()).toBe('polling');
+
+      // Backoff retry reconnects; hello resyncs (missed events covered
+      // without a replay log).
+      const socket2 = new FakeSocket(HELLO);
+      current = socket2;
+      await vi.runAllTimersAsync();
+      socket2.emitHello();
+      await Promise.resolve();
+      expect(service.connected()).toBe(true);
+      expect(store.refreshSessions.mock.calls.length).toBeGreaterThan(resyncCalls);
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('caps backoff at 30 s with jitter', async () => {
+    const { backoffDelayMs, REALTIME_BACKOFF_CAP_MS } = await import(
+      './realtime.service'
+    );
+    for (let attempt = 0; attempt < 20; attempt++) {
+      expect(backoffDelayMs(attempt)).toBeLessThanOrEqual(REALTIME_BACKOFF_CAP_MS);
+    }
+    // Late attempts saturate the cap (plus ≤1 s jitter).
+    expect(backoffDelayMs(10)).toBeGreaterThanOrEqual(REALTIME_BACKOFF_CAP_MS);
   });
 });

@@ -95,6 +95,94 @@ describe('RealtimeGateway', () => {
   it('exposes the shared events path', () => {
     expect(REALTIME_EVENTS_PATH).toBe('/core/events');
   });
+
+  it('routes session-scoped events only to subscribed sockets', () => {
+    const gateway = new RealtimeGateway(testConfig());
+    const internals = gateway as unknown as {
+      subscriptions: Map<object, { sessionId?: string }>;
+      broadcast(event: RealtimeEvent): void;
+    };
+    const sentA: string[] = [];
+    const sentB: string[] = [];
+    const socketA = {
+      readyState: 1,
+      OPEN: 1,
+      bufferedAmount: 0,
+      send: (frame: string) => sentA.push(frame),
+    };
+    const socketB = {
+      readyState: 1,
+      OPEN: 1,
+      bufferedAmount: 0,
+      send: (frame: string) => sentB.push(frame),
+    };
+    // Pre-attach: broadcast without a server goes nowhere, never throws.
+    gateway.publish(realtimeEvent('approval.created', {}, 's1'));
+    // Fake an attached server so broadcast runs.
+    (gateway as unknown as { server: object }).server = {};
+    internals.subscriptions.set(socketA, { sessionId: 's1' });
+    internals.subscriptions.set(socketB, {});
+    internals.broadcast.call(
+      gateway,
+      realtimeEvent('approval.created', { approvalId: 'a1' }, 's1'),
+    );
+    expect(sentA).toHaveLength(1);
+    expect(sentB).toHaveLength(0);
+    // session.updated is global: every socket gets it (sidebar refresh).
+    internals.broadcast.call(
+      gateway,
+      realtimeEvent('session.updated', {}, 's1'),
+    );
+    expect(sentA).toHaveLength(2);
+    expect(sentB).toHaveLength(1);
+    gateway.onModuleDestroy();
+  });
+
+  it('drops saturated consumers instead of buffering unbounded', () => {
+    const gateway = new RealtimeGateway(testConfig());
+    const internals = gateway as unknown as {
+      subscriptions: Map<object, { sessionId?: string }>;
+      broadcast(event: RealtimeEvent): void;
+    };
+    (gateway as unknown as { server: object }).server = {};
+    let slowSends = 0;
+    const slow = {
+      readyState: 1,
+      OPEN: 1,
+      bufferedAmount: 4 * 1024 * 1024,
+      send: () => slowSends++,
+    };
+    const fast: string[] = [];
+    const fastSocket = {
+      readyState: 1,
+      OPEN: 1,
+      bufferedAmount: 0,
+      send: (frame: string) => fast.push(frame),
+    };
+    internals.subscriptions.set(slow, {});
+    internals.subscriptions.set(fastSocket, {});
+    internals.broadcast.call(gateway, realtimeEvent('heartbeat', { at: 't' }));
+    expect(slowSends).toBe(0);
+    expect(fast).toHaveLength(1);
+    gateway.onModuleDestroy();
+  });
+
+  it('closes unknown client messages instead of acting on them (D3)', () => {
+    const gateway = new RealtimeGateway(testConfig());
+    const internals = gateway as unknown as {
+      handleClientMessage(
+        socket: { close: (code: number, reason: string) => void },
+        message: { type: string },
+      ): void;
+      subscriptions: Map<object, object>;
+    };
+    const closes: number[] = [];
+    const socket = { close: (code: number) => closes.push(code) };
+    internals.subscriptions.set(socket, {});
+    internals.handleClientMessage.call(gateway, socket, { type: 'approve' });
+    expect(closes).toEqual([1003]);
+    gateway.onModuleDestroy();
+  });
 });
 
 describe('RealtimePublisher boundary', () => {

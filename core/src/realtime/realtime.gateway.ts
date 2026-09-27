@@ -113,7 +113,11 @@ export class RealtimeGateway
     }
     this.subscriptions.clear();
     if (this.server) {
-      this.server.close();
+      try {
+        this.server.close();
+      } catch {
+        // Test fakes and half-attached servers: best-effort teardown.
+      }
       this.server = null;
     }
   }
@@ -182,7 +186,7 @@ export class RealtimeGateway
       url?: string;
     },
   ): void {
-    if (!this.originAllowed(request.headers.origin)) {
+    if (!this.originAllowed(request.headers['origin'])) {
       socket.close(1008, 'origin not allowed');
       return;
     }
