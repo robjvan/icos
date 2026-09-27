@@ -146,13 +146,15 @@ export class PromotionService implements OnModuleInit {
       detail: intent === 'NEW' ? '' : `intent:${intent}`,
     });
     // The approval.create already emitted approval.created; the journal
-    // row is the review-queue identity the client badges on.
+    // row is the review-queue identity the client badges on. Global fanout:
+    // the Review queue is global, never session-filtered, so every open
+    // client refreshes — room-filtering here would reintroduce the
+    // stale-approval bug for tabs on another session.
     this.realtime.publish(
-      realtimeEvent(
-        'promotion.proposed',
-        { journalId: entry.id, candidateId: entry.candidateId },
-        candidate.source.sessionId,
-      ),
+      realtimeEvent('promotion.proposed', {
+        journalId: entry.id,
+        candidateId: entry.candidateId,
+      }),
     );
     return entry;
   }

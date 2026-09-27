@@ -264,8 +264,16 @@ export class RealtimeGateway
     // refreshes its session list (cheap, idempotent). Room-filtered
     // delivery would require every client to track the active session
     // before any turn completes — the sidebar has no such concept.
+    // `promotion.*` + `claim.updated` are global for the same reason:
+    // the Review queue is global, never session-filtered. `approval.*`
+    // and `clarification.*` stay room-filtered (chat surface is per-session).
     const globalTypes = new Set([
       'session.updated',
+      'promotion.proposed',
+      'promotion.committed',
+      'promotion.denied',
+      'promotion.failed',
+      'claim.updated',
       'hello',
       'heartbeat',
       'health',

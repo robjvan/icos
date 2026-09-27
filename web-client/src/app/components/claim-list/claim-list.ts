@@ -3,8 +3,10 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { LucideSearch } from '@lucide/angular';
@@ -20,6 +22,10 @@ import { StatusBadge } from '../status-badge/status-badge';
  * partial. Detail shows evidence roles, the provenance pair
  * (firstAssertedAt vs lastSurfacedAt are candidate ids), and the two
  * confidence fields as distinct values.
+ *
+ * Live updates: `ClaimService.revision` bumps on every pushed
+ * claim/promotion event; an effect reloads the list (guarded past the
+ * initial revision so `ngOnInit` stays the single hydration path).
  */
 @Component({
   selector: 'app-claim-list',
@@ -30,6 +36,17 @@ import { StatusBadge } from '../status-badge/status-badge';
 })
 export class ClaimList implements OnInit {
   private readonly claimsApi = inject(ClaimService);
+
+  constructor() {
+    // Live Beliefs: reload on pushed claim/promotion events. The initial
+    // revision (0) is skipped — ngOnInit owns hydration — so this never
+    // double-fetches on open.
+    effect(() => {
+      const revision = this.claimsApi.revision();
+      if (revision === 0) return;
+      untracked(() => void this.load());
+    });
+  }
 
   readonly claims = signal<readonly Claim[]>([]);
   readonly error = signal<string | null>(null);

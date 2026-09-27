@@ -5,6 +5,8 @@ import type { RealtimeEvent } from '../models/realtime-event';
 import { HealthService } from './health.service';
 import { ConversationStore } from './conversation-store';
 import { MemoryReviewService } from './memory-review.service';
+import { ClaimService } from './claim.service';
+import { MemoryCandidateService } from './memory-candidate.service';
 
 export type RealtimeTransport = 'ws' | 'polling';
 
@@ -47,6 +49,8 @@ export class RealtimeService {
   private readonly health = inject(HealthService);
   private readonly store = inject(ConversationStore);
   private readonly review = inject(MemoryReviewService);
+  private readonly claims = inject(ClaimService);
+  private readonly ledger = inject(MemoryCandidateService);
 
   /** True after `hello`, false on close/error — drives footer fallback. */
   readonly connected = signal(false);
@@ -213,6 +217,12 @@ export class RealtimeService {
       case 'promotion.failed':
       case 'claim.updated':
         void this.review.refresh();
+        // Statement join + Beliefs lens follow the same push: the ledger
+        // refresh rebuilds the candidate map (queue shows the statement,
+        // not "evidence unavailable"), and the claims revision reloads
+        // Beliefs when visible (durable signal when not).
+        void this.ledger.refresh();
+        this.claims.notifyUpdated();
         return;
       case 'session.updated':
         void this.store.refreshSessions();
@@ -233,5 +243,7 @@ export class RealtimeService {
     await this.store.refreshApprovals();
     await this.store.refreshQuestions();
     await this.review.refresh();
+    await this.ledger.refresh();
+    this.claims.notifyUpdated();
   }
 }

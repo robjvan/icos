@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
 
@@ -44,6 +45,8 @@ describe('MemoryTab', () => {
             list: vi.fn().mockResolvedValue({ claims: [] }),
             search: vi.fn(),
             detail: vi.fn(),
+            revision: signal(0),
+            notifyUpdated: vi.fn(),
           },
         },
       ],

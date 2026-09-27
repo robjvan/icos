@@ -89,6 +89,38 @@ router, footer). Unnumbered platform plan (M13 taken by MCP). Commits on
 - Server restart: reconnect + resync, no durable event state (live).
 - Kill-switch: `REALTIME_ENABLED=false` → UI identical to today (live 404 + 200).
 
+## 6. Push-gap closure (2026-09-27, post-B7)
+
+Symptom: the Review badge updated live, but the queue/beliefs still depended
+on open/action polling — "fully fixed" meant no manual reload anywhere, zero
+periodic requests, badge + queue + beliefs all moving on events.
+
+Root cause: `promotion.proposed` was emitted room-scoped
+(`candidate.source.sessionId`) while the Review queue is global — tabs on
+another session never received it (gateway drops unsubscribed session events
+by design). Terminals were already global. Beliefs had no push seam at all
+(local component signals), and the statement join rebuilt only on manual load.
+
+Changes (all on `dev`, no push):
+
+- Core: `promotion.proposed` emits globally (no `sessionId`);
+  `promotion.*` + `claim.updated` added to the gateway global set
+  (defense in depth; `approval.*`/`clarification.*` stay room-filtered).
+  Spec: proposed event has no `sessionId` and carries journal/candidate ids.
+- Client: `ClaimService.revision` signal + `notifyUpdated()`; router calls it
+  plus `ledger.refresh()` on `promotion.*`/`claim.updated`; `ClaimList`
+  reloads via a guarded effect (revision 0 skipped, `ngOnInit` owns hydration);
+  `memory-review-queue` candidate map is now a computed over the ledger signal
+  (push rebuilds it — no stale "evidence unavailable"); resync covers
+  review + ledger + claims revision.
+- Verified: core **572 green**, client **155 green**, `tsc`+`eslint` clean both,
+  build **280.01 kB**, AXE review/beliefs × dark/light **4/4 clean**.
+- Live (real core + `ng serve`, harnesses removed): global-room socket sees
+  `promotion.proposed` with no session subscription (3/3 on one turn);
+  two-tab E2E 4/4 (turn in a third session → tab B queue updates, no reload;
+  zero periodic health GETs; footer Online); approve + sweep → Beliefs tab
+  updates with no reload.
+
 ## Definition of Done
 
 With the socket up, the client issues no periodic HTTP requests, and any

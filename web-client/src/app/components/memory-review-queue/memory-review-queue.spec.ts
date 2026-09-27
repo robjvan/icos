@@ -101,10 +101,15 @@ describe('MemoryReviewQueue', () => {
   });
 
   it('should disable approve when the candidate is missing from the ledger', () => {
-    component.candidateById.set(new Map());
     const missing = { ...ROW, candidateId: 'gone' };
     expect(component.canApprove(missing as never)).toBe(false);
     expect(component.statementFor(missing as never)).toBe('evidence unavailable');
+  });
+
+  it('should rebuild the statement join when the ledger pushes (computed map)', () => {
+    // The candidate map follows the ledger signal: a pushed ledger refresh
+    // makes the statement render without a manual reload.
+    expect(component.statementFor(ROW as never)).toBe('user prefers teal');
   });
 
   it('should approve through the service, never the conversation store', async () => {

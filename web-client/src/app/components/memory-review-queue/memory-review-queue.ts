@@ -25,6 +25,11 @@ import { StatusBadge } from '../status-badge/status-badge';
  * misses the ledger disable approve (core would fail them with
  * `missing_candidate` anyway, so offering the button would lie).
  * Focus returns to the triggering row's region after approve/reject.
+ *
+ * The candidate map is a computed over the ledger signal — pushed ledger
+ * refreshes (via `RealtimeService` on `promotion.*`) rebuild it
+ * automatically, so new rows render their statement, never a stale
+ * "evidence unavailable".
  */
 @Component({
   selector: 'app-memory-review-queue',
@@ -39,7 +44,13 @@ export class MemoryReviewQueue implements OnInit {
 
   private readonly queueRegion = viewChild<ElementRef<HTMLElement>>('queueRegion');
 
-  readonly candidateById = signal<ReadonlyMap<string, MemoryCandidate>>(new Map());
+  readonly candidateById = computed<ReadonlyMap<string, MemoryCandidate>>(() => {
+    const map = new Map<string, MemoryCandidate>();
+    for (const candidate of this.ledger.candidates()) {
+      map.set(candidate.id, candidate);
+    }
+    return map;
+  });
   readonly pendingFocusId = signal<string | null>(null);
 
   readonly openCount = computed(() => this.review.pendingCount());
@@ -52,7 +63,6 @@ export class MemoryReviewQueue implements OnInit {
   async load(): Promise<void> {
     await this.review.refresh();
     await this.ledger.refresh();
-    this.rebuildCandidateMap();
   }
 
   toggleResolved(show: boolean): void {
@@ -122,16 +132,7 @@ export class MemoryReviewQueue implements OnInit {
     void this.review.runPromotions();
   }
 
-  private rebuildCandidateMap(): void {
-    const map = new Map<string, MemoryCandidate>();
-    for (const candidate of this.ledger.candidates()) {
-      map.set(candidate.id, candidate);
-    }
-    this.candidateById.set(map);
-  }
-
   private restoreFocus(): void {
-    this.rebuildCandidateMap();
     const id = this.pendingFocusId();
     this.pendingFocusId.set(null);
     if (!id) {

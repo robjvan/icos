@@ -107,6 +107,14 @@ describe('RealtimeService', () => {
           provide: (await import('./memory-review.service')).MemoryReviewService,
           useValue: { refresh: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: (await import('./claim.service')).ClaimService,
+          useValue: { notifyUpdated: vi.fn() },
+        },
+        {
+          provide: (await import('./memory-candidate.service')).MemoryCandidateService,
+          useValue: { refresh: vi.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compileComponents();
     return TestBed.inject(RealtimeService);
@@ -187,9 +195,20 @@ describe('RealtimeService', () => {
     const review = TestBed.inject(
       (await import('./memory-review.service')).MemoryReviewService,
     ) as unknown as { refresh: ReturnType<typeof vi.fn> };
+    const claims = TestBed.inject(
+      (await import('./claim.service')).ClaimService,
+    ) as unknown as { notifyUpdated: ReturnType<typeof vi.fn> };
+    const ledger = TestBed.inject(
+      (await import('./memory-candidate.service')).MemoryCandidateService,
+    ) as unknown as { refresh: ReturnType<typeof vi.fn> };
     service.start();
     socket.emitHello();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    // hello's own resync already refreshed review/ledger once and bumped
+    // claims; clear to assert the routed events alone.
+    review.refresh.mockClear();
+    ledger.refresh.mockClear();
+    claims.notifyUpdated.mockClear();
     socket.emit('message', {
       data: JSON.stringify({ v: 1, type: 'approval.created', at: 't1' }),
     });
@@ -203,12 +222,15 @@ describe('RealtimeService', () => {
       data: JSON.stringify({ v: 1, type: 'claim.updated', at: 't4' }),
     });
     // Notify-never-state: handlers invoke the identical refresh functions
-    // the polling path uses — no domain logic in the router. (hello's own
-    // resync already refreshed review once; the three routed events add
-    // three more: approval.created, promotion.proposed, claim.updated.)
+    // the polling path uses — no domain logic in the router.
+    // approval.created → chat + review; promotion.proposed + claim.updated
+    // → review + ledger + claims revision (3 review calls from those three
+    // events: approval.created, promotion.proposed, claim.updated).
     expect(store.refreshApprovals).toHaveBeenCalled();
     expect(store.refreshQuestions).toHaveBeenCalled();
-    expect(review.refresh).toHaveBeenCalledTimes(4);
+    expect(review.refresh).toHaveBeenCalledTimes(3);
+    expect(ledger.refresh).toHaveBeenCalledTimes(2);
+    expect(claims.notifyUpdated).toHaveBeenCalledTimes(2);
     service.stop();
   });
 

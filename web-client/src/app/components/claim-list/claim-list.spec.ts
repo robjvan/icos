@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { vi } from 'vitest';
 
 import { ClaimList } from './claim-list';
@@ -28,6 +29,8 @@ describe('ClaimList', () => {
     list: ReturnType<typeof vi.fn>;
     search: ReturnType<typeof vi.fn>;
     detail: ReturnType<typeof vi.fn>;
+    revision: ReturnType<typeof signal<number>>;
+    notifyUpdated: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -35,6 +38,8 @@ describe('ClaimList', () => {
       list: vi.fn().mockResolvedValue({ claims: [CLAIM] }),
       search: vi.fn().mockResolvedValue({ results: [], degraded: false }),
       detail: vi.fn().mockResolvedValue({ claim: CLAIM, evidence: [], history: [] }),
+      revision: signal(0),
+      notifyUpdated: vi.fn(),
     };
 
     await TestBed.configureTestingModule({
@@ -82,5 +87,13 @@ describe('ClaimList', () => {
     await component.openClaim('claim-1');
     expect(component.selected()?.id).toBe('claim-1');
     expect(claimsApi.detail).toHaveBeenCalledWith('claim-1');
+  });
+
+  it('should reload the list when a push bumps the revision', async () => {
+    const calls = claimsApi.list.mock.calls.length;
+    claimsApi.revision.set(1);
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(claimsApi.list.mock.calls.length).toBeGreaterThan(calls);
   });
 });

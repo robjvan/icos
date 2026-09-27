@@ -13,6 +13,7 @@ import { SqliteClaimRepository } from './sqlite-claim.repository';
 import { SqlitePromotionJournalRepository } from './sqlite-promotion-journal.repository';
 import { PromotionService } from './promotion.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
+import type { RealtimeEvent } from '../realtime/realtime-event';
 
 function testConfig(
   memoryDbPath: string,
@@ -460,5 +461,42 @@ describe('PromotionService', () => {
     expect(committed.total).toBe(1);
     expect(committed.promotions[0]?.approvalStatus).toBeNull();
     rmSync(autoDir, { recursive: true, force: true });
+  });
+
+  it('emits promotion.proposed globally (no session room) so every tab refreshes', async () => {
+    const s = setup();
+    const seen: RealtimeEvent[] = [];
+    const probe = new (class extends NoopPublisher {
+      override publish(event: RealtimeEvent): void {
+        seen.push(event);
+      }
+    })();
+    const probing = new PromotionService(
+      testConfig(join(dir, 'memories.sqlite'), dir),
+      s.candidates,
+      s.claims,
+      s.journal,
+      {
+        create: (input: {
+          sessionId: string;
+          action: string;
+          description?: string;
+        }) => s.approvals.createApproval(input),
+      } as unknown as ApprovalService,
+      s.approvals,
+      {
+        indexClaim: jest.fn(() => Promise.resolve()),
+        searchSimilar: jest.fn(() => Promise.resolve([])),
+        status: jest.fn(() => Promise.resolve({ enabled: false })),
+      },
+      probe,
+    );
+    const [saved] = await save(s, [candidate('s1')]);
+    await probing.proposeCandidates([saved]);
+    const proposed = seen.find((e) => e.type === 'promotion.proposed');
+    expect(proposed).toBeDefined();
+    // Global fanout: no sessionId, so the gateway delivers to every socket.
+    expect(proposed?.sessionId).toBeUndefined();
+    expect(proposed?.payload?.['journalId']).toBeDefined();
   });
 });
