@@ -71,18 +71,45 @@ approval → server holds it → review renders with Run control → beliefs sho
 live claims with filters+search → nav deep-links `?view=review` → 390px no
 overflow. **8/8 pass.**
 
-Live transcript (real turn + real promotion path, seeded approval since the
-memory extractor LLM was unreachable in this environment):
-candidate → proposal → approve → `POST /core/promotions/run` →
-`{new:5,...}` → `GET /core/claims` shows 5 `active` claims with evidence +
-`NEW:committed` history. Reject path: `denied` row visible only under
-`?state=denied`, second sweep `denied:0` (never retries). Approve→run→refresh
-call order asserted in unit tests.
+Live transcript (real turn → extraction → proposal → approve → run → beliefs,
+2026-09-26, core `nest start` with `MEMORY_LLM_BASE_URL=http://localhost:11434/v1`
+override — the checked-in `host.docker.internal` value does not resolve on
+bare-metal macOS, only inside compose; compose path unaffected):
 
-Caveat: the fire-and-forget extraction→proposal leg was NOT exercised live
-(memory extractor points at an unreachable Ollama in this env); it is covered
-by the pre-existing e2e (`promotes a candidate to a belief on approval plus
-sweep`, still green in the 558).
+- Turn: `POST /core/conversation` "I prefer teal notebooks for sketching"
+  → session `3e7d30a8` → extraction (gemma4-e4b-unc via local Ollama) saved
+  2 candidates (`user prefers teal_notebooks`, `user prefers_for_hobby
+  teal_notebooks_for_sketching`, both `role=user`).
+- Proposal (fire-and-forget): journal row `5b50dec6` `NEW/proposed`,
+  approval `93601c94` `pending` — visible on next `GET /core/promotions` poll
+  with no reload (the stale-approval bug this phase fixes).
+- Review (`GET /core/promotions?state=proposed,promoting`): row renders
+  `PENDING` with statement join; approve → lazy `GET /core/approvals/:id` for
+  the owning session → `POST .../approve {sessionId}` → `approved` →
+  `POST /core/promotions/run` → `{new:1,skipped:3}` → review refresh shows
+  the row `committed`.
+- Beliefs: `GET /core/claims/:id` → `person:Isabel strongly_prefers
+  obsidian_vaults_for_notes`, `status=active`, `origin=user`,
+  `confidence=1` + `extractorConfidence=1` as distinct fields, 1 evidence row
+  (`role=user`), history `NEW:committed`.
+- Reject path (second row, same session): reject → sweep `{denied:1}` →
+  `?state=denied` shows the row with `approvalStatus=rejected` (the red
+  REJECTED state — only visible via "Show resolved"); open queue no longer
+  lists it; second sweep `denied:0` (never retries).
+- Claims census after the run: 6 `active`, 0 `contradicted` (no CONTRADICT leg
+  exercised live; convergence is unit-covered in `promotion.service.spec.ts`).
+
+Env note: two earlier runs with the checked-in core/.env failed at extraction
+(`[ollama] LLM endpoint unreachable` — `host.docker.internal` unresolvable
+outside Docker). This is pre-existing config posture, not a Phase 4 bug; the
+evidence run overrode `MEMORY_LLM_BASE_URL` on the command line and changed
+no files.
+
+Caveat: an earlier live transcript in this file's history (5 seeded approvals
+swept at once) pre-dates the extractor run; the transcript above supersedes it
+for the extraction→proposal leg. Approve→run→refresh call order also asserted
+in unit tests; the full turn→proposal path is covered by the pre-existing e2e
+(`promotes a candidate to a belief on approval plus sweep`, green in the 558).
 
 ## 6. Failure semantics verified
 
