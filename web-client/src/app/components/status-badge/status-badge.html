@@ -1,0 +1,29 @@
+<span class="status-badge" [class]="toneClass()">
+  @switch (icon()) {
+    @case ('clock') {
+      <svg lucideClock [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('play') {
+      <svg lucidePlay [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('check') {
+      <svg lucideCheck [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('zap') {
+      <svg lucideZap [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('x') {
+      <svg lucideX [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('alert') {
+      <svg lucideAlertTriangle [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('dashed') {
+      <svg lucideCircleDashed [size]="12" aria-hidden="true"></svg>
+    }
+    @case ('minus') {
+      <svg lucideMinusCircle [size]="12" aria-hidden="true"></svg>
+    }
+  }
+  {{ label() }}
+</span>

@@ -1,7 +1,11 @@
-import { Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { JOURNAL_STATES } from '../memory/promotion';
+import type { JournalState } from '../memory/promotion';
 import { PromotionService } from '../memory/promotion.service';
 import {
   ListPendingPromotionsResponseDto,
+  ListPromotionsQueryDto,
+  ListPromotionsResponseDto,
   RunPromotionsResponseDto,
 } from './dto/promotions.dto';
 
@@ -24,5 +28,24 @@ export class PromotionsController {
   @Get('pending')
   async pending(): Promise<ListPendingPromotionsResponseDto> {
     return { pending: await this.promotion.listPending() };
+  }
+
+  /**
+   * Full journal listing, including terminal rows. Additive alongside
+   * `/pending` (which stays byte-identical for existing consumers):
+   * `?state=` filters (repeatable or CSV, default all states),
+   * `?limit=` bounds the page (default 50, max 200). Rows are in
+   * journal order; `total` is the pre-limit count.
+   */
+  @Get()
+  async list(
+    @Query() query: ListPromotionsQueryDto,
+  ): Promise<ListPromotionsResponseDto> {
+    const states: JournalState[] = query.state ?? [...JOURNAL_STATES];
+    const { promotions, total } = await this.promotion.listByStates(
+      states,
+      query.limit ?? 50,
+    );
+    return { promotions, total };
   }
 }

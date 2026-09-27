@@ -4,6 +4,7 @@
     @for (tab of tabs; track tab.path) {
       <a
         [routerLink]="tab.path"
+        [queryParams]="tab.path === 'memory' ? { view: 'review' } : null"
         routerLinkActive="active"
         [routerLinkActiveOptions]="{ exact: tab.exact }"
         class="tab-link"
@@ -62,6 +63,11 @@
           }
         }
         {{ tab.label }}
+        @if (tab.path === 'memory' && pendingReviews() > 0) {
+          <span class="nav-badge" [attr.aria-label]="'Memory review, ' + pendingReviews() + ' pending'">{{
+            pendingReviews()
+          }}</span>
+        }
       </a>
     }
   </div>

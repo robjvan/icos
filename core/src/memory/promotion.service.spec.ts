@@ -367,4 +367,91 @@ describe('PromotionService', () => {
     const [saved] = await save(s, [candidate('s1')]);
     await expect(promotion.proposeCandidates([saved])).resolves.toHaveLength(0);
   });
+
+  it('lists journal rows by state with approval status and pre-limit total', async () => {
+    const s = setup();
+    const [saved] = await save(s, [candidate('s1')]);
+    const [entry] = await s.promotion.proposeCandidates([saved]);
+
+    const open = await s.promotion.listByStates(['proposed', 'promoting'], 200);
+    expect(open.total).toBe(1);
+    expect(open.promotions).toHaveLength(1);
+    expect(open.promotions[0]).toMatchObject({
+      id: entry?.id,
+      approvalStatus: 'pending',
+    });
+
+    // Terminal rows are invisible to listPending but listed here.
+    await s.approvals.resolveApproval(entry.approvalId!, 'rejected');
+    await s.promotion.sweep();
+    expect(await s.promotion.listPending()).toHaveLength(0);
+
+    const denied = await s.promotion.listByStates(['denied'], 200);
+    expect(denied.total).toBe(1);
+    expect(denied.promotions[0]).toMatchObject({
+      id: entry?.id,
+      state: 'denied',
+      approvalStatus: 'rejected',
+    });
+
+    const page = await s.promotion.listByStates(
+      ['proposed', 'promoting', 'committed', 'denied', 'failed'],
+      1,
+    );
+    expect(page.total).toBe(1);
+    expect(page.promotions).toHaveLength(1);
+
+    // Auto-promoted rows carry a null approval status (own database:
+    // the s1 session row already exists in this fixture's session db).
+    const autoDir = mkdtempSync(join(tmpdir(), 'icos-promo-auto-'));
+    const autoConfig = testConfig(join(autoDir, 'memories.sqlite'), autoDir, {
+      memoryPromotionAuto: true,
+      memoryPromotionAutoKinds: ['fact'],
+    });
+    const autoService = new MemoryDatabaseService(autoConfig);
+    autoService.onModuleInit();
+    services.push(autoService);
+    const autoSessionService = new SessionDatabaseService(autoConfig);
+    autoSessionService.onModuleInit();
+    services.push(autoSessionService);
+    autoSessionService.connection
+      .prepare(
+        'INSERT INTO sessions (id, created_at, updated_at) VALUES (?, ?, ?)',
+      )
+      .run('s1', 't', 't');
+    const approvalService = {
+      create: (input: {
+        sessionId: string;
+        action: string;
+        description?: string;
+      }) => s.approvals.createApproval(input),
+    } as unknown as ApprovalService;
+    const autoPromotion = new PromotionService(
+      autoConfig,
+      new SqliteMemoryCandidateRepository(autoService),
+      new SqliteClaimRepository(autoService),
+      new SqlitePromotionJournalRepository(autoService),
+      approvalService,
+      new SqliteApprovalRepository(autoSessionService),
+      {
+        indexClaim: jest.fn(() => Promise.resolve()),
+        searchSimilar: jest.fn(() => Promise.resolve([])),
+        status: jest.fn(() => Promise.resolve({ enabled: false })),
+      },
+    );
+    const [autoSaved] = await new SqliteMemoryCandidateRepository(
+      autoService,
+    ).saveCandidates([
+      candidate('s1', 'teal', {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+      }),
+    ]);
+    await autoPromotion.proposeCandidates([autoSaved]);
+    const committed = await autoPromotion.listByStates(['committed'], 200);
+    expect(committed.total).toBe(1);
+    expect(committed.promotions[0]?.approvalStatus).toBeNull();
+    rmSync(autoDir, { recursive: true, force: true });
+  });
 });

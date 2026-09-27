@@ -392,8 +392,29 @@ export class PromotionService implements OnModuleInit {
   async listPending(): Promise<
     (PromotionJournalEntry & { approvalStatus: string | null })[]
   > {
-    const rows = await this.journal.listByState(['proposed', 'promoting']);
-    const pending: (PromotionJournalEntry & {
+    const { promotions } = await this.listByStates(
+      ['proposed', 'promoting'],
+      200,
+    );
+    return promotions;
+  }
+
+  /**
+   * Journal rows in the requested states (default: all), in the
+   * repository's rowid order, bounded by the limit. Each row carries
+   * its approval state; auto-promoted rows (no approval) report null.
+   * Returns the total before the limit so a bounded queue can badge
+   * honestly instead of implying completeness.
+   */
+  async listByStates(
+    states: JournalState[],
+    limit: number,
+  ): Promise<{
+    promotions: (PromotionJournalEntry & { approvalStatus: string | null })[];
+    total: number;
+  }> {
+    const rows = await this.journal.listByState(states);
+    const withStatus: (PromotionJournalEntry & {
       approvalStatus: string | null;
     })[] = [];
     for (const row of rows) {
@@ -402,8 +423,8 @@ export class PromotionService implements OnModuleInit {
         const approval = await this.approvals.getApproval(row.approvalId);
         approvalStatus = approval ? approval.status : 'missing';
       }
-      pending.push({ ...row, approvalStatus });
+      withStatus.push({ ...row, approvalStatus });
     }
-    return pending;
+    return { promotions: withStatus.slice(0, limit), total: withStatus.length };
   }
 }

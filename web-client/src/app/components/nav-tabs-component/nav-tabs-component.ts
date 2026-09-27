@@ -30,6 +30,7 @@ import {
 } from '@lucide/angular';
 
 import { ThemeService } from '../../services/theme.service';
+import { MemoryReviewService } from '../../services/memory-review.service';
 import { AboutModal } from '../about-modal/about-modal';
 
 export type NavTabIcon =
@@ -110,6 +111,7 @@ const ALL_TABS: readonly NavTab[] = [
 })
 export class NavTabsComponent {
   private readonly themeService = inject(ThemeService);
+  private readonly review = inject(MemoryReviewService);
 
   private readonly aboutTrigger = viewChild<ElementRef<HTMLButtonElement>>('aboutTrigger');
   private readonly aboutClose = viewChild<ElementRef<HTMLButtonElement>>('aboutClose');
@@ -120,6 +122,8 @@ export class NavTabsComponent {
   readonly themeLabel = computed(() =>
     this.theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
   );
+  /** Pending-review count for the Memory badge; the badge is not the only signal. */
+  readonly pendingReviews = computed(() => this.review.pendingCount());
 
   toggleTheme(): void {
     this.themeService.toggle();

@@ -26,6 +26,7 @@
   --accent-amber-dark: #b8862e;
   --accent-red: #e07a72;
   --accent-red-deep: #af231c;
+  --badge-red-text: #e07a72;
   --bg-input: #111;
   --bg-user-bubble: #315b52;
   --bg-assistant-bubble: #292929;
@@ -55,6 +56,7 @@
   --accent-amber-dark: #b8862e;
   --accent-red: #af231c;
   --accent-red-deep: #af231c;
+  --badge-red-text: #af231c;
   --bg-input: #fff;
   --bg-user-bubble: #45685c;
   --bg-assistant-bubble: #fff;

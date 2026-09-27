@@ -1,8 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
 
 import { MemoryTab } from './memory-tab';
 import { MemoryCandidateService } from '../../services/memory-candidate.service';
+import { MemoryReviewService } from '../../services/memory-review.service';
+import { ClaimService } from '../../services/claim.service';
 
 describe('MemoryTab', () => {
   let component: MemoryTab;
@@ -12,9 +15,36 @@ describe('MemoryTab', () => {
     await TestBed.configureTestingModule({
       imports: [MemoryTab],
       providers: [
+        provideRouter([]),
         {
           provide: MemoryCandidateService,
           useValue: { candidates: () => [], error: () => null, refresh: vi.fn() },
+        },
+        {
+          provide: MemoryReviewService,
+          useValue: {
+            items: () => [],
+            total: () => 0,
+            showResolved: () => false,
+            busyId: () => null,
+            runningSweep: () => false,
+            error: () => null,
+            lastSummary: () => null,
+            pendingCount: () => 0,
+            refresh: vi.fn(),
+            approve: vi.fn(),
+            reject: vi.fn(),
+            runPromotions: vi.fn(),
+            setShowResolved: vi.fn(),
+          },
+        },
+        {
+          provide: ClaimService,
+          useValue: {
+            list: vi.fn().mockResolvedValue({ claims: [] }),
+            search: vi.fn(),
+            detail: vi.fn(),
+          },
         },
       ],
     }).compileComponents();
@@ -41,5 +71,13 @@ describe('MemoryTab', () => {
     component.clearFilter();
     expect(component.filterForm.controls.sessionId.value).toBe('');
     expect(ledger.refresh).toHaveBeenCalledWith();
+  });
+
+  it('should default to beliefs when nothing is pending', () => {
+    expect(component.view()).toBe('beliefs');
+  });
+
+  it('should expose the three segments', () => {
+    expect(component.views).toEqual(['review', 'beliefs', 'ledger']);
   });
 });
