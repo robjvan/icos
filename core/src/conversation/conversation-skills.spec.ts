@@ -64,6 +64,9 @@ function testConfig(
     agentMaxIterations: MAX_ITERATIONS,
     agentMaxToolSteps: MAX_TOOL_STEPS,
     agentMaxTurnDurationMs: MAX_TURN_DURATION_MS,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
     ...overrides,
   };
 }

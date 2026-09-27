@@ -61,6 +61,19 @@ export interface CoreConfig {
   agentMaxToolSteps: number;
   /** Backstop turn duration in ms (M9g execution budget). */
   agentMaxTurnDurationMs: number;
+  /**
+   * Realtime transport kill-switch. true (default) = attach `/core/events`
+   * and deliver notifications; false = noop publisher, no socket, clients
+   * fall back to polling. A transport fault must never take the UI down.
+   */
+  realtimeEnabled: boolean;
+  /** Server heartbeat cadence in ms for socket liveness frames. */
+  realtimeHeartbeatMs: number;
+  /**
+   * Socket origin allowlist. Default `*` in dev with the same posture as
+   * the permissive CORS TODO in main.ts — restrict when frontends land.
+   */
+  realtimeAllowedOrigins: string[];
 }
 
 function parsePositiveInt(
@@ -175,6 +188,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       15 * 60 * 1000,
       'AGENT_MAX_TURN_DURATION_MS',
     ),
+    realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
+    realtimeHeartbeatMs: parsePositiveInt(
+      env.REALTIME_HEARTBEAT_MS,
+      30_000,
+      'REALTIME_HEARTBEAT_MS',
+    ),
+    realtimeAllowedOrigins: parseOriginList(env.REALTIME_ALLOWED_ORIGINS),
   };
 }
 
@@ -198,6 +218,23 @@ function parseKindList(raw: string | undefined): string[] {
     }
   }
   return [...new Set(kinds)];
+}
+
+/**
+ * Comma-separated origin allowlist, e.g. "http://localhost:4200". Empty
+ * or unset means `*` (dev default, same posture as the permissive CORS
+ * TODO — restrict when real frontends land).
+ */
+function parseOriginList(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return ['*'];
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part !== ''),
+    ),
+  ];
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

@@ -16,3 +16,6 @@
 
 # Opencode session transcripts
 session-*.md
+
+# Deepwork session state (orchestrator scratch, never committed)
+.slim/deepwork/

@@ -37,6 +37,9 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
     ...overrides,
   };
 }

@@ -20,6 +20,9 @@ describe('loadConfig', () => {
       agentMaxIterations: 5,
       agentMaxToolSteps: 5,
       agentMaxTurnDurationMs: 900000,
+      realtimeEnabled: true,
+      realtimeHeartbeatMs: 30000,
+      realtimeAllowedOrigins: ['*'],
     });
     expect(config.llmApiKey).toBeUndefined();
   });
@@ -187,5 +190,31 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ LLM_MODEL: 'm', MEMORY_PROMOTION_AUTO_KINDS: 'vibe' }),
     ).toThrow(/MEMORY_PROMOTION_AUTO_KINDS/);
+  });
+
+  it('defaults realtime on with the dev-open origin posture', () => {
+    const config = loadConfig({ LLM_MODEL: 'm' });
+    expect(config.realtimeEnabled).toBe(true);
+    expect(config.realtimeHeartbeatMs).toBe(30000);
+    expect(config.realtimeAllowedOrigins).toEqual(['*']);
+
+    const off = loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'false' });
+    expect(off.realtimeEnabled).toBe(false);
+
+    const scoped = loadConfig({
+      LLM_MODEL: 'm',
+      REALTIME_ALLOWED_ORIGINS: 'http://localhost:4200, http://host:4200',
+    });
+    expect(scoped.realtimeAllowedOrigins).toEqual([
+      'http://localhost:4200',
+      'http://host:4200',
+    ]);
+
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', REALTIME_HEARTBEAT_MS: '0' }),
+    ).toThrow(/REALTIME_HEARTBEAT_MS/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'maybe' }),
+    ).toThrow(/Expected a boolean/);
   });
 });

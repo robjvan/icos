@@ -35,6 +35,9 @@ function makeStore(maxHistory = 50): {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
   const repository = new FakeSessionRepository();
   return { store: new SessionStore(repository, config), repository };
