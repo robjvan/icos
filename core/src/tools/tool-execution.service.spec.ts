@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { ApprovalService } from '../approvals/approval.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 import { SqliteApprovalRepository } from '../approvals/sqlite-approval.repository';
 import type { CoreConfig } from '../config';
 import { SessionStore } from '../conversation/session.store';
@@ -59,7 +60,11 @@ describe('ToolExecutionService SQLite', () => {
     const ledger = new ToolExecutionRepository(database);
     const registry = new ToolRegistry();
     const approvals = new SqliteApprovalRepository(database);
-    const approvalService = new ApprovalService(approvals, sessions);
+    const approvalService = new ApprovalService(
+      approvals,
+      sessions,
+      new NoopPublisher(),
+    );
     const service = new ToolExecutionService(
       ledger,
       store,

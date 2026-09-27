@@ -101,6 +101,10 @@ describe('RealtimeService', () => {
             refreshQuestions: vi.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: (await import('./memory-review.service')).MemoryReviewService,
+          useValue: { refresh: vi.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compileComponents();
     return TestBed.inject(RealtimeService);
@@ -165,6 +169,44 @@ describe('RealtimeService', () => {
       }),
     });
     expect(service.lastEvent()?.type).toBe('health');
+    service.stop();
+  });
+
+  it('routes approval and promotion events into existing refreshes', async () => {
+    const socket = new FakeSocket(HELLO);
+    current = socket;
+    const service = await setup();
+    const store = TestBed.inject(
+      (await import('./conversation-store')).ConversationStore,
+    ) as unknown as {
+      refreshApprovals: ReturnType<typeof vi.fn>;
+      refreshQuestions: ReturnType<typeof vi.fn>;
+    };
+    const review = TestBed.inject(
+      (await import('./memory-review.service')).MemoryReviewService,
+    ) as unknown as { refresh: ReturnType<typeof vi.fn> };
+    service.start();
+    socket.emitHello();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket.emit('message', {
+      data: JSON.stringify({ v: 1, type: 'approval.created', at: 't1' }),
+    });
+    socket.emit('message', {
+      data: JSON.stringify({ v: 1, type: 'clarification.resolved', at: 't2' }),
+    });
+    socket.emit('message', {
+      data: JSON.stringify({ v: 1, type: 'promotion.proposed', at: 't3' }),
+    });
+    socket.emit('message', {
+      data: JSON.stringify({ v: 1, type: 'claim.updated', at: 't4' }),
+    });
+    // Notify-never-state: handlers invoke the identical refresh functions
+    // the polling path uses — no domain logic in the router. (hello's own
+    // resync already refreshed review once; the three routed events add
+    // three more: approval.created, promotion.proposed, claim.updated.)
+    expect(store.refreshApprovals).toHaveBeenCalled();
+    expect(store.refreshQuestions).toHaveBeenCalled();
+    expect(review.refresh).toHaveBeenCalledTimes(4);
     service.stop();
   });
 

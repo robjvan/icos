@@ -4,6 +4,7 @@ import { clampHealthIntervalMs, isRealtimeEvent, REALTIME_EVENTS_PATH } from '..
 import type { RealtimeEvent } from '../models/realtime-event';
 import { HealthService } from './health.service';
 import { ConversationStore } from './conversation-store';
+import { MemoryReviewService } from './memory-review.service';
 
 export type RealtimeTransport = 'ws' | 'polling';
 
@@ -32,6 +33,12 @@ function eventsUrl(): string {
  * a second implementation). Emits the latest event for tests; domain
  * routing lives in `realtime-router.ts`.
  *
+ * ROOM CONTRACT: session-scoped events reach only sockets subscribed to
+ * that session. Call `trackSession()` whenever the open session changes
+ * (and after `hello`, which carries no session yet) — otherwise
+ * session-scoped events are silently filtered server-side and only D5
+ * resync covers them.
+ *
  * Degradation (non-negotiable): socket down ⇒ `connected` false ⇒ the
  * footer polling restarts and the product behaves exactly as today.
  */
@@ -39,6 +46,7 @@ function eventsUrl(): string {
 export class RealtimeService {
   private readonly health = inject(HealthService);
   private readonly store = inject(ConversationStore);
+  private readonly review = inject(MemoryReviewService);
 
   /** True after `hello`, false on close/error — drives footer fallback. */
   readonly connected = signal(false);
@@ -50,6 +58,8 @@ export class RealtimeService {
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
+  /** Latest session known to the UI; sent on every (re)subscribe. */
+  private trackedSessionId: string | null = null;
   private onOnline = (): void => this.reconnect();
   private onVisible = (): void => {
     if (document.visibilityState === 'visible') this.reconnect();
@@ -128,10 +138,15 @@ export class RealtimeService {
     const healthIntervalMs = clampHealthIntervalMs(
       this.health.pollIntervalSeconds() * 1000,
     );
+    // Prefer the explicitly tracked session (set by chat-ui on every
+    // session change); fall back to the store's signal for paths that
+    // bypass the component (stream `meta` assigns the id mid-turn —
+    // the next resubscribe after the turn picks it up).
+    const sessionId = this.trackedSessionId ?? this.store.sessionId();
     socket.send(
       JSON.stringify({
         type: 'subscribe',
-        ...(this.store.sessionId() !== null ? { sessionId: this.store.sessionId() } : {}),
+        ...(sessionId !== null ? { sessionId } : {}),
         healthIntervalMs,
       }),
     );
@@ -142,6 +157,16 @@ export class RealtimeService {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.sendSubscribe(this.socket);
     }
+  }
+
+  /**
+   * Track the open session for room filtering. Call after `openSession`,
+   * `newSession`, `sendMessage` (first turn assigns the id via `meta`),
+   * and on `hello` (which resubscribes with whatever is current).
+   */
+  trackSession(sessionId: string | null): void {
+    this.trackedSessionId = sessionId;
+    this.resubscribe();
   }
 
   private handleFrame(data: string | null): void {
@@ -174,6 +199,9 @@ export class RealtimeService {
       case 'approval.created':
       case 'approval.resolved':
         void this.store.refreshApprovals();
+        // Promotion approvals surface in Review, not chat — refresh the
+        // global queue too (same call as the manual refresh path).
+        void this.review.refresh();
         return;
       case 'clarification.created':
       case 'clarification.resolved':
@@ -184,8 +212,7 @@ export class RealtimeService {
       case 'promotion.denied':
       case 'promotion.failed':
       case 'claim.updated':
-        // MemoryReviewService seam is wired in B4; until then the resync
-        // path covers these. Deliberately no-op here, not dropped silently.
+        void this.review.refresh();
         return;
       case 'session.updated':
         void this.store.refreshSessions();
@@ -205,5 +232,6 @@ export class RealtimeService {
     await this.store.refreshSessions();
     await this.store.refreshApprovals();
     await this.store.refreshQuestions();
+    await this.review.refresh();
   }
 }

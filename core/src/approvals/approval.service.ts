@@ -15,6 +15,8 @@ import type {
   ApprovalRequest,
   ApprovalStatus,
 } from './approval.repository';
+import { realtimeEvent } from '../realtime/realtime-event';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 export interface ApprovalDetail extends ApprovalRequest {
   events: ApprovalEvent[];
@@ -31,6 +33,7 @@ export class ApprovalService {
   constructor(
     private readonly approvals: ApprovalRepository,
     private readonly sessions: SessionRepository,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async create(input: {
@@ -43,7 +46,7 @@ export class ApprovalService {
     if (!session) {
       throw new NotFoundException(`Unknown session "${input.sessionId}"`);
     }
-    return this.approvals.createApproval({
+    const request = await this.approvals.createApproval({
       sessionId: input.sessionId,
       action: input.action.trim(),
       ...(input.description !== undefined
@@ -53,6 +56,15 @@ export class ApprovalService {
         ? { expiresAt: new Date(Date.now() + input.ttlMs).toISOString() }
         : {}),
     });
+    // Notify, never state: handlers re-read through REST. Never throws.
+    this.realtime.publish(
+      realtimeEvent(
+        'approval.created',
+        { approvalId: request.id, action: request.action },
+        request.sessionId,
+      ),
+    );
+    return request;
   }
 
   async get(id: string): Promise<ApprovalDetail> {
@@ -93,7 +105,15 @@ export class ApprovalService {
       );
     }
     try {
-      return await this.approvals.resolveApproval(id, to);
+      const resolved = await this.approvals.resolveApproval(id, to);
+      this.realtime.publish(
+        realtimeEvent(
+          'approval.resolved',
+          { approvalId: resolved.id, status: resolved.status },
+          resolved.sessionId,
+        ),
+      );
+      return resolved;
     } catch (err) {
       if (err instanceof ApprovalNotFoundError) {
         throw new NotFoundException(err.message);

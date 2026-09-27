@@ -3,6 +3,7 @@ import { coreConfigProvider } from '../config';
 import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
 import { ClarificationsController } from '../clarifications/clarifications.controller';
@@ -75,6 +76,7 @@ const toolExecutionServiceProvider = {
 };
 
 @Module({
+  imports: [RealtimeModule],
   controllers: [
     ConversationController,
     SessionsController,

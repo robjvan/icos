@@ -10,7 +10,22 @@ import type { CoreConfig } from '../config';
 import { SessionDatabaseService } from '../session/session-database.service';
 import { SqliteSessionRepository } from '../session/sqlite-session.repository';
 import { ClarificationService } from './clarification.service';
+import type { ClarificationRepository } from './clarification.repository';
+import { NoopPublisher } from '../realtime/noop.publisher';
+import type { RealtimeEvent } from '../realtime/realtime-event';
+import type { SessionRepository } from '../session/session.repository';
 import { SqliteClarificationRepository } from './sqlite-clarification.repository';
+
+/** Test publisher: records event types, delivers nothing. */
+class RecordingPublisher extends NoopPublisher {
+  constructor(private readonly seen: string[]) {
+    super();
+  }
+
+  override publish(event: RealtimeEvent): void {
+    this.seen.push(event.type);
+  }
+}
 
 function testConfig(sessionDbPath: string, dir: string): CoreConfig {
   return {
@@ -61,7 +76,11 @@ describe('ClarificationService', () => {
     );
     return {
       sessions,
-      service: new ClarificationService(clarifications, sessions),
+      service: new ClarificationService(
+        clarifications,
+        sessions,
+        new NoopPublisher(),
+      ),
     };
   };
 
@@ -152,5 +171,23 @@ describe('ClarificationService', () => {
 
     const detail = await service.get(created.id);
     expect(detail.events.map((e) => e.event)).toEqual(['created', 'cancelled']);
+  });
+
+  it('publishes created/resolved notifications through the publisher seam', async () => {
+    const { sessions, service } = setup();
+    await sessions.createSession('s1');
+    const seen: string[] = [];
+    const internals = service as unknown as {
+      clarifications: ClarificationRepository;
+      sessions: SessionRepository;
+    };
+    const probed = new ClarificationService(
+      internals.clarifications,
+      internals.sessions,
+      new RecordingPublisher(seen),
+    );
+    const created = await probed.create({ sessionId: 's1', question: 'q?' });
+    await probed.answer(created.id, 's1', 'x');
+    expect(seen).toEqual(['clarification.created', 'clarification.resolved']);
   });
 });

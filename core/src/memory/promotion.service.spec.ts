@@ -12,6 +12,7 @@ import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repos
 import { SqliteClaimRepository } from './sqlite-claim.repository';
 import { SqlitePromotionJournalRepository } from './sqlite-promotion-journal.repository';
 import { PromotionService } from './promotion.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 
 function testConfig(
   memoryDbPath: string,
@@ -110,6 +111,7 @@ describe('PromotionService', () => {
         searchSimilar: jest.fn(() => Promise.resolve([])),
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
+      new NoopPublisher(),
     );
     // Approvals bind sessions by FK; the turn's session exists at runtime.
     sessionService.connection
@@ -366,6 +368,7 @@ describe('PromotionService', () => {
         searchSimilar: jest.fn(() => Promise.resolve([])),
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
+      new NoopPublisher(),
     );
     const [saved] = await save(s, [candidate('s1')]);
     await expect(promotion.proposeCandidates([saved])).resolves.toHaveLength(0);
@@ -441,6 +444,7 @@ describe('PromotionService', () => {
         searchSimilar: jest.fn(() => Promise.resolve([])),
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
+      new NoopPublisher(),
     );
     const [autoSaved] = await new SqliteMemoryCandidateRepository(
       autoService,

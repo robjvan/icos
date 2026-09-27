@@ -17,6 +17,8 @@ import type {
 } from './promotion';
 import { EMPTY_SWEEP } from './promotion';
 import { PromotionJournalRepository } from './promotion-journal.repository';
+import { realtimeEvent } from '../realtime/realtime-event';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 /**
  * Confidence rules (fixed, documented — auto-tuning is out of M10).
@@ -79,6 +81,7 @@ export class PromotionService implements OnModuleInit {
     private readonly approvalService: ApprovalService,
     private readonly approvals: ApprovalRepository,
     private readonly index: ClaimIndex,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   /** Crash recovery: rows stranded mid-execution replay on next sweep. */
@@ -136,12 +139,22 @@ export class PromotionService implements OnModuleInit {
       action: PROMOTE_ACTION,
       description: describe(candidate, intent),
     });
-    return this.journal.recordProposal({
+    const entry = await this.journal.recordProposal({
       candidateId: candidate.id,
       operation: intent,
       approvalId: approval.id,
       detail: intent === 'NEW' ? '' : `intent:${intent}`,
     });
+    // The approval.create already emitted approval.created; the journal
+    // row is the review-queue identity the client badges on.
+    this.realtime.publish(
+      realtimeEvent(
+        'promotion.proposed',
+        { journalId: entry.id, candidateId: entry.candidateId },
+        candidate.source.sessionId,
+      ),
+    );
+    return entry;
   }
 
   /**
@@ -255,6 +268,7 @@ export class PromotionService implements OnModuleInit {
           : operation === 'REINFORCE'
             ? 'reinforced'
             : 'contradicted';
+      this.emitCommitted(committed, claim.id);
       return { entry: committed, outcome };
     } catch (err) {
       return {
@@ -273,7 +287,36 @@ export class PromotionService implements OnModuleInit {
     state: Extract<JournalState, 'failed' | 'denied'>,
     detail: string,
   ): Promise<PromotionJournalEntry | null> {
-    return this.journal.setState(row.id, state, { detail });
+    const updated = await this.journal.setState(row.id, state, { detail });
+    if (updated) {
+      // Terminal states are the review-queue identity the client badges
+      // on; claim.updated rides alongside commit (claims are only
+      // written here — no separate claim-write hook exists).
+      this.realtime.publish(
+        realtimeEvent(
+          state === 'denied' ? 'promotion.denied' : 'promotion.failed',
+          { journalId: updated.id, detail: updated.detail },
+        ),
+      );
+    }
+    return updated;
+  }
+
+  /** Emit the commit pair: promotion terminal + claim identity. */
+  private emitCommitted(
+    entry: PromotionJournalEntry | null,
+    claimId: string,
+  ): void {
+    if (!entry) return;
+    this.realtime.publish(
+      realtimeEvent('promotion.committed', {
+        journalId: entry.id,
+        claimId,
+      }),
+    );
+    this.realtime.publish(
+      realtimeEvent('claim.updated', { claimId, status: 'active' }),
+    );
   }
 
   /**

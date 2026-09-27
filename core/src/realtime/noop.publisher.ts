@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { RealtimeEvent } from './realtime-event';
 import { RealtimePublisher } from './realtime.publisher';
 
 /**
@@ -8,7 +9,7 @@ import { RealtimePublisher } from './realtime.publisher';
  */
 @Injectable()
 export class NoopPublisher extends RealtimePublisher {
-  override publish(): void {
+  override publish(_event: RealtimeEvent): void {
     // Intentionally silent.
   }
 }

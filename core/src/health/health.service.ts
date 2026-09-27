@@ -5,8 +5,8 @@ import type { CoreConfig } from '../config';
 import { SessionStore } from '../conversation/session.store';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { HostHealthProvider } from '../commands/host-health';
-import { RealtimeGateway } from '../realtime/realtime.gateway.js';
-import { realtimeEvent } from '../realtime/realtime-event.js';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { realtimeEvent } from '../realtime/realtime-event';
 import { buildHealthReport } from './health-report';
 import type { HealthReport } from './health-report';
 
