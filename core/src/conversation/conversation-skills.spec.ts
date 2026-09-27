@@ -16,6 +16,7 @@ import { SKILL_FILE } from '../skills/skill-loader';
 import { SkillService } from '../skills/skill.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -135,6 +136,7 @@ async function setup(
     {
       proposeCandidates: () => Promise.resolve([]),
     } as unknown as PromotionService,
+    new NoopPublisher(),
   );
   return {
     service,

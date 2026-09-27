@@ -9,7 +9,8 @@ import { RealtimePublisher } from './realtime.publisher';
  */
 @Injectable()
 export class NoopPublisher extends RealtimePublisher {
-  override publish(_event: RealtimeEvent): void {
+  override publish(event: RealtimeEvent): void {
+    void event;
     // Intentionally silent.
   }
 }

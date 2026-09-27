@@ -41,6 +41,8 @@ import type { ToolName } from '../tools/tool-registry';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
+import { realtimeEvent } from '../realtime/realtime-event';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import {
   assembleTurnMessages,
   buildPlanningBlock,
@@ -199,6 +201,7 @@ export class ConversationService {
     private readonly agentRuns: AgentRunRepository,
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly promotion: PromotionService,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async converse(message: string, sessionId?: string): Promise<TurnOutcome> {
@@ -370,6 +373,11 @@ export class ConversationService {
       }
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
+      }
+      // Sidebar refresh across tabs: the session list/preview changed.
+      // Parked turns park the run instead — the resume emits on completion.
+      if (outcome.status !== 'approval_required') {
+        this.realtime.publish(realtimeEvent('session.updated', {}, id));
       }
       return outcome;
     }
@@ -619,6 +627,11 @@ export class ConversationService {
       }
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
+      }
+      if (outcome.status !== 'approval_required') {
+        this.realtime.publish(
+          realtimeEvent('session.updated', {}, record.sessionId),
+        );
       }
       return outcome;
     }
@@ -897,6 +910,11 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, record.sessionId),
+            );
+          }
           return;
         }
       } catch (err) {
@@ -1012,6 +1030,11 @@ export class ConversationService {
           });
           this.finishRun(storedId, terminal.state, terminal.termination);
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, settled.record.sessionId),
+            );
+          }
           return;
         }
         // M9h continuation: bounded planning over remaining budget.
@@ -1209,6 +1232,11 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, record.sessionId),
+            );
+          }
           return;
         }
       } catch (err) {

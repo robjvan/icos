@@ -256,12 +256,23 @@ export class RealtimeGateway
   private broadcast(event: RealtimeEvent): void {
     if (!this.server) return;
     const frame = JSON.stringify(event);
+    // `session.updated` is a global sidebar event: every open client
+    // refreshes its session list (cheap, idempotent). Room-filtered
+    // delivery would require every client to track the active session
+    // before any turn completes — the sidebar has no such concept.
+    const globalTypes = new Set([
+      'session.updated',
+      'hello',
+      'heartbeat',
+      'health',
+      'error',
+    ]);
     for (const socket of this.subscriptions.keys()) {
       // Drop saturated consumers rather than growing unbounded —
       // a stale notification is covered by client resync.
       if (socket.readyState !== socket.OPEN) continue;
       if (socket.bufferedAmount > MAX_BUFFERED_BYTES) continue;
-      if (event.sessionId !== undefined) {
+      if (event.sessionId !== undefined && !globalTypes.has(event.type)) {
         const sub = this.subscriptions.get(socket);
         if (sub?.sessionId !== event.sessionId) continue;
       }

@@ -27,6 +27,7 @@ import type {
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -235,6 +236,7 @@ function setup(
       agentRuns.service,
       config,
       promotion,
+      new NoopPublisher(),
     ),
     repository,
     chatWithTools,
