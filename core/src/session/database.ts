@@ -447,6 +447,41 @@ ON prospective_items(status);
 
 CREATE INDEX IF NOT EXISTS idx_prospective_items_subject_predicate
 ON prospective_items(subject_norm, predicate_norm);
+
+/**
+ * M11a lexical recall surface. External-content FTS5 over the
+ * immutable claim text (subject/predicate/object/entities) — the
+ * same trigger-kept pattern as messages_fts. Claim text never
+ * edits in place (status/evidence/confidence writes touch other
+ * columns), so the index is append-mostly by construction; the
+ * triggers below cover the general case anyway. Entities ride as
+ * raw JSON — the tokenizer splits person:Ada into usable tokens.
+ */
+CREATE VIRTUAL TABLE IF NOT EXISTS claims_fts USING fts5(
+    subject,
+    predicate,
+    object,
+    entities_json,
+    content='claims',
+    content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS claims_ai AFTER INSERT ON claims BEGIN
+    INSERT INTO claims_fts(rowid, subject, predicate, object, entities_json)
+    VALUES (new.rowid, new.subject, new.predicate, new.object, new.entities_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS claims_ad AFTER DELETE ON claims BEGIN
+    INSERT INTO claims_fts(claims_fts, rowid, subject, predicate, object, entities_json)
+    VALUES ('delete', old.rowid, old.subject, old.predicate, old.object, old.entities_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS claims_au AFTER UPDATE ON claims BEGIN
+    INSERT INTO claims_fts(claims_fts, rowid, subject, predicate, object, entities_json)
+    VALUES ('delete', old.rowid, old.subject, old.predicate, old.object, old.entities_json);
+    INSERT INTO claims_fts(rowid, subject, predicate, object, entities_json)
+    VALUES (new.rowid, new.subject, new.predicate, new.object, new.entities_json);
+END;
 `;
 
 const SCHEMAS: Record<
@@ -478,10 +513,11 @@ const SCHEMAS: Record<
     tables: [
       'memory_candidates',
       'claims',
+      'claims_fts',
       'promotion_journal',
       'prospective_items',
     ],
-    triggers: [],
+    triggers: ['claims_ai', 'claims_ad', 'claims_au'],
   },
 };
 
@@ -550,6 +586,7 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
     );
     addColumnIfMissing(db, 'claims', 'negated', `INTEGER NOT NULL DEFAULT 0`);
     migrateClaimIdentityIndex(db);
+    migrateClaimsFts(db);
     // M10c: live claim files predate conflict-lookup columns.
     addColumnIfMissing(
       db,
@@ -657,6 +694,25 @@ function ensureToolRequestsTrigger(db: Database.Database): void {
   db.exec(`DROP TRIGGER IF EXISTS tool_requests_identity_immutable;`);
   db.exec(TOOL_REQUESTS_IMMUTABLE_TRIGGER_SQL);
 }
+/**
+ * M11a backfill for the lexical surface. The FTS table and triggers
+ * come from the schema SQL above; live claim rows predate them.
+ * Detection is deliberately dumb: external-content FTS tables answer
+ * every non-MATCH read (COUNT(*), rowid probes included) from the
+ * content table, so no cheap query distinguishes an empty index from
+ * a populated one. Rebuild unconditionally while claims exist — it
+ * is idempotent, trigger-kept afterwards, and milliseconds at our
+ * scale. Past ~10k claims this wants a watermark instead (same scale
+ * review as the RuVector reopen note in M10a).
+ */
+function migrateClaimsFts(db: Database.Database): void {
+  const claims = (
+    db.prepare(`SELECT COUNT(*) AS n FROM claims`).get() as { n: number }
+  ).n;
+  if (claims === 0) return;
+  db.exec(`INSERT INTO claims_fts(claims_fts) VALUES('rebuild')`);
+}
+
 /**
  * M10e upgrade for the M10b-era identity index: pre-M10e tables enforce
  * uniqueness on `identity_key` alone, which forbids the negated rival

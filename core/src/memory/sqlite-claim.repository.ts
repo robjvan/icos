@@ -281,6 +281,21 @@ export class SqliteClaimRepository extends ClaimRepository {
     return toClaim(updated);
   }
 
+  async recordAccessed(ids: string[]): Promise<void> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return;
+    const placeholders = unique.map(() => '?').join(', ');
+    this.database
+      .prepare(
+        `UPDATE claims
+            SET access_count = access_count + 1,
+                last_accessed_at = ?,
+                updated_at = ?
+          WHERE id IN (${placeholders})`,
+      )
+      .run(nowIso(), nowIso(), ...unique);
+  }
+
   async listClaims(options?: {
     status?: ClaimStatus;
     category?: ClaimCategory;

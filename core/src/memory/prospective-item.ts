@@ -1,4 +1,5 @@
 import type { ClaimOrigin } from './claim';
+import type { Claim } from './claim';
 
 /** Why promotion parked this question. */
 export type ProspectiveTrigger = 'confidence_drop' | 'repeated_contest';
@@ -46,4 +47,39 @@ export interface ProspectiveItem extends NewProspectiveItem {
   status: ProspectiveStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A parked option built from a live claim (origin + confidence ride along). */
+export function prospectiveOptionFromClaim(claim: Claim): ProspectiveOption {
+  return {
+    object: claim.object,
+    origin: claim.origin,
+    confidence: claim.confidence,
+    claimId: claim.id,
+  };
+}
+
+/**
+ * Deterministic clarification phrasing for a parked (or proposed)
+ * contest. A template, never model output: every option's value,
+ * origin, and confidence is listed so the question is answerable
+ * from the row alone. Shared by promotion (M10e parking) and recall
+ * comparison (M11c proposals) so both paths ask identically.
+ */
+export function suggestProspectiveQuestion(
+  subject: string,
+  predicate: string,
+  options: ProspectiveOption[],
+): string {
+  const sides = options
+    .map(
+      (option) =>
+        `"${option.object}" (origin ${option.origin}, ` +
+        `confidence ${option.confidence.toFixed(2)})`,
+    )
+    .join(' vs ');
+  return (
+    `Conflicting beliefs about ${subject} ${predicate}: ` +
+    `${sides}. Which should be kept?`
+  );
 }

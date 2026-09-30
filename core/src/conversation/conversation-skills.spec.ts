@@ -11,7 +11,11 @@ import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import type { MemoryExtractionInput } from '../memory/memory-candidate-extractor';
 import type { ValidatedCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import { ClaimRepository } from '../memory/claim.repository';
 import { PromotionService } from '../memory/promotion.service';
+import { RankService } from '../memory/rank.service';
+import { RecallService } from '../memory/recall.service';
+import { RecallTraceStore } from '../memory/recall-trace.store';
 import { SKILL_FILE } from '../skills/skill-loader';
 import { SkillService } from '../skills/skill.service';
 import { ToolRegistry } from '../tools/tool-registry';
@@ -55,6 +59,10 @@ function testConfig(
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
     memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath,
     skillsEnabled: true,
@@ -137,6 +145,10 @@ async function setup(
     {
       proposeCandidates: () => Promise.resolve([]),
     } as unknown as PromotionService,
+    {} as unknown as RecallService,
+    {} as unknown as RankService,
+    new RecallTraceStore(),
+    {} as unknown as ClaimRepository,
     new NoopPublisher(),
   );
   return {

@@ -11,6 +11,10 @@ import { ClaimIndex } from './claim-index';
 import { ClaimRepository } from './claim.repository';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
 import { ProspectiveItemRepository } from './prospective-item.repository';
+import {
+  prospectiveOptionFromClaim,
+  suggestProspectiveQuestion,
+} from './prospective-item';
 import type { ProspectiveOption } from './prospective-item';
 import type {
   JournalState,
@@ -49,39 +53,6 @@ function describe(
     ` (origin ${candidate.source.role}, ` +
     `confidence ${candidate.confidence}, candidate ${candidate.id.slice(0, 8)})`
   );
-}
-
-/**
- * Deterministic clarification phrasing for a parked contest. A
- * template, never model output: every option's value, origin, and
- * confidence is listed so the question is answerable from the row
- * alone. Regenerated on merge so repeat contests refresh the full set.
- */
-function suggestQuestion(
-  subject: string,
-  predicate: string,
-  options: ProspectiveOption[],
-): string {
-  const sides = options
-    .map(
-      (option) =>
-        `"${option.object}" (origin ${option.origin}, ` +
-        `confidence ${option.confidence.toFixed(2)})`,
-    )
-    .join(' vs ');
-  return (
-    `Conflicting beliefs about ${subject} ${predicate}: ` +
-    `${sides}. Which should be kept?`
-  );
-}
-
-function claimOption(claim: Claim): ProspectiveOption {
-  return {
-    object: claim.object,
-    origin: claim.origin,
-    confidence: claim.confidence,
-    claimId: claim.id,
-  };
 }
 
 /**
@@ -526,10 +497,13 @@ export class PromotionService implements OnModuleInit {
           !seenIds.has(rival.id)
         ) {
           seenIds.add(rival.id);
-          seeded.push(claimOption(rival));
+          seeded.push(prospectiveOptionFromClaim(rival));
         }
       }
-      for (const option of [claimOption(loser), claimOption(winner)]) {
+      for (const option of [
+        prospectiveOptionFromClaim(loser),
+        prospectiveOptionFromClaim(winner),
+      ]) {
         if (!seenIds.has(option.claimId)) {
           seenIds.add(option.claimId);
           seeded.push(option);
@@ -543,10 +517,11 @@ export class PromotionService implements OnModuleInit {
       if (open) {
         const seen = new Set(open.options.map((item) => item.claimId));
         const unseen = fresh.filter((item) => !seen.has(item.claimId));
-        const question = suggestQuestion(loser.subject, loser.predicate, [
-          ...open.options,
-          ...unseen,
-        ]);
+        const question = suggestProspectiveQuestion(
+          loser.subject,
+          loser.predicate,
+          [...open.options, ...unseen],
+        );
         const merged = await this.prospective.mergeContest(
           open.id,
           unseen,
@@ -568,7 +543,7 @@ export class PromotionService implements OnModuleInit {
         options: fresh,
         contestCount: prior + 1,
         trigger,
-        suggestedQuestion: suggestQuestion(
+        suggestedQuestion: suggestProspectiveQuestion(
           loser.subject,
           loser.predicate,
           fresh,

@@ -40,6 +40,24 @@ export interface CoreConfig {
   /** Candidate kinds eligible for automatic promotion (default: none). */
   memoryPromotionAutoKinds: string[];
   /**
+   * M11b confidence gate: claims below this engine confidence are
+   * excluded from recall unless explicitly queried (or locked —
+   * M12's certainty lock always admits). Familiar near-misses live
+   * just above the cut only by rank, never by exemption.
+   */
+  memoryRecallConfidenceGate: number;
+  /**
+   * M11d interactive recall lens: claim origins hidden from
+   * turn-time recall (default: none — the lens defaults off per
+   * M11b). Agent chatter that would crowd out user signal goes
+   * here. Unknown values fail startup loudly, like auto kinds.
+   */
+  memoryRecallExcludeOrigins: ('user' | 'agent')[];
+  /** M11e memory-band token cap (chars/4 estimate). */
+  memoryRecallMaxBandTokens: number;
+  /** M11e turn-time recall latency budget in ms. */
+  memoryRecallTimeoutMs: number;
+  /**
    * M10e clarification trigger: a contradiction parks a prospective
    * item when the contradicted claim's confidence sits below this
    * (default 0.5). Repeat contests park regardless of confidence.
@@ -167,6 +185,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       0.5,
       'MEMORY_PROSPECTIVE_CONFIDENCE_THRESHOLD',
     ),
+    memoryRecallConfidenceGate: parseScore(
+      env.MEMORY_RECALL_CONFIDENCE_GATE,
+      0.3,
+      'MEMORY_RECALL_CONFIDENCE_GATE',
+    ),
+    memoryRecallExcludeOrigins: parseRecallExcludeOrigins(
+      env.MEMORY_RECALL_EXCLUDE_ORIGINS,
+    ),
+    memoryRecallMaxBandTokens: parsePositiveInt(
+      env.MEMORY_RECALL_MAX_BAND_TOKENS,
+      800,
+      'MEMORY_RECALL_MAX_BAND_TOKENS',
+    ),
+    memoryRecallTimeoutMs: parsePositiveInt(
+      env.MEMORY_RECALL_TIMEOUT_MS,
+      5000,
+      'MEMORY_RECALL_TIMEOUT_MS',
+    ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',
@@ -221,6 +257,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     ),
     realtimeAllowedOrigins: parseOriginList(env.REALTIME_ALLOWED_ORIGINS),
   };
+}
+
+/**
+ * Comma-separated claim-origin lens, e.g. "agent". Empty/unset hides
+ * nothing. Unknown values throw — a typo must not silently narrow
+ * or widen recall.
+ */
+function parseRecallExcludeOrigins(
+  raw: string | undefined,
+): ('user' | 'agent')[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  const origins = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part !== '');
+  for (const origin of origins) {
+    if (origin !== 'user' && origin !== 'agent') {
+      throw new Error(
+        `MEMORY_RECALL_EXCLUDE_ORIGINS contains unknown origin "${origin}"`,
+      );
+    }
+  }
+  return [...new Set(origins)] as ('user' | 'agent')[];
 }
 
 /**

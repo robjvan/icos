@@ -115,4 +115,29 @@ describe('buildContext', () => {
       'hi',
     ]);
   });
+
+  it('inserts memory bands after the system head, before history', () => {
+    const history: ChatMessage[] = [{ role: 'user', content: 'a' }];
+    const result = buildContext('sys', history, 'c', 50, undefined, {
+      memoryBand: '[memory: 1 recalled]',
+      kbBand: '[knowledge-base: connected]',
+    });
+    expect(result).toEqual([
+      { role: 'system', content: 'sys' },
+      { role: 'system', content: '[memory: 1 recalled]' },
+      { role: 'system', content: '[knowledge-base: connected]' },
+      { role: 'user', content: 'a' },
+      { role: 'user', content: 'c' },
+    ]);
+  });
+
+  it('omits null bands for byte-identical pre-M11 context', () => {
+    const history: ChatMessage[] = [{ role: 'user', content: 'a' }];
+    expect(
+      buildContext('sys', history, 'c', 50, undefined, {
+        memoryBand: null,
+        kbBand: null,
+      }),
+    ).toEqual(buildContext('sys', history, 'c', 50));
+  });
 });

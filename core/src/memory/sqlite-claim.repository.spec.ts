@@ -27,6 +27,10 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
     memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -273,6 +277,30 @@ describe('SqliteClaimRepository', () => {
     const listed = await reopened.listClaims({ status: 'active' });
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ object: 'TypeScript', origin: 'user' });
+  });
+
+  it('observes access without touching beliefs', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+    expect(saved.accessCount).toBe(0);
+    expect(saved.lastAccessedAt).toBeNull();
+
+    await repository.recordAccessed([saved.id, 'missing']);
+    const observed = await repository.getClaim(saved.id);
+    expect(observed?.accessCount).toBe(1);
+    expect(observed?.lastAccessedAt).toBeDefined();
+    // Belief fields untouched by observation.
+    expect(observed).toMatchObject({
+      object: 'TypeScript',
+      confidence: 0.5,
+      status: 'candidate',
+      timesObserved: 1,
+    });
+
+    // One bump per call even with repeats; empty is a no-op.
+    await repository.recordAccessed([saved.id, saved.id]);
+    expect((await repository.getClaim(saved.id))?.accessCount).toBe(2);
+    await repository.recordAccessed([]);
   });
 
   it('coexists affirmed and negated rivals under one triple', async () => {

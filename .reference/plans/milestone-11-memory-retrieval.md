@@ -55,7 +55,9 @@ traces are inspectable via API; any UI rendering lands later.
 
 ---
 
-# [ ] M11a — Recall Surfaces
+# [x] M11a — Recall Surfaces (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11a-evidence-recall.md`.
 
 Three parallel channels (per M10a's two decisions), same v2 lesson:
 one failing never blocks the others.
@@ -86,7 +88,9 @@ fusion can say which surface contributed what (v2's surface trace).
 
 ---
 
-# [ ] M11b — Ranking
+# [x] M11b — Ranking (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11b-evidence-ranking.md`.
 
 Order is: relevance first, honesty constraints as gates.
 
@@ -116,7 +120,9 @@ Order is: relevance first, honesty constraints as gates.
 
 ---
 
-# [ ] M11c — Cross-Memory Comparison
+# [x] M11c — Cross-Memory Comparison (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11c-evidence-comparison.md`.
 
 Claims are not recalled in isolation: when two recalled claims
 share subject+predicate with different objects, or a recalled claim
@@ -130,7 +136,9 @@ winner — M12 owns resolution.
 
 ---
 
-# [ ] M11d — Memory-Aware Context Construction
+# [x] M11d — Memory-Aware Context Construction (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11d-evidence-context.md`.
 
 The trust boundary the whole milestone stands on (v2's
 provenance-safe prompt assembly):
@@ -157,7 +165,9 @@ provenance-safe prompt assembly):
 
 ---
 
-# [ ] M11e — Budgeting, Failure, and Uncertainty
+# [x] M11e — Budgeting, Failure, and Uncertainty (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11e-evidence-budget.md`.
 
 - **Retrieval budgeting** — per-band token caps, top-N limits,
   retrieval latency budget. Retrieval degrades by shrinking bands
@@ -173,7 +183,9 @@ provenance-safe prompt assembly):
 
 ---
 
-# [ ] M11f — Verification
+# [x] M11f — Verification (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-11f-evidence-verification.md`.
 
 - **Recall precision** — seeded claims, exact prior memory wins
   over adjacent chatter; paraphrase queries hit the same claim on

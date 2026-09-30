@@ -119,6 +119,11 @@ describe('openDatabase', () => {
         'claims',
         'promotion_journal',
         'prospective_items',
+        'claims_fts',
+        'claims_fts_data',
+        'claims_fts_idx',
+        'claims_fts_docsize',
+        'claims_fts_config',
       ]);
     } finally {
       db.close();

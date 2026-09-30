@@ -174,6 +174,10 @@ describe('Conversation (e2e)', () => {
         // confidence_drop trigger: the contradiction test asserts the
         // parked question without needing a repeat contest.
         memoryProspectiveConfidenceThreshold: 0.95,
+        memoryRecallConfidenceGate: 0.3,
+        memoryRecallExcludeOrigins: [],
+        memoryRecallMaxBandTokens: 800,
+        memoryRecallTimeoutMs: 5000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
@@ -711,6 +715,41 @@ describe('Conversation (e2e)', () => {
     );
   });
 
+  it('traces turn-time recall per session for inspection', async () => {
+    const turn = await request(http())
+      .post('/core/conversation')
+      .send({ message: 'I prefer oak' })
+      .expect(200);
+    const sessionId = (turn.body as ConversationResponse).sessionId;
+
+    const traced = await request(http())
+      .get('/core/recall/trace')
+      .query({ sessionId })
+      .expect(200);
+    const trace = (
+      traced.body as {
+        trace: {
+          query: { text: string };
+          bands: { memory: boolean; kb: boolean };
+          ranked: unknown[];
+          proposedQuestions: unknown[];
+          gate: number;
+        };
+      }
+    ).trace;
+    expect(trace.query.text).toBe('I prefer oak');
+    expect(trace.gate).toBe(0.3);
+    // No claims promoted yet: nothing ranked — but the active miss
+    // is declared, not silent.
+    expect(trace.ranked).toEqual([]);
+    expect(trace.bands).toEqual({ memory: true, kb: false });
+
+    await request(http())
+      .get('/core/recall/trace')
+      .query({ sessionId: '00000000-0000-0000-0000-000000000000' })
+      .expect(404);
+  });
+
   it('conversation still succeeds when extraction fails', async () => {
     extractFails = true;
 
@@ -1072,6 +1111,8 @@ describe('Conversation (e2e)', () => {
         maxIterations: MAX_ITERATIONS,
         progress: { stepsUsed: 0, toolCallsUsed: 0, priorActions: [] },
       })}`,
+      // No beliefs match: the active miss is declared in-band.
+      '[memory: nothing recalled for this turn — no matching beliefs]',
       'first',
       'mock reply',
       'third',

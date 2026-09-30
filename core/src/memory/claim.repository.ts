@@ -58,6 +58,14 @@ export abstract class ClaimRepository {
     limit?: number;
   }): Promise<Claim[]>;
 
+  /**
+   * M11 access observation: bump `accessCount` and touch
+   * `lastAccessedAt` for claims surfaced in a turn. The single
+   * mutation M11 is allowed — M12 owns its meaning, and nothing
+   * else here writes beliefs. Missing ids are ignored.
+   */
+  abstract recordAccessed(ids: string[]): Promise<void>;
+
   /** Cheap liveness probe for health checks. */
   abstract ping(): Promise<void>;
 }
