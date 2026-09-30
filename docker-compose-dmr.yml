@@ -1,0 +1,33 @@
+# ICOS v3 — DMR override file (Docker Model Runner backend).
+#
+# NOT a standalone stack: it only holds the deltas versus
+# docker-compose.yml (same service names, so values merge/replace).
+#
+#   standard (host Ollama for extraction):
+#     docker compose up -d --build
+#   DMR (extraction served by Docker Model Runner):
+#     docker compose -f docker-compose.yml -f docker-compose-dmr.yml up -d --build
+#
+# The two variants bind the same host ports (3000/4200), so bring one
+# down before starting the other. Keeping a single file would force
+# the 4.6 GB model pull onto every standard `up` — this split keeps
+# the standard path lean and the AGENTS.md compose contract intact.
+services:
+  core:
+    models:
+      memory_llm:
+        endpoint_var: MEMORY_LLM_BASE_URL
+        model_var: MEMORY_LLM_MODEL
+
+    # .dmr.env mirrors .env except the memory backend: the two
+    # MEMORY_LLM_* values arrive via the models block above, not the
+    # file (see the note in core/.dmr.env).
+    env_file:
+      - ./core/.dmr.env
+
+# ---------------------------------------------------------------------------
+# Docker Model
+# ---------------------------------------------------------------------------
+models:
+  memory_llm:
+    model: hf.co/unsloth/gemma-4-E4B-it-GGUF:Q4_K_M

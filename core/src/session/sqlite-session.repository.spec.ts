@@ -24,6 +24,14 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'm',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -34,6 +42,9 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
 }
 

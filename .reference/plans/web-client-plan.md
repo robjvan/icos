@@ -1,11 +1,12 @@
 # Web Client — Implementation Plan (`web-client/`)
 
-Status: Phase 3 complete (2026-09-23) — composer upload placeholder, search final
-pass, focus/ARIA hardening, contrast 24/24, AXE 12/12 clean, unit 34/98,
-E2E 20/20 vs live core, prod build 274.53 kB in budgets. Docker compose-up
-blocked (daemon down) — documented. Evidence:
-`.reference/plans/evidence/web-client-phase3.md`. Committed on `dev`, no push.
-(Phase 1–2 evidence retained below.)
+Status: Phase 4 complete (2026-09-26) — Review | Beliefs | Ledger with
+global queue. Evidence:
+`.reference/plans/evidence/web-client-phase4-memory-review.md`
+(558 core + 143 client tests, AXE 8/8, E2E 8/8, live transcript).
+Phase 5 planned (`web-client-phase5-contradiction-transparency.md` —
+contradiction pairing + prospective seam, `web-client/` only).
+Committed on `dev`, no push. (Phase 1–3 evidence retained below.)
 Scope: `web-client/` only. No changes to `core/` in this plan.
 Source-of-truth hierarchy: `.reference/web-client-blueprint.md` → this plan → code.
 Branch: `dev`. Commits per-phase, NO pushing.
@@ -34,19 +35,19 @@ Explicit non-goals (deferred to next major phase per blueprint):
 
 ### 3.1 Backend contract (do not change)
 
-| Frontend need | Method + path | Source |
-| --- | --- | --- |
-| Send / stream turn | `POST /core/conversation/stream` | `core/src/conversation/conversation.controller.ts:73` |
-| Resume parked/running turn | `POST /core/conversation/resume-stream` (+ non-streaming `POST /core/conversation/resume`) | `conversation.controller.ts:46,93` |
-| Non-streaming turn | `POST /core/conversation` | `conversation.controller.ts:29` |
-| History | `GET /core/conversation/:id` | `conversation.controller.ts:61` |
-| Sessions list / search | `GET /core/sessions`, `GET /core/sessions/search` | `core/src/conversation/sessions.controller.ts:10` |
-| Approvals list / resolve | `GET /core/approvals`, `POST /core/approvals/:id/approve\|reject\|cancel {sessionId}` | `core/src/approvals/approvals.controller.ts:23` |
+| Frontend need                 | Method + path                                                                                                                 | Source                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Send / stream turn            | `POST /core/conversation/stream`                                                                                              | `core/src/conversation/conversation.controller.ts:73`     |
+| Resume parked/running turn    | `POST /core/conversation/resume-stream` (+ non-streaming `POST /core/conversation/resume`)                                    | `conversation.controller.ts:46,93`                        |
+| Non-streaming turn            | `POST /core/conversation`                                                                                                     | `conversation.controller.ts:29`                           |
+| History                       | `GET /core/conversation/:id`                                                                                                  | `conversation.controller.ts:61`                           |
+| Sessions list / search        | `GET /core/sessions`, `GET /core/sessions/search`                                                                             | `core/src/conversation/sessions.controller.ts:10`         |
+| Approvals list / resolve      | `GET /core/approvals`, `POST /core/approvals/:id/approve\|reject\|cancel {sessionId}`                                         | `core/src/approvals/approvals.controller.ts:23`           |
 | Clarifications list / resolve | `GET /core/clarifications`, `POST /core/clarifications/:id/answer {sessionId,answer}`, `POST /core/clarifications/:id/cancel` | `core/src/clarifications/clarifications.controller.ts:18` |
-| Skills (read-only) | `GET /core/skills`, `GET /core/skills/discover?q=`, `GET /core/skills/active?sessionId=`, `GET /core/skills/:name` | `core/src/skills/skills.controller.ts:14` |
-| Memory candidates (inspect) | `GET /core/memory-candidates` | `core/src/conversation/candidates.controller.ts:13` |
-| CORS | Permissive `core.enableCors()` for non-same-origin dev clients | `core/src/main.ts:24` |
-| Test client served at | `GET /` (same-origin `:3000`) | `core/src/test-client.controller.ts:11` |
+| Skills (read-only)            | `GET /core/skills`, `GET /core/skills/discover?q=`, `GET /core/skills/active?sessionId=`, `GET /core/skills/:name`            | `core/src/skills/skills.controller.ts:14`                 |
+| Memory candidates (inspect)   | `GET /core/memory-candidates`                                                                                                 | `core/src/conversation/candidates.controller.ts:13`       |
+| CORS                          | Permissive `core.enableCors()` for non-same-origin dev clients                                                                | `core/src/main.ts:24`                                     |
+| Test client served at         | `GET /` (same-origin `:3000`)                                                                                                 | `core/src/test-client.controller.ts:11`                   |
 
 Stream protocol (`core/test-client.html:907-1027`, `conversation.service.ts:89-106`): SSE `meta → token* → (tool | approval)* → done | error`. `done` carries `status: ok | approval_required | processing`, optional `command` (`kind === 'session'` resets pane), `tool`, `approval`, `outcome`, `result`.
 
@@ -162,51 +163,91 @@ Status: complete (2026-09-23). Full evidence in
 `.reference/plans/evidence/web-client-phase3.md`.
 
 - [x] Docked dashboard layout + card-style tabs kept ("floating" dropped
-  2026-09-22); footer stays static + `TODO` (now with `contentinfo`
-  landmark, placeholder titles, passing status color); composer has a
-  file-upload placeholder (attach button, images/docs/audio/video accept,
-  local-only chips + `server unimplemented` badge, never uploaded);
-  session search has clear button, live result counts, sibling empty
-  states (out of the listbox per axe).
+      2026-09-22); footer stays static + `TODO` (now with `contentinfo`
+      landmark, placeholder titles, passing status color); composer has a
+      file-upload placeholder (attach button, images/docs/audio/video accept,
+      local-only chips + `server unimplemented` badge, never uploaded);
+      session search has clear button, live result counts, sibling empty
+      states (out of the listbox per axe).
 - [x] i18n: `en` only (`lang="en"`); LTR only. Other locales deferred.
 - [x] WCAG 2.1 AA: focus returns to composer after open/new/send-complete
-  (deferred past CD so busy-disable can't swallow it); about dialog
-  focuses Close on open, Escape closes, focus returns to trigger;
-  computed contrast audit 24/24 pairs pass (deep-sage buttons, badge
-  text tokens, dark error red, light secondary fix); **AXE 12/12 pages
-  clean, 0 violations** (chat/skills/tools/memory/agents/client-settings
-  × dark/light; fixes: listbox children, `<main>` landmark, one `h1` per
-  route, plain-link nav, radiogroup nesting).
+      (deferred past CD so busy-disable can't swallow it); about dialog
+      focuses Close on open, Escape closes, focus returns to trigger;
+      computed contrast audit 24/24 pairs pass (deep-sage buttons, badge
+      text tokens, dark error red, light secondary fix); **AXE 12/12 pages
+      clean, 0 violations** (chat/skills/tools/memory/agents/client-settings
+      × dark/light; fixes: listbox children, `<main>` landmark, one `h1` per
+      route, plain-link nav, radiogroup nesting).
 - [x] Responsive: 390px verified — no horizontal overflow, sidebar stacks
-  (`flex-direction: column`); tab bar scrolls horizontally.
+      (`flex-direction: column`); tab bar scrolls horizontally.
 - [x] E2E 20/20 (playwright-core Chromium, `ng serve` + live core):
-  new → send → stream → refocus → switch → search → clear → `/health` →
-  seeded approve → seeded answer → attach/remove → theme toggle →
-  dialog focus in/out → responsive. Parked-turn resume stays
-  unit-covered. Ephemeral `phase3-e2e-probe` rows only, all terminal.
+      new → send → stream → refocus → switch → search → clear → `/health` →
+      seeded approve → seeded answer → attach/remove → theme toggle →
+      dialog focus in/out → responsive. Parked-turn resume stays
+      unit-covered. Ephemeral `phase3-e2e-probe` rows only, all terminal.
 - [x] Production: `ng build` 274.53 kB initial (500 kB warn / 1 MB error);
-  `docker compose up -d` repaired and **verified 2026-09-23 after a RAM
-  bump to 4 GB**: root causes were (1) missing `.dockerignore` letting
-  host (darwin) `node_modules` overwrite the image's Linux binaries
-  (fixed, verified `linux-arm64` in image); (2) `ng serve` dev image OOMs
-  on small Docker hosts → multi-stage `Dockerfile` (node build +
-  `nginx:alpine` static serve, `try_files` SPA fallback). Verification
-  follow-ups: wget-based healthcheck (no node in nginx image), dual-stack
-  `listen [::]:4200`, README documents the ≥4 GB Docker memory need.
-  Final state: `core` healthy + `:3000` → 200, `web-client` healthy +
-  `:4200/` and `:4200/skills` → 200. No compose structural changes;
-  no `core/` changes.
+      `docker compose up -d` repaired and **verified 2026-09-23 after a RAM
+      bump to 4 GB**: root causes were (1) missing `.dockerignore` letting
+      host (darwin) `node_modules` overwrite the image's Linux binaries
+      (fixed, verified `linux-arm64` in image); (2) `ng serve` dev image OOMs
+      on small Docker hosts → multi-stage `Dockerfile` (node build +
+      `nginx:alpine` static serve, `try_files` SPA fallback). Verification
+      follow-ups: wget-based healthcheck (no node in nginx image), dual-stack
+      `listen [::]:4200`, README documents the ≥4 GB Docker memory need.
+      Final state: `core` healthy + `:3000` → 200, `web-client` healthy +
+      `:4200/` and `:4200/skills` → 200. No compose structural changes;
+      no `core/` changes.
 - [x] Evidence committed (this plan + `evidence/web-client-phase3.md`) —
-  commit, NO push.
+      commit, NO push.
 
-## 8. Execution order
+## 8. Phase 4 - Memory Review UI
+
+Status: complete (2026-09-26). Plan: `web-client-phase4-memory-review.md`
+(moved to `closed/`); evidence:
+`.reference/plans/evidence/web-client-phase4-memory-review.md`.
+
+- [x] Memory tab: Review | Beliefs | Ledger segments with `?view=` sync
+  (default review iff pending > 0 else beliefs); nav badge with
+  pending-review count via root `MemoryReviewService`.
+- [x] Review queue is global (all sessions): approve means approve *and*
+  execute (approve → run → refresh, summary rendered); resolved hidden by
+  default with `showResolved` toggle, `limit=200`, pre-limit `total` badge.
+- [x] Beliefs: claim list with status/category/origin filters + search
+  (`degraded` banner), detail with evidence roles, provenance pair,
+  dual confidences, journal history.
+- [x] Chat decoupling: `memory.promote` filtered out of chat approvals.
+- [x] Core (additive only): `GET /core/promotions?state=&limit=`
+  (`/pending` byte-identical); no behaviour changes to extraction,
+  promotion, or conversation.
+- [x] Verify: 42 files / 143 client tests green, `tsc` + `eslint` clean,
+  prod build 279.37 kB in budgets, AXE 8/8 clean, browser E2E 8/8,
+  live transcript (turn → extraction → proposal → approve → run →
+  beliefs, plus reject path).
+
+## 9. Phase 5 - Contradiction Transparency
+
+Status: planned. Plan: `web-client-phase5-contradiction-transparency.md`
+(`web-client/` only, no core changes). From live use 2026-09-30:
+contradicted claims render as flags with no visible counterpart.
+
+- [ ] Loser rows render "contradicted by \<object\>" with a claim link;
+  winner rows link back (icon + label, never colour-only).
+- [ ] Parked prospective item linked off the pair when one exists
+  (fourth-segment seam reserved, not built).
+- [ ] Negation-aware pair labels (affirmed vs negated rivals must not
+  render as two identical values).
+- [ ] Specs + AXE + one live-core pass; evidence file on completion.
+
+## 10. Execution order
 
 1. Phase 0 → verify → commit.
 2. Phase 1 models → services → components → store → unit → live integration → commit.
 3. Phase 2 chat route first, then skills/tools, then placeholders batch → commit.
 4. Phase 3 styling → a11y → E2E → docker → evidence → commit.
+5. Phase 4 memory review
+6. Phase 5 contradiction transparency
 
-## 9. Open items for build (defaults if unanswered)
+## 11. Open items for build (defaults if unanswered)
 
 - Keep `models/ + services/ + guards/` top-level layout (default YES; collapse to per-feature only if imports get messy).
 - PrimeNG stays out until a Phase 2 widget proves need (default YES).

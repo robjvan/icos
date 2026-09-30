@@ -303,7 +303,15 @@ CREATE TABLE IF NOT EXISTS memory_candidates (
 
     extractor_model TEXT NOT NULL,
     extractor_version TEXT NOT NULL,
-    extracted_at TEXT NOT NULL
+    extracted_at TEXT NOT NULL,
+
+    -- M10b: which side of the turn the candidate was mined from.
+    -- Stamped at extraction; pre-stamp rows read 'unknown', never defaulted.
+    source_role TEXT NOT NULL DEFAULT 'unknown',
+
+    -- M10e: explicit negation marker (1 = the turn denies the triple).
+    -- Stamped by the extractor; pre-marker rows read affirmed (0).
+    negated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_candidates_session
@@ -314,6 +322,166 @@ ON memory_candidates(message_id);
 
 CREATE INDEX IF NOT EXISTS idx_memory_candidates_kind
 ON memory_candidates(kind);
+
+/**
+ * M10b belief store. Claims reference ledger rows (evidence_json);
+ * they never edit them. Reserved columns (source_type, summary,
+ * related_json, access_count, last_accessed_at, activation, locked,
+ * emotional_json) exist so M11/M12 need no migration — each has one
+ * future owner, and M10 paths leave them at defaults.
+ */
+CREATE TABLE IF NOT EXISTS claims (
+    id TEXT PRIMARY KEY,
+
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    identity_key TEXT NOT NULL,
+
+    -- M10c: normalized subject/predicate for conflict lookup
+    -- (same subject+predicate, different object). Populated by the
+    -- repository with the same normalization as identity_key.
+    subject_norm TEXT NOT NULL DEFAULT '',
+    predicate_norm TEXT NOT NULL DEFAULT '',
+
+    category TEXT NOT NULL
+        CHECK (category IN ('fact', 'preference', 'relationship', 'procedure')),
+    status TEXT NOT NULL
+        CHECK (status IN ('candidate', 'active', 'contradicted', 'retired')),
+
+    extractor_confidence REAL NOT NULL,
+    confidence REAL NOT NULL,
+
+    first_asserted_at TEXT NOT NULL,
+    last_surfaced_at TEXT NOT NULL,
+
+    origin TEXT NOT NULL CHECK (origin IN ('user', 'agent')),
+
+    -- M10e: same-triple negation marker, part of the identity pair
+    -- (identity_key, negated). Affirmation and negation of one triple
+    -- are rival beliefs that coexist as rows; promotion contradicts
+    -- one into the other, never merges them.
+    negated INTEGER NOT NULL DEFAULT 0,
+
+    source_type TEXT,
+    summary TEXT,
+
+    evidence_json TEXT NOT NULL,
+    related_json TEXT NOT NULL DEFAULT '[]',
+    entities_json TEXT NOT NULL DEFAULT '[]',
+
+    times_observed INTEGER NOT NULL DEFAULT 1,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed_at TEXT,
+    activation REAL,
+    locked INTEGER NOT NULL DEFAULT 0,
+    emotional_json TEXT,
+
+    promotion TEXT NOT NULL,
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_identity
+ON claims(identity_key, negated);
+
+CREATE INDEX IF NOT EXISTS idx_claims_status
+ON claims(status);
+
+CREATE INDEX IF NOT EXISTS idx_claims_category
+ON claims(category);
+
+CREATE INDEX IF NOT EXISTS idx_claims_subject_predicate
+ON claims(subject_norm, predicate_norm);
+
+/**
+ * M10c promotion journal. Exactly-once machinery for candidate →
+ * belief promotion: one row per proposed candidate, approval id as
+ * idempotency key, crash-recoverable states.
+ */
+CREATE TABLE IF NOT EXISTS promotion_journal (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL UNIQUE,
+    operation TEXT NOT NULL CHECK (operation IN ('NEW', 'REINFORCE', 'CONTRADICT')),
+    state TEXT NOT NULL
+        CHECK (state IN ('proposed', 'promoting', 'committed', 'denied', 'failed')),
+    approval_id TEXT,
+    claim_id TEXT,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotion_journal_state
+ON promotion_journal(state);
+
+/**
+ * M10e clarification queue (storage half). One open row per contested
+ * subject+predicate: the conflicting values with their origins and
+ * confidences, a contest counter, and a deterministic suggested
+ * question. Parked evidence that a question exists — nothing retries,
+ * nothing nags, and no turn-time behavior reads this table (M11+).
+ * dismissed has no writer until a later milestone (same reservation
+ * discipline as M10b retired).
+ */
+CREATE TABLE IF NOT EXISTS prospective_items (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    subject_norm TEXT NOT NULL DEFAULT '',
+    predicate_norm TEXT NOT NULL DEFAULT '',
+    options_json TEXT NOT NULL,
+    contest_count INTEGER NOT NULL DEFAULT 1,
+    trigger TEXT NOT NULL
+        CHECK (trigger IN ('confidence_drop', 'repeated_contest')),
+    suggested_question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'dismissed')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospective_items_status
+ON prospective_items(status);
+
+CREATE INDEX IF NOT EXISTS idx_prospective_items_subject_predicate
+ON prospective_items(subject_norm, predicate_norm);
+
+/**
+ * M11a lexical recall surface. External-content FTS5 over the
+ * immutable claim text (subject/predicate/object/entities) — the
+ * same trigger-kept pattern as messages_fts. Claim text never
+ * edits in place (status/evidence/confidence writes touch other
+ * columns), so the index is append-mostly by construction; the
+ * triggers below cover the general case anyway. Entities ride as
+ * raw JSON — the tokenizer splits person:Ada into usable tokens.
+ */
+CREATE VIRTUAL TABLE IF NOT EXISTS claims_fts USING fts5(
+    subject,
+    predicate,
+    object,
+    entities_json,
+    content='claims',
+    content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS claims_ai AFTER INSERT ON claims BEGIN
+    INSERT INTO claims_fts(rowid, subject, predicate, object, entities_json)
+    VALUES (new.rowid, new.subject, new.predicate, new.object, new.entities_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS claims_ad AFTER DELETE ON claims BEGIN
+    INSERT INTO claims_fts(claims_fts, rowid, subject, predicate, object, entities_json)
+    VALUES ('delete', old.rowid, old.subject, old.predicate, old.object, old.entities_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS claims_au AFTER UPDATE ON claims BEGIN
+    INSERT INTO claims_fts(claims_fts, rowid, subject, predicate, object, entities_json)
+    VALUES ('delete', old.rowid, old.subject, old.predicate, old.object, old.entities_json);
+    INSERT INTO claims_fts(rowid, subject, predicate, object, entities_json)
+    VALUES (new.rowid, new.subject, new.predicate, new.object, new.entities_json);
+END;
 `;
 
 const SCHEMAS: Record<
@@ -342,8 +510,14 @@ const SCHEMAS: Record<
   },
   memories: {
     sql: MEMORIES_SCHEMA_SQL,
-    tables: ['memory_candidates'],
-    triggers: [],
+    tables: [
+      'memory_candidates',
+      'claims',
+      'claims_fts',
+      'promotion_journal',
+      'prospective_items',
+    ],
+    triggers: ['claims_ai', 'claims_ad', 'claims_au'],
   },
 };
 
@@ -394,6 +568,39 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       'transcript_state',
       `TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written'))`,
     );
+  }
+  if (schema === 'memories') {
+    // M10b: live ledger files predate the origin stamp.
+    addColumnIfMissing(
+      db,
+      'memory_candidates',
+      'source_role',
+      `TEXT NOT NULL DEFAULT 'unknown'`,
+    );
+    // M10e: live files predate the negation marker.
+    addColumnIfMissing(
+      db,
+      'memory_candidates',
+      'negated',
+      `INTEGER NOT NULL DEFAULT 0`,
+    );
+    addColumnIfMissing(db, 'claims', 'negated', `INTEGER NOT NULL DEFAULT 0`);
+    migrateClaimIdentityIndex(db);
+    migrateClaimsFts(db);
+    // M10c: live claim files predate conflict-lookup columns.
+    addColumnIfMissing(
+      db,
+      'claims',
+      'subject_norm',
+      `TEXT NOT NULL DEFAULT ''`,
+    );
+    addColumnIfMissing(
+      db,
+      'claims',
+      'predicate_norm',
+      `TEXT NOT NULL DEFAULT ''`,
+    );
+    backfillClaimNorms(db);
   }
 }
 
@@ -486,6 +693,58 @@ function ensureToolRequestsTrigger(db: Database.Database): void {
   if (trigger && trigger.sql.includes('approval_id')) return;
   db.exec(`DROP TRIGGER IF EXISTS tool_requests_identity_immutable;`);
   db.exec(TOOL_REQUESTS_IMMUTABLE_TRIGGER_SQL);
+}
+/**
+ * M11a backfill for the lexical surface. The FTS table and triggers
+ * come from the schema SQL above; live claim rows predate them.
+ * Detection is deliberately dumb: external-content FTS tables answer
+ * every non-MATCH read (COUNT(*), rowid probes included) from the
+ * content table, so no cheap query distinguishes an empty index from
+ * a populated one. Rebuild unconditionally while claims exist — it
+ * is idempotent, trigger-kept afterwards, and milliseconds at our
+ * scale. Past ~10k claims this wants a watermark instead (same scale
+ * review as the RuVector reopen note in M10a).
+ */
+function migrateClaimsFts(db: Database.Database): void {
+  const claims = (
+    db.prepare(`SELECT COUNT(*) AS n FROM claims`).get() as { n: number }
+  ).n;
+  if (claims === 0) return;
+  db.exec(`INSERT INTO claims_fts(claims_fts) VALUES('rebuild')`);
+}
+
+/**
+ * M10e upgrade for the M10b-era identity index: pre-M10e tables enforce
+ * uniqueness on `identity_key` alone, which forbids the negated rival
+ * of an affirmed triple. Rebuilds the index as the (identity_key,
+ * negated) pair — row data untouched, so convergence history survives.
+ * Idempotent: composite tables are left alone.
+ */
+function migrateClaimIdentityIndex(db: Database.Database): void {
+  const index = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_claims_identity'`,
+    )
+    .get() as { sql: string | null } | undefined;
+  if (index?.sql?.includes('negated')) return;
+  db.exec(`DROP INDEX IF EXISTS idx_claims_identity;`);
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_identity ON claims(identity_key, negated);`,
+  );
+}
+
+/**
+ * M10c backfill for claim rows predating the norm columns. SQL-level
+ * approximation (case/whitespace/underscores) — close enough for
+ * conflict lookup on legacy rows; every row written by the
+ * repository carries exact norms. Only touches rows never populated.
+ */
+function backfillClaimNorms(db: Database.Database): void {
+  db.exec(`
+    UPDATE claims
+       SET subject_norm = lower(trim(replace(subject, '_', ' '))),
+           predicate_norm = lower(trim(replace(predicate, '_', ' ')))
+     WHERE subject_norm = '' OR predicate_norm = '';`);
 }
 
 function addColumnIfMissing(

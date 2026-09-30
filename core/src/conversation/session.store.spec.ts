@@ -22,6 +22,14 @@ function makeStore(maxHistory = 50): {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'm',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -32,6 +40,9 @@ function makeStore(maxHistory = 50): {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
   const repository = new FakeSessionRepository();
   return { store: new SessionStore(repository, config), repository };

@@ -1,0 +1,149 @@
+<section class="beliefs" aria-label="Beliefs">
+  <div class="beliefs-header">
+    <h2>Beliefs</h2>
+    <span class="grow"></span>
+    <button type="button" (click)="load()">Refresh</button>
+  </div>
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <form class="search" [formGroup]="searchForm" (ngSubmit)="search()" aria-label="Search beliefs">
+    <svg lucideSearch [size]="14" aria-hidden="true"></svg>
+    <input
+      type="search"
+      formControlName="query"
+      placeholder="Search beliefs..."
+      autocomplete="off"
+      aria-label="Search beliefs"
+    />
+    <button type="submit">Search</button>
+  </form>
+
+  @if (degraded() !== null) {
+    <p class="degraded" role="status">
+      <span class="degraded-badge">degraded</span> {{ degraded() }}
+    </p>
+  }
+
+  @if (hasResults()) {
+    <ul class="result-list" aria-label="Search results">
+      @for (result of results(); track result.id) {
+        <li>
+          <button type="button" (click)="openClaim(result.id)">
+            <span class="statement">{{ result.subject }} {{ result.predicate }} {{ result.object }}</span>
+            <span class="mono score">{{ result.score }}</span>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  <form class="filters" [formGroup]="filterForm" (ngSubmit)="load()" aria-label="Filter beliefs">
+    <label>
+      Status
+      <select formControlName="status">
+        <option value="">any</option>
+        <option value="active">active</option>
+        <option value="candidate">candidate</option>
+        <option value="contradicted">contradicted</option>
+        <option value="retired">retired</option>
+      </select>
+    </label>
+    <label>
+      Category
+      <select formControlName="category">
+        <option value="">any</option>
+        <option value="fact">fact</option>
+        <option value="preference">preference</option>
+        <option value="relationship">relationship</option>
+        <option value="procedure">procedure</option>
+      </select>
+    </label>
+    <label>
+      Origin
+      <select formControlName="origin">
+        <option value="">any</option>
+        <option value="user">user</option>
+        <option value="agent">agent</option>
+      </select>
+    </label>
+    <button type="submit">Apply</button>
+    <button type="button" (click)="clearFilters()">Clear</button>
+  </form>
+
+  <ul class="claim-list" aria-label="Claims">
+    @for (claim of claims(); track claim.id) {
+      <li>
+        <button type="button" (click)="openClaim(claim.id)">
+          <span class="row-head">
+            <app-status-badge [state]="claim.status" [label]="claim.status" />
+            <span class="category mono">{{ claim.category }} · {{ claim.origin }}</span>
+          </span>
+          <span class="statement">{{ claim.subject }} {{ claim.predicate }} {{ claim.object }}</span>
+          <span class="meta mono">conf {{ claim.confidence }} · obs {{ claim.timesObserved }}</span>
+        </button>
+      </li>
+    } @empty {
+      @if (error() === null) {
+        <li class="empty">No beliefs match these filters.</li>
+      }
+    }
+  </ul>
+
+  @if (selected() !== null) {
+    <article class="claim-detail" [attr.aria-label]="'Claim ' + selected()!.id">
+      <div class="claim-detail-header">
+        <h3>{{ selected()!.subject }} {{ selected()!.predicate }} {{ selected()!.object }}</h3>
+        <span class="grow"></span>
+        <button type="button" (click)="closeClaim()">Close</button>
+      </div>
+      <p><app-status-badge [state]="selected()!.status" [label]="selected()!.status" /></p>
+      <dl class="provenance">
+        <div>
+          <dt>first asserted (candidate)</dt>
+          <dd class="mono">{{ selected()!.firstAssertedAt.slice(0, 8) }}</dd>
+        </div>
+        <div>
+          <dt>last surfaced (candidate)</dt>
+          <dd class="mono">{{ selected()!.lastSurfacedAt.slice(0, 8) }}</dd>
+        </div>
+        <div>
+          <dt>extractor confidence</dt>
+          <dd class="mono">{{ selected()!.extractorConfidence }}</dd>
+        </div>
+        <div>
+          <dt>engine confidence</dt>
+          <dd class="mono">{{ selected()!.confidence }}</dd>
+        </div>
+        <div>
+          <dt>promotion</dt>
+          <dd class="mono">{{ selected()!.promotion }}</dd>
+        </div>
+      </dl>
+      <h4>Evidence</h4>
+      <ul class="evidence-list">
+        @for (item of selectedEvidence(); track $index) {
+          <li class="mono">
+            @if (item !== null) {
+              {{ item.subject }} {{ item.predicate }} {{ item.object }}
+            } @else {
+              evidence unavailable
+            }
+          </li>
+        } @empty {
+          <li class="empty">No evidence rows.</li>
+        }
+      </ul>
+      <h4>Promotion history</h4>
+      <ul class="history-list">
+        @for (row of selectedHistory(); track $index) {
+          <li class="mono">{{ row.operation }} · {{ row.state }}</li>
+        } @empty {
+          <li class="empty">No journal history.</li>
+        }
+      </ul>
+    </article>
+  }
+</section>

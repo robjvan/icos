@@ -24,6 +24,15 @@ import type {
 import { EXTRACTION_VERSION } from '../memory/extraction.prompt';
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import { ClaimRepository } from '../memory/claim.repository';
+import { PromotionService } from '../memory/promotion.service';
+import { compareRecalled } from '../memory/comparison';
+import { buildKbBand } from '../memory/prompt-bands';
+import { applyBandBudget } from '../memory/prompt-bands';
+import { RankService } from '../memory/rank.service';
+import { RecallService } from '../memory/recall.service';
+import { RecallTraceStore } from '../memory/recall-trace.store';
+import type { RecallTrace } from '../memory/recall-trace.store';
 import { SkillService } from '../skills/skill.service';
 import type { ResolvedTurnSkills } from '../skills/skill.service';
 import type { LoadedSkill, TurnSkillReport } from '../skills/skill.types';
@@ -40,6 +49,8 @@ import type { ToolName } from '../tools/tool-registry';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
+import { realtimeEvent } from '../realtime/realtime-event';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import {
   assembleTurnMessages,
   buildPlanningBlock,
@@ -51,6 +62,7 @@ import type {
   RunTermination,
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
+import type { ContextMemory } from './context.builder';
 import { SessionStore } from './session.store';
 import type { HistoryMessage } from './session.store';
 
@@ -182,6 +194,9 @@ export const TOOL_STEP_INSTRUCTION =
 /** Completed ledger pairs injected per turn (newest context, bounded). */
 const MAX_TOOL_PAIRS = 5;
 
+/** Per-surface recall width (M11e budgets refine this). */
+const RECALL_K = 10;
+
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
@@ -197,6 +212,12 @@ export class ConversationService {
     private readonly registry: ToolRegistry,
     private readonly agentRuns: AgentRunRepository,
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
+    private readonly promotion: PromotionService,
+    private readonly recall: RecallService,
+    private readonly rank: RankService,
+    private readonly traces: RecallTraceStore,
+    private readonly claims: ClaimRepository,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async converse(message: string, sessionId?: string): Promise<TurnOutcome> {
@@ -368,6 +389,11 @@ export class ConversationService {
       }
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
+      }
+      // Sidebar refresh across tabs: the session list/preview changed.
+      // Parked turns park the run instead — the resume emits on completion.
+      if (outcome.status !== 'approval_required') {
+        this.realtime.publish(realtimeEvent('session.updated', {}, id));
       }
       return outcome;
     }
@@ -617,6 +643,11 @@ export class ConversationService {
       }
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
+      }
+      if (outcome.status !== 'approval_required') {
+        this.realtime.publish(
+          realtimeEvent('session.updated', {}, record.sessionId),
+        );
       }
       return outcome;
     }
@@ -895,6 +926,11 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, record.sessionId),
+            );
+          }
           return;
         }
       } catch (err) {
@@ -1010,6 +1046,11 @@ export class ConversationService {
           });
           this.finishRun(storedId, terminal.state, terminal.termination);
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, settled.record.sessionId),
+            );
+          }
           return;
         }
         // M9h continuation: bounded planning over remaining budget.
@@ -1207,6 +1248,11 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
+          if (outcome.status !== 'approval_required') {
+            this.realtime.publish(
+              realtimeEvent('session.updated', {}, record.sessionId),
+            );
+          }
           return;
         }
       } catch (err) {
@@ -1499,7 +1545,13 @@ export class ConversationService {
     const history = await this.sessions.getContextMessages(sessionId);
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
     const pairs = this.tools.recentPairs(sessionId, MAX_TOOL_PAIRS);
-    const textMessages = this.prepareMessages(history, message, skills);
+    const recalled = await this.recallTurn(sessionId, message);
+    const textMessages = this.prepareMessages(
+      history,
+      message,
+      skills,
+      recalled.bands,
+    );
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = textMessages[textMessages.length - 1];
@@ -1721,15 +1773,33 @@ export class ConversationService {
         context: input.history,
       });
     }
+    // M11 access observation: claims surfaced in this turn's bands
+    // count as retrieved. Fire-and-forget like extraction — a counter
+    // write must never fail a turn, and M12 owns the meaning.
+    const recalledIds = this.traces
+      .get(input.sessionId)
+      ?.ranked.filter(
+        (row) =>
+          row.disposition === 'recalled' || row.disposition === 'familiar',
+      )
+      .map((row) => row.claimId);
+    if (recalledIds !== undefined && recalledIds.length > 0) {
+      void this.claims.recordAccessed(recalledIds).catch((err: unknown) => {
+        this.logger.warn(
+          `Access observation failed for session ${input.sessionId}: ${
+            err instanceof Error ? err.message : 'unknown error'
+          }`,
+        );
+      });
+    }
   }
 
   private prepareMessages(
     history: ChatMessage[],
     message: string,
     turnSkills?: ResolvedTurnSkills,
+    memory?: ContextMemory,
   ): ChatMessage[] {
-    // TODO(core.md): memory.recall goes here — retrieve relevant memories
-    // for { input, session, profile } before building context.
     return buildContext(
       this.config.systemPrompt,
       history,
@@ -1743,7 +1813,138 @@ export class ConversationService {
             contextual: turnSkills.contextual,
           }
         : undefined,
+      memory,
     );
+  }
+
+  /**
+   * Turn-time recall (M11d): surfaces → rank → compare → budget →
+   * bands, traced per session. Latency-bounded (M11e): a pipeline
+   * exceeding the budget degrades to bare context instead of
+   * stalling the turn. Any failure degrades the same way — recall
+   * never fails a turn. The trace (not the bands) is what
+   * inspection reads.
+   */
+  private async recallTurn(
+    sessionId: string,
+    message: string,
+  ): Promise<{ bands: ContextMemory; trace: RecallTrace }> {
+    const lens = { exclude: this.config.memoryRecallExcludeOrigins };
+    try {
+      const pipeline = (async () => {
+        const recall = await this.recall.recall(message, RECALL_K);
+        const { ranked, trace: rankTrace } = await this.rank.rank(
+          [
+            ...recall.lexical.hits,
+            ...recall.semantic.hits,
+            ...recall.associative.hits,
+          ],
+          { lens },
+        );
+        const { notes, proposedQuestions } = compareRecalled(ranked);
+        return { recall, ranked, rankTrace, notes, proposedQuestions };
+      })();
+      // The timeout may win the race; the attachment keeps a late
+      // pipeline rejection from surfacing as unhandled.
+      pipeline.catch(() => {});
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const { recall, ranked, rankTrace, notes, proposedQuestions } =
+          await Promise.race([
+            pipeline,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('recall_timeout')),
+                this.config.memoryRecallTimeoutMs,
+              );
+            }),
+          ]);
+        const budgeted = applyBandBudget(ranked, notes, {
+          maxTokens: this.config.memoryRecallMaxBandTokens,
+        });
+        let memoryBand = budgeted.band;
+        // Uncertainty vocabulary: an active miss on live surfaces is
+        // declared ("nothing recalled"), never silent — the model can
+        // quote the marker instead of confabulating absence. Failed
+        // or partial recall stays bandless (honest degradation).
+        const surfacesLive =
+          recall.lexical.available &&
+          recall.semantic.available &&
+          recall.associative.available;
+        if (memoryBand === null && recall.query.text !== '' && surfacesLive) {
+          memoryBand =
+            '[memory: nothing recalled for this turn — no matching beliefs]';
+        }
+        const kbBand = buildKbBand(recall.kb.hits, recall.kb.available);
+        const bands: ContextMemory = { memoryBand, kbBand };
+        const trace = this.traces.save({
+          sessionId,
+          query: recall.query,
+          surfaces: {
+            lexical: {
+              available: recall.lexical.available,
+              hits: recall.lexical.hits.length,
+              ...(recall.lexical.reason !== undefined
+                ? { reason: recall.lexical.reason }
+                : {}),
+            },
+            semantic: {
+              available: recall.semantic.available,
+              hits: recall.semantic.hits.length,
+              ...(recall.semantic.reason !== undefined
+                ? { reason: recall.semantic.reason }
+                : {}),
+            },
+            associative: {
+              available: recall.associative.available,
+              hits: recall.associative.hits.length,
+              ...(recall.associative.reason !== undefined
+                ? { reason: recall.associative.reason }
+                : {}),
+            },
+          },
+          ranked: budgeted.ranked.map((row) => ({
+            claimId: row.claim.id,
+            disposition: row.disposition,
+            demoted: row.demoted,
+            fusedScore: row.fusedScore,
+            surfaces: [...row.surfaces],
+            reasons: [...row.reasons],
+          })),
+          notes,
+          proposedQuestions,
+          lens,
+          gate: this.config.memoryRecallConfidenceGate,
+          bands: { memory: memoryBand !== null, kb: kbBand !== null },
+          kbAvailable: recall.kb.available,
+          degraded: [
+            ...rankTrace.gated.map((id) => `gated:${id}`),
+            ...rankTrace.lensExcluded.map((id) => `lens:${id}`),
+            ...budgeted.dropped.map((id) => `budget:${id}`),
+          ],
+        });
+        return { bands, trace };
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'unknown error';
+      this.logger.warn(`Recall failed for session ${sessionId}: ${reason}`);
+      const trace = this.traces.save({
+        sessionId,
+        query: { text: message.trim().slice(0, 500), tokens: [] },
+        surfaces: {},
+        ranked: [],
+        notes: [],
+        proposedQuestions: [],
+        lens,
+        gate: this.config.memoryRecallConfidenceGate,
+        bands: { memory: false, kb: false },
+        kbAvailable: false,
+        degraded: [`recall_error:${reason}`],
+      });
+      return { bands: { memoryBand: null, kbBand: null }, trace };
+    }
   }
 
   private providerError(err: unknown): Error {
@@ -1981,17 +2182,29 @@ export class ConversationService {
       })
       .then((validated) => {
         if (validated.length === 0) return;
-        return this.candidates.saveCandidates(
-          validated.map((candidate) => ({
-            ...candidate,
-            source: {
-              sessionId: input.sessionId,
-              messageId: input.userMessageId,
-            },
-            extractorModel: this.config.memoryLlmModel,
-            extractorVersion: EXTRACTION_VERSION,
-          })),
-        );
+        return this.candidates
+          .saveCandidates(
+            validated.map((candidate) => ({
+              ...candidate,
+              source: {
+                sessionId: input.sessionId,
+                messageId: input.userMessageId,
+                // Old extractor versions predate the stamp; absence reads
+                // 'unknown', never invented.
+                role: candidate.sourceRole ?? 'unknown',
+              },
+              // Foreign extractor implementations may omit the M10e
+              // marker; absence reads affirmed, never negated.
+              negated: candidate.negated ?? false,
+              extractorModel: this.config.memoryLlmModel,
+              extractorVersion: EXTRACTION_VERSION,
+            })),
+          )
+          .then((saved) => {
+            // Proposal is fire-and-forget inside fire-and-forget:
+            // execution happens on the explicit sweep path, never here.
+            if (saved) void this.promotion.proposeCandidates(saved);
+          });
       })
       .catch((err: unknown) => {
         this.logger.warn(

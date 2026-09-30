@@ -11,6 +11,7 @@ import {
   SessionService,
 } from './session-data.service';
 import { ConversationStreamService } from './conversation-stream.service';
+import { MEMORY_PROMOTE_ACTION } from '../../constants';
 
 const SESSION_LIST_GUARD = 'Sidebar is auxiliary; chat must keep working.';
 const MAX_PROCESSING_RESUMES = 10;
@@ -194,7 +195,10 @@ export class ConversationStore {
       return;
     }
     try {
-      this.approvals.set(await this.approvalsApi.listPending(session));
+      // Memory promotions live in the Review lens (global queue), never
+      // the chat card surface. Tool approvals are unaffected.
+      const pending = await this.approvalsApi.listPending(session);
+      this.approvals.set(pending.filter((row) => row.action !== MEMORY_PROMOTE_ACTION));
     } catch {
       // Approvals are auxiliary; chat must keep working.
     }

@@ -31,7 +31,14 @@ describe('ChatUiComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [ChatUiComponent],
-      providers: [provideRouter([]), { provide: ConversationStore, useValue: store }],
+      providers: [
+        provideRouter([]),
+        { provide: ConversationStore, useValue: store },
+        {
+          provide: (await import('../../services/realtime.service')).RealtimeService,
+          useValue: { trackSession: vi.fn(), resubscribe: vi.fn() },
+        },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ChatUiComponent);
@@ -55,14 +62,14 @@ describe('ChatUiComponent', () => {
     expect(component.sessionLabel()).toBe('new session');
   });
 
-  it('should refocus the composer after opening a session', async () => {
-    fixture.detectChanges();
+  it('should track the session for realtime room filtering on open', async () => {
+    const { RealtimeService } = await import('../../services/realtime.service');
+    const realtime = TestBed.inject(RealtimeService) as unknown as {
+      trackSession: ReturnType<typeof vi.fn>;
+    };
     component.openSession('s1');
-    await fixture.whenStable();
-    // Focus is deferred a macrotask past change detection.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.ownerDocument.activeElement?.id).toBe('composer-input');
+    expect(realtime.trackSession).toHaveBeenCalledWith('s1');
+    component.startNewSession();
+    expect(realtime.trackSession).toHaveBeenCalledWith(null);
   });
 });

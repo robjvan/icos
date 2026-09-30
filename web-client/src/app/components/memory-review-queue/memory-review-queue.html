@@ -1,0 +1,77 @@
+<section class="review-queue" aria-label="Promotion review queue" #queueRegion tabindex="-1">
+  <div class="review-queue-header">
+    <h2>Review</h2>
+    <span class="count" aria-live="polite">{{ openCount() }} pending</span>
+    @if (truncated()) {
+      <span class="badge-warn">showing {{ review.items().length }} of {{ review.total() }}</span>
+    }
+    <span class="grow"></span>
+    <button type="button" (click)="runSweep()" [disabled]="review.runningSweep()">
+      {{ review.runningSweep() ? 'Running…' : 'Run promotions' }}
+    </button>
+    <button type="button" (click)="load()">Refresh</button>
+  </div>
+
+  @if (review.lastSummary() !== null) {
+    <p class="summary" role="status">
+      Sweep: new {{ review.lastSummary()!.new }} · reinforced
+      {{ review.lastSummary()!.reinforced }} · contradicted
+      {{ review.lastSummary()!.contradicted }} · denied {{ review.lastSummary()!.denied }} ·
+      failed {{ review.lastSummary()!.failed }} · skipped {{ review.lastSummary()!.skipped }}
+    </p>
+  }
+
+  @if (review.error() !== null) {
+    <p class="error" role="alert">{{ review.error() }}</p>
+  }
+
+  <label class="resolved-toggle">
+    <input
+      type="checkbox"
+      [checked]="review.showResolved()"
+      (change)="toggleResolved($any($event.target).checked)"
+    />
+    Show resolved
+  </label>
+
+  <ul class="queue-list" aria-label="Promotion queue">
+    @for (item of review.items(); track item.id) {
+      <li class="queue-row" [attr.data-row]="item.id">
+        <div class="row-head">
+          <app-status-badge [state]="stateOf(item)" [label]="stateLabel(item)" />
+          @if (contradicts(item)) {
+            <span class="contra-chip">will contradict{{ contradictsId(item) ? ' ' + contradictsId(item)!.slice(0, 8) : '' }}</span>
+          }
+          <span class="operation mono">{{ item.operation }}</span>
+        </div>
+        <p class="statement">{{ statementFor(item) }}</p>
+        <p class="meta mono">
+          {{ item.candidateId.slice(0, 8) }} · conf — · {{ item.createdAt }}
+        </p>
+        @if (stateOf(item) === 'FAILED') {
+          <p class="detail mono">{{ item.detail }}</p>
+        }
+        @if (stateOf(item) === 'PENDING' || stateOf(item) === 'AWAITING_SWEEP') {
+          <div class="row-actions">
+            @if (stateOf(item) === 'PENDING') {
+              <button type="button" (click)="approve(item)" [disabled]="!canApprove(item)">
+                {{ review.busyId() === item.id ? 'Approving…' : 'Approve' }}
+              </button>
+              <button type="button" class="reject" (click)="reject(item)" [disabled]="!canReject(item)">
+                {{ review.busyId() === item.id ? 'Rejecting…' : 'Reject' }}
+              </button>
+            } @else {
+              <button type="button" (click)="runSweep()" [disabled]="review.runningSweep()">
+                Run promotions
+              </button>
+            }
+          </div>
+        }
+      </li>
+    } @empty {
+      @if (review.error() === null) {
+        <li class="empty">No promotions awaiting review.</li>
+      }
+    }
+  </ul>
+</section>

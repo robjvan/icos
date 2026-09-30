@@ -48,6 +48,47 @@
   color: var(--text-primary);
 }
 
+.segments {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.5rem;
+}
+
+.segments a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  text-transform: capitalize;
+}
+
+.segments a:hover {
+  color: var(--text-primary);
+}
+
+.segments a.active {
+  color: var(--text-primary);
+  background: var(--bg-glass);
+}
+
+.segment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: var(--accent-sage-deep);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
 .error {
   color: var(--accent-red);
   font-size: 0.8125rem;

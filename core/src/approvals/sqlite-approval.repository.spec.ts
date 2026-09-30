@@ -28,6 +28,14 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'm',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -38,6 +46,9 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
 }
 
@@ -189,5 +200,30 @@ describe('SqliteApprovalRepository', () => {
 
   it('pings liveness', async () => {
     await expect((await setup()).ping()).resolves.toBeUndefined();
+  });
+
+  it('keeps pending approvals across close and reopen', async () => {
+    const path = join(dir, 'persist.sqlite');
+    const first = new SessionDatabaseService(testConfig(path, dir));
+    first.onModuleInit();
+    const sessions = new SqliteSessionRepository(first);
+    await sessions.createSession('s1');
+    const repo = new SqliteApprovalRepository(first);
+    const pending = await repo.createApproval({
+      sessionId: 's1',
+      action: 'memory.promote',
+      description: 'promote candidate',
+    });
+    first.onModuleDestroy();
+
+    const second = new SessionDatabaseService(testConfig(path, dir));
+    second.onModuleInit();
+    services.push(second);
+    const reopened = new SqliteApprovalRepository(second);
+    expect(await reopened.getApproval(pending.id)).toMatchObject({
+      status: 'pending',
+      action: 'memory.promote',
+      description: 'promote candidate',
+    });
   });
 });

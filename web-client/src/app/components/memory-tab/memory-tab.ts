@@ -1,22 +1,69 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { map } from 'rxjs';
 import { LucideSearch } from '@lucide/angular';
 import { MemoryCandidateService } from '../../services/memory-candidate.service';
+import { MemoryReviewService } from '../../services/memory-review.service';
+import { ClaimList } from '../claim-list/claim-list';
+import { MemoryReviewQueue } from '../memory-review-queue/memory-review-queue';
+
+export type MemoryView = 'review' | 'beliefs' | 'ledger';
+
+const VIEWS: readonly MemoryView[] = ['review', 'beliefs', 'ledger'];
+
+function parseView(raw: string | null): MemoryView | null {
+  return raw === 'review' || raw === 'beliefs' || raw === 'ledger' ? raw : null;
+}
 
 /**
- * Memory tab: live read of the `GET /core/memory-candidates` evidence
- * ledger. Ranking/consolidation (M10–M12) has no server backing — the tab
- * badges that boundary explicitly.
+ * Memory tab: three segments over one dataset. Review (actionable
+ * queue, the fix for "easy to miss"), Beliefs (read-only claim
+ * inspection), Ledger (the existing candidate list, unchanged).
+ * The segment is a route query param (`/memory?view=`) so the nav
+ * badge can deep-link to Review. Default: review when pending > 0,
+ * else beliefs.
  */
 @Component({
   selector: 'app-memory-tab',
-  imports: [ReactiveFormsModule, LucideSearch],
+  imports: [
+    ReactiveFormsModule,
+    RouterLink,
+    LucideSearch,
+    ClaimList,
+    MemoryReviewQueue,
+  ],
   templateUrl: './memory-tab.html',
   styleUrl: './memory-tab.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MemoryTab implements OnInit {
   readonly ledger = inject(MemoryCandidateService);
+  readonly review = inject(MemoryReviewService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  private readonly viewParam = toSignal(
+    this.route.queryParamMap.pipe(map((params) => parseView(params.get('view')))),
+    { initialValue: null },
+  );
+
+  readonly view = computed<MemoryView>(() => {
+    const param = this.viewParam();
+    if (param !== null) {
+      return param;
+    }
+    return this.review.pendingCount() > 0 ? 'review' : 'beliefs';
+  });
+
+  readonly views: readonly MemoryView[] = VIEWS;
 
   readonly filterForm = new FormGroup({
     sessionId: new FormControl('', { nonNullable: true }),
@@ -24,6 +71,15 @@ export class MemoryTab implements OnInit {
 
   ngOnInit(): void {
     void this.ledger.refresh();
+    void this.review.refresh();
+  }
+
+  selectView(view: MemoryView): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view },
+      queryParamsHandling: 'merge',
+    });
   }
 
   refresh(): void {

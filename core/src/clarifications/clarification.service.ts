@@ -16,6 +16,8 @@ import type {
   ClarificationRequest,
   ClarificationStatus,
 } from './clarification.repository';
+import { realtimeEvent } from '../realtime/realtime-event';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 export interface ClarificationDetail extends ClarificationRequest {
   events: ClarificationEvent[];
@@ -32,6 +34,7 @@ export class ClarificationService {
   constructor(
     private readonly clarifications: ClarificationRepository,
     private readonly sessions: SessionRepository,
+    private readonly realtime: RealtimePublisher,
   ) {}
 
   async create(input: {
@@ -44,7 +47,7 @@ export class ClarificationService {
     if (!session) {
       throw new NotFoundException(`Unknown session "${input.sessionId}"`);
     }
-    return this.clarifications.createClarification({
+    const request = await this.clarifications.createClarification({
       sessionId: input.sessionId,
       question: input.question.trim(),
       ...(input.options !== undefined ? { options: input.options } : {}),
@@ -52,6 +55,14 @@ export class ClarificationService {
         ? { expiresAt: new Date(Date.now() + input.ttlMs).toISOString() }
         : {}),
     });
+    this.realtime.publish(
+      realtimeEvent(
+        'clarification.created',
+        { clarificationId: request.id },
+        request.sessionId,
+      ),
+    );
+    return request;
   }
 
   async get(id: string): Promise<ClarificationDetail> {
@@ -81,7 +92,18 @@ export class ClarificationService {
       );
     }
     try {
-      return await this.clarifications.answerClarification(id, answer);
+      const resolved = await this.clarifications.answerClarification(
+        id,
+        answer,
+      );
+      this.realtime.publish(
+        realtimeEvent(
+          'clarification.resolved',
+          { clarificationId: resolved.id, status: resolved.status },
+          resolved.sessionId,
+        ),
+      );
+      return resolved;
     } catch (err) {
       throw this.mapRepositoryError(err);
     }
@@ -96,7 +118,15 @@ export class ClarificationService {
       );
     }
     try {
-      return await this.clarifications.cancelClarification(id);
+      const resolved = await this.clarifications.cancelClarification(id);
+      this.realtime.publish(
+        realtimeEvent(
+          'clarification.resolved',
+          { clarificationId: resolved.id, status: resolved.status },
+          resolved.sessionId,
+        ),
+      );
+      return resolved;
     } catch (err) {
       throw this.mapRepositoryError(err);
     }

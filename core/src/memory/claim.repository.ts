@@ -1,0 +1,71 @@
+import type {
+  Claim,
+  ClaimCategory,
+  ClaimEvidence,
+  ClaimOrigin,
+  ClaimStatus,
+  NewClaim,
+} from './claim';
+import type { Triple } from './claim-identity';
+
+/**
+ * Belief-store boundary. Persists claims derived from the evidence
+ * ledger — it never extracts, never promotes on its own, and never
+ * touches ledger rows. M10d may add a vector-backed implementation
+ * behind this same interface; consumers must not assume SQLite.
+ */
+export abstract class ClaimRepository {
+  abstract createClaim(claim: NewClaim): Promise<Claim>;
+
+  abstract getClaim(id: string): Promise<Claim | null>;
+
+  /** Find by normalized triple identity (dedup / convergence). */
+  abstract findByTriple(
+    triple: Triple & { negated?: boolean },
+  ): Promise<Claim | null>;
+
+  /**
+   * Conflict lookup: claims sharing normalized subject+predicate
+   * regardless of object, newest-touch first. The CONTRADICT
+   * derivation works from this set.
+   */
+  abstract findBySubjectPredicate(
+    subject: string,
+    predicate: string,
+  ): Promise<Claim[]>;
+
+  /**
+   * REINFORCE: append evidence, touch lastSurfacedAt, bump
+   * timesObserved. Never rewrites firstAssertedAt or origin.
+   */
+  abstract appendEvidence(
+    id: string,
+    evidence: ClaimEvidence[],
+    confidence: number,
+  ): Promise<Claim | null>;
+
+  /**
+   * Status transition with lifecycle enforcement:
+   * candidate → active, active → contradicted, any → retired.
+   * Returns null when the claim is missing or the transition illegal.
+   */
+  abstract setStatus(id: string, status: ClaimStatus): Promise<Claim | null>;
+
+  abstract listClaims(options?: {
+    status?: ClaimStatus;
+    category?: ClaimCategory;
+    origin?: ClaimOrigin;
+    limit?: number;
+  }): Promise<Claim[]>;
+
+  /**
+   * M11 access observation: bump `accessCount` and touch
+   * `lastAccessedAt` for claims surfaced in a turn. The single
+   * mutation M11 is allowed — M12 owns its meaning, and nothing
+   * else here writes beliefs. Missing ids are ignored.
+   */
+  abstract recordAccessed(ids: string[]): Promise<void>;
+
+  /** Cheap liveness probe for health checks. */
+  abstract ping(): Promise<void>;
+}

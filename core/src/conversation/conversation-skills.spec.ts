@@ -11,10 +11,16 @@ import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import type { MemoryExtractionInput } from '../memory/memory-candidate-extractor';
 import type { ValidatedCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import { ClaimRepository } from '../memory/claim.repository';
+import { PromotionService } from '../memory/promotion.service';
+import { RankService } from '../memory/rank.service';
+import { RecallService } from '../memory/recall.service';
+import { RecallTraceStore } from '../memory/recall-trace.store';
 import { SKILL_FILE } from '../skills/skill-loader';
 import { SkillService } from '../skills/skill.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -50,6 +56,14 @@ function testConfig(
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'test-model',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath,
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -60,6 +74,9 @@ function testConfig(
     agentMaxIterations: MAX_ITERATIONS,
     agentMaxToolSteps: MAX_TOOL_STEPS,
     agentMaxTurnDurationMs: MAX_TURN_DURATION_MS,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
     ...overrides,
   };
 }
@@ -125,6 +142,14 @@ async function setup(
     new ToolRegistry(),
     stubAgentRuns().service,
     config,
+    {
+      proposeCandidates: () => Promise.resolve([]),
+    } as unknown as PromotionService,
+    {} as unknown as RecallService,
+    {} as unknown as RankService,
+    new RecallTraceStore(),
+    {} as unknown as ClaimRepository,
+    new NoopPublisher(),
   );
   return {
     service,

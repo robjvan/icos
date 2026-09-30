@@ -11,4 +11,10 @@ export const SESSIONS_ENDPOINT = '/core/sessions';
 export const APPROVALS_ENDPOINT = '/core/approvals';
 export const CLARIFICATIONS_ENDPOINT = '/core/clarifications';
 export const MEMORY_CANDIDATES_ENDPOINT = '/core/memory-candidates';
+export const PROMOTIONS_ENDPOINT = '/core/promotions';
+export const CLAIMS_ENDPOINT = '/core/claims';
 export const SKILLS_ENDPOINT = '/core/skills';
+export const HEALTH_ENDPOINT = '/core/health';
+
+/** Approval action for candidate → belief promotion (mirrors core PROMOTE_ACTION). */
+export const MEMORY_PROMOTE_ACTION = 'memory.promote';

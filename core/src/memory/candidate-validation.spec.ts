@@ -10,10 +10,16 @@ const good = {
   stability: 0.88,
 };
 
+const goodValidated = {
+  ...good,
+  sourceRole: 'unknown' as const,
+  negated: false,
+};
+
 describe('validateCandidates', () => {
   it('accepts a well-formed candidate, trimming text', () => {
     expect(validateCandidates([{ ...good, subject: '  user  ' }])).toEqual([
-      { ...good, subject: 'user' },
+      { ...goodValidated, subject: 'user' },
     ]);
   });
 
@@ -66,5 +72,23 @@ describe('validateCandidates', () => {
       stability: 0.95,
     };
     expect(validateCandidates([good, project])).toHaveLength(2);
+  });
+
+  it('stamps an explicit boolean negation marker, never vibes', () => {
+    expect(validateCandidates([{ ...good, negated: true }])[0]).toMatchObject({
+      negated: true,
+    });
+    // Truthy non-booleans do not negate: only `true` marks.
+    for (const notNegated of ['true', 1, 'not', 'no longer']) {
+      expect(
+        validateCandidates([{ ...good, negated: notNegated }])[0],
+      ).toMatchObject({ negated: false });
+    }
+  });
+
+  it('keeps affirmation and negation of one triple as rivals', () => {
+    expect(validateCandidates([good, { ...good, negated: true }])).toHaveLength(
+      2,
+    );
   });
 });

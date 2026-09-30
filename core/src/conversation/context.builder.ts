@@ -23,13 +23,29 @@ export interface ContextSkills {
  * (alphabetical), then contextual discoveries (selector rank order).
  * Skill names match ^[a-z0-9-]+$, so the delimiter attribute cannot break
  * out. Omitting `skills` yields byte-identical pre-M7 context.
+ *
+ * Recalled memory (M11d) enters as labeled system-scope bands after
+ * the system head and before history: the memory band (beliefs with
+ * origin + confidence, never user speech) then the KB band when the
+ * bridge returned hits. Omitting `memory` yields byte-identical pre-M11
+ * context. Bands never reach the transcript — only these assembled
+ * messages — so extraction cannot mine them as user-said (M11d
+ * anti-laundering rule).
  */
+export interface ContextMemory {
+  /** Labeled belief lines, or null when recall found nothing to say. */
+  memoryBand: string | null;
+  /** Labeled corpus slot (absence declared, never silent). */
+  kbBand: string | null;
+}
+
 export function buildContext(
   systemPrompt: string,
   history: ChatMessage[],
   input: string,
   maxHistory: number,
   skills?: ContextSkills,
+  memory?: ContextMemory,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const prompt = systemPrompt.trim();
@@ -55,6 +71,12 @@ export function buildContext(
       role: 'system',
       content: `<skill name="${skill.name}" scope="${scope}">\n${skill.body}\n</skill>`,
     });
+  }
+  if (memory?.memoryBand) {
+    messages.push({ role: 'system', content: memory.memoryBand });
+  }
+  if (memory?.kbBand) {
+    messages.push({ role: 'system', content: memory.kbBand });
   }
   messages.push(...history.slice(-maxHistory));
   messages.push({ role: 'user', content: input });

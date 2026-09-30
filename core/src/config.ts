@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { MEMORY_CANDIDATE_KINDS } from './memory/memory-candidate';
 
 export const CORE_CONFIG = 'CORE_CONFIG';
 
@@ -30,6 +31,40 @@ export interface CoreConfig {
   memoryLlmHeaders?: Record<string, string>;
   memoryUserAgent?: string;
   memoryLlmTimeoutMs: number;
+  /**
+   * M10c promotion authority. false (default) = every promotion needs
+   * a human approval; true admits NEW claims of the configured kinds
+   * without approval. REINFORCE/CONTRADICT always require approval.
+   */
+  memoryPromotionAuto: boolean;
+  /** Candidate kinds eligible for automatic promotion (default: none). */
+  memoryPromotionAutoKinds: string[];
+  /**
+   * M11b confidence gate: claims below this engine confidence are
+   * excluded from recall unless explicitly queried (or locked —
+   * M12's certainty lock always admits). Familiar near-misses live
+   * just above the cut only by rank, never by exemption.
+   */
+  memoryRecallConfidenceGate: number;
+  /**
+   * M11d interactive recall lens: claim origins hidden from
+   * turn-time recall (default: none — the lens defaults off per
+   * M11b). Agent chatter that would crowd out user signal goes
+   * here. Unknown values fail startup loudly, like auto kinds.
+   */
+  memoryRecallExcludeOrigins: ('user' | 'agent')[];
+  /** M11e memory-band token cap (chars/4 estimate). */
+  memoryRecallMaxBandTokens: number;
+  /** M11e turn-time recall latency budget in ms. */
+  memoryRecallTimeoutMs: number;
+  /**
+   * M10e clarification trigger: a contradiction parks a prospective
+   * item when the contradicted claim's confidence sits below this
+   * (default 0.5). Repeat contests park regardless of confidence.
+   */
+  memoryProspectiveConfidenceThreshold: number;
+  /** RuVector claim-index store path (M10d semantic surface). */
+  vectorDbPath: string;
   /** Filesystem skill catalog root (M7). One `<name>/SKILL.md` per skill. */
   skillsDirPath: string;
   /** Kill-switch: false restores pre-M7 behavior exactly. */
@@ -50,6 +85,19 @@ export interface CoreConfig {
   agentMaxToolSteps: number;
   /** Backstop turn duration in ms (M9g execution budget). */
   agentMaxTurnDurationMs: number;
+  /**
+   * Realtime transport kill-switch. true (default) = attach `/core/events`
+   * and deliver notifications; false = noop publisher, no socket, clients
+   * fall back to polling. A transport fault must never take the UI down.
+   */
+  realtimeEnabled: boolean;
+  /** Server heartbeat cadence in ms for socket liveness frames. */
+  realtimeHeartbeatMs: number;
+  /**
+   * Socket origin allowlist. Default `*` in dev with the same posture as
+   * the permissive CORS TODO in main.ts — restrict when frontends land.
+   */
+  realtimeAllowedOrigins: string[];
 }
 
 function parsePositiveInt(
@@ -61,6 +109,20 @@ function parsePositiveInt(
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
+/** 0..1 score with a fallback; rejects NaN and out-of-range input. */
+function parseScore(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${name} must be a number between 0 and 1 (got "${raw}")`);
   }
   return value;
 }
@@ -116,6 +178,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       60000,
       'MEMORY_LLM_TIMEOUT_MS',
     ),
+    memoryPromotionAuto: parseBoolean(env.MEMORY_PROMOTION_AUTO, false),
+    memoryPromotionAutoKinds: parseKindList(env.MEMORY_PROMOTION_AUTO_KINDS),
+    memoryProspectiveConfidenceThreshold: parseScore(
+      env.MEMORY_PROSPECTIVE_CONFIDENCE_THRESHOLD,
+      0.5,
+      'MEMORY_PROSPECTIVE_CONFIDENCE_THRESHOLD',
+    ),
+    memoryRecallConfidenceGate: parseScore(
+      env.MEMORY_RECALL_CONFIDENCE_GATE,
+      0.3,
+      'MEMORY_RECALL_CONFIDENCE_GATE',
+    ),
+    memoryRecallExcludeOrigins: parseRecallExcludeOrigins(
+      env.MEMORY_RECALL_EXCLUDE_ORIGINS,
+    ),
+    memoryRecallMaxBandTokens: parsePositiveInt(
+      env.MEMORY_RECALL_MAX_BAND_TOKENS,
+      800,
+      'MEMORY_RECALL_MAX_BAND_TOKENS',
+    ),
+    memoryRecallTimeoutMs: parsePositiveInt(
+      env.MEMORY_RECALL_TIMEOUT_MS,
+      5000,
+      'MEMORY_RECALL_TIMEOUT_MS',
+    ),
+    vectorDbPath: resolvePath(
+      env.VECTOR_DB_PATH,
+      '~/.icos/data/claims-vector.db',
+    ),
     skillsDirPath: resolvePath(env.SKILLS_DIR_PATH, '~/.icos/skills'),
     skillsEnabled: parseBoolean(env.SKILLS_ENABLED, true),
     skillsMaxBodyChars: parsePositiveInt(
@@ -158,7 +249,76 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       15 * 60 * 1000,
       'AGENT_MAX_TURN_DURATION_MS',
     ),
+    realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
+    realtimeHeartbeatMs: parsePositiveInt(
+      env.REALTIME_HEARTBEAT_MS,
+      30_000,
+      'REALTIME_HEARTBEAT_MS',
+    ),
+    realtimeAllowedOrigins: parseOriginList(env.REALTIME_ALLOWED_ORIGINS),
   };
+}
+
+/**
+ * Comma-separated claim-origin lens, e.g. "agent". Empty/unset hides
+ * nothing. Unknown values throw — a typo must not silently narrow
+ * or widen recall.
+ */
+function parseRecallExcludeOrigins(
+  raw: string | undefined,
+): ('user' | 'agent')[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  const origins = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part !== '');
+  for (const origin of origins) {
+    if (origin !== 'user' && origin !== 'agent') {
+      throw new Error(
+        `MEMORY_RECALL_EXCLUDE_ORIGINS contains unknown origin "${origin}"`,
+      );
+    }
+  }
+  return [...new Set(origins)] as ('user' | 'agent')[];
+}
+
+/**
+ * Comma-separated candidate-kind allowlist, e.g. "fact,observation".
+ * Empty/unset admits nothing. Unknown kinds throw — a typo must not
+ * silently widen automatic promotion.
+ */
+function parseKindList(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  const kinds = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part !== '');
+  const known = new Set(MEMORY_CANDIDATE_KINDS as readonly string[]);
+  for (const kind of kinds) {
+    if (!known.has(kind)) {
+      throw new Error(
+        `MEMORY_PROMOTION_AUTO_KINDS contains unknown kind "${kind}"`,
+      );
+    }
+  }
+  return [...new Set(kinds)];
+}
+
+/**
+ * Comma-separated origin allowlist, e.g. "http://localhost:4200". Empty
+ * or unset means `*` (dev default, same posture as the permissive CORS
+ * TODO — restrict when real frontends land).
+ */
+function parseOriginList(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return ['*'];
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part !== ''),
+    ),
+  ];
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

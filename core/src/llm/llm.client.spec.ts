@@ -20,6 +20,14 @@ const baseConfig: CoreConfig = {
   memoryLlmBaseUrl: 'http://localhost:11434/v1/chat/completions',
   memoryLlmModel: 'test-model',
   memoryLlmTimeoutMs: 1000,
+  memoryPromotionAuto: false,
+  memoryPromotionAutoKinds: [],
+  memoryProspectiveConfidenceThreshold: 0.5,
+  memoryRecallConfidenceGate: 0.3,
+  memoryRecallExcludeOrigins: [],
+  memoryRecallMaxBandTokens: 800,
+  memoryRecallTimeoutMs: 5000,
+  vectorDbPath: '/tmp/icos-test-claims-vector.db',
   skillsDirPath: '/tmp/icos-test-skills-missing',
   skillsEnabled: true,
   skillsMaxBodyChars: 12000,
@@ -30,6 +38,9 @@ const baseConfig: CoreConfig = {
   agentMaxIterations: 5,
   agentMaxToolSteps: 5,
   agentMaxTurnDurationMs: 900000,
+  realtimeEnabled: false,
+  realtimeHeartbeatMs: 30000,
+  realtimeAllowedOrigins: ['*'],
 };
 
 function clientWith(overrides: Partial<CoreConfig> = {}): LlmClient {

@@ -8,9 +8,24 @@ import {
 } from '@nestjs/common';
 import type { CoreConfig } from '../config';
 import { SessionDatabaseService } from '../session/session-database.service';
+import type { SessionRepository } from '../session/session.repository';
 import { SqliteSessionRepository } from '../session/sqlite-session.repository';
 import { ApprovalService } from './approval.service';
+import type { ApprovalRepository } from './approval.repository';
+import { NoopPublisher } from '../realtime/noop.publisher';
+import type { RealtimeEvent } from '../realtime/realtime-event';
 import { SqliteApprovalRepository } from './sqlite-approval.repository';
+
+/** Test publisher: records event types, delivers nothing. */
+class RecordingPublisher extends NoopPublisher {
+  constructor(private readonly seen: string[]) {
+    super();
+  }
+
+  override publish(event: RealtimeEvent): void {
+    this.seen.push(event.type);
+  }
+}
 
 function testConfig(sessionDbPath: string, dir: string): CoreConfig {
   return {
@@ -29,6 +44,14 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'm',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -39,6 +62,9 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
 }
 
@@ -55,7 +81,10 @@ describe('ApprovalService', () => {
     const approvals = new SqliteApprovalRepository(
       database as SessionDatabaseService,
     );
-    return { sessions, service: new ApprovalService(approvals, sessions) };
+    return {
+      sessions,
+      service: new ApprovalService(approvals, sessions, new NoopPublisher()),
+    };
   };
 
   beforeEach(() => {
@@ -131,5 +160,24 @@ describe('ApprovalService', () => {
 
     const detail = await service.get(created.id);
     expect(detail.events.map((e) => e.event)).toEqual(['created', 'cancelled']);
+  });
+
+  it('publishes created/resolved notifications through the publisher seam', async () => {
+    const { sessions, service } = setup();
+    await sessions.createSession('s1');
+    const seen: string[] = [];
+    const probe = new RecordingPublisher(seen);
+    const internals = service as unknown as {
+      approvals: ApprovalRepository;
+      sessions: SessionRepository;
+    };
+    const probed = new ApprovalService(
+      internals.approvals,
+      internals.sessions,
+      probe,
+    );
+    const created = await probed.create({ sessionId: 's1', action: 'act' });
+    await probed.approve(created.id, 's1');
+    expect(seen).toEqual(['approval.created', 'approval.resolved']);
   });
 });

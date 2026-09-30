@@ -14,6 +14,7 @@ import { MessageList } from '../message-list/message-list';
 import { QuestionCard } from '../question-card/question-card';
 import { SessionSidebar } from '../session-sidebar/session-sidebar';
 import { ConversationStore } from '../../services/conversation-store';
+import { RealtimeService } from '../../services/realtime.service';
 
 /**
  * Chat shell: sidebar + transcript + approvals/questions + composer.
@@ -28,6 +29,7 @@ import { ConversationStore } from '../../services/conversation-store';
 })
 export class ChatUiComponent implements OnInit, AfterViewChecked {
   readonly store = inject(ConversationStore);
+  private readonly realtime = inject(RealtimeService);
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
   private readonly composer = viewChild(Composer);
   private pinnedToBottom = true;
@@ -53,6 +55,7 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
   openSession(id: string): void {
     // Defer a tick: focus must run after change detection re-enables the
     // composer and re-renders the transcript.
+    this.realtime.trackSession(id);
     void this.store
       .openSession(id)
       .finally(() => setTimeout(() => this.focusComposer(), 0));
@@ -60,6 +63,7 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
 
   startNewSession(): void {
     this.store.newSession();
+    this.realtime.trackSession(null);
     this.focusComposer();
   }
 
@@ -69,7 +73,12 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
     // mid-turn; the finally covers the ready state.
     void this.store
       .sendMessage(text)
-      .finally(() => setTimeout(() => this.focusComposer(), 0));
+      .finally(() => {
+        // First turn assigns the session id via stream `meta` — track
+        // whatever is current so room filtering follows.
+        this.realtime.trackSession(this.store.sessionId());
+        setTimeout(() => this.focusComposer(), 0);
+      });
   }
 
   resolveApproval(event: { id: string; decision: 'approve' | 'reject' }): void {

@@ -3,7 +3,7 @@
 <center>
 
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
-![Updated](https://img.shields.io/badge/Updated-2026%2F09%2F10-CBA701)
+![Updated](https://img.shields.io/badge/Updated-2026%2F09%30-CBA701)
 ![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.13.0-red)
@@ -99,7 +99,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M7 are complete.**
+**M1–M11 are complete. M12 (memory dynamics) is the active milestone.**
 
 The current system provides:
 
@@ -115,8 +115,17 @@ The current system provides:
 - Structured human approvals
 - Structured clarification requests
 - Standard-format skills support
+- Tool integration with a durable invocation ledger
+- Agent orchestration (bounded plan → act → observe loop)
+- Epistemic memory (evidence → provenance-traced beliefs, human-approved
+  promotion, contradiction handling with a clarification queue)
+- Turn-time recall (lexical + semantic + associative surfaces, ranked
+  with confidence gating and provenance lenses, band-separated context
+  that never confuses memory with user speech)
 
-The next milestone is **M8: Tools**.
+The active milestone is **M12: Memory Dynamics** (consolidation, decay,
+supersession, belief revision — beliefs that evolve instead of only
+accumulating).
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
@@ -126,31 +135,31 @@ Development is active and the architecture is expected to change substantially a
 
 ICOS v3 is being developed as a sequence of increasingly capable experiments.
 
-| Milestone | Question |
-| :---: | --- |
-| **M1** | *Can it talk?* |
-| **M2** | *Can it stream?* |
-| **M3** | *Can it remember what happened?* |
-| **M4** | *Can it notice potentially meaningful things?* |
-| **M5** | *Can I change its brain without changing its body?* |
-| **M6** | *Can a human interact with it properly?* |
-| **M7** | *Can it acquire capabilities?* |
-| **M8** | *Can it actually use those capabilities?* |
-| **M9** | *Can it autonomously complete a task?* |
-| **M10** | *Can it form knowledge?* |
-| **M11** | *Can it retrieve and use that knowledge?* |
-| **M12** | *Can that knowledge evolve?* |
-| **M13** | *Can it expose its capabilities to other systems?* |
-| **M14** | *Can it maintain a persistent persona?* |
-| **M15** | *Can it detect and correct its own drift?* |
-| **M16** | *Can it communicate through external channels?* |
-| **M17** | *Can it autonomously select and execute actions?* |
-| **M18** | *Can it perceive the world beyond conversation?* |
-| **M19** | *Can it delegate work to other agents?* |
-| **M20** | *Can it react to external events without requiring a conversational turn?* |
-| **M21** | *Can it steward its own knowledge base?* |
-| **Deferred** | ***Episodic consolidation:*** *Can experiences be abstracted into knowledge?* |
-| **Deferred** | ***Source synchronization:*** *Can knowledge stay aligned with the world?* |
+|  Milestone   | Question                                                                      |
+| :----------: | ----------------------------------------------------------------------------- |
+|    **M1**    | _Can it talk?_                                                                |
+|    **M2**    | _Can it stream?_                                                              |
+|    **M3**    | _Can it remember what happened?_                                              |
+|    **M4**    | _Can it notice potentially meaningful things?_                                |
+|    **M5**    | _Can I change its brain without changing its body?_                           |
+|    **M6**    | _Can a human interact with it properly?_                                      |
+|    **M7**    | _Can it acquire capabilities?_                                                |
+|    **M8**    | _Can it actually use those capabilities?_                                     |
+|    **M9**    | _Can it autonomously complete a task?_                                        |
+|   **M10**    | _Can it form knowledge?_                                                      |
+|   **M11**    | _Can it retrieve and use that knowledge?_                                     |
+|   **M12**    | _Can that knowledge evolve?_                                                  |
+|   **M13**    | _Can it expose its capabilities to other systems?_                            |
+|   **M14**    | _Can it maintain a persistent persona?_                                       |
+|   **M15**    | _Can it detect and correct its own drift?_                                    |
+|   **M16**    | _Can it communicate through external channels?_                               |
+|   **M17**    | _Can it autonomously select and execute actions?_                             |
+|   **M18**    | _Can it perceive the world beyond conversation?_                              |
+|   **M19**    | _Can it delegate work to other agents?_                                       |
+|   **M20**    | _Can it react to external events without requiring a conversational turn?_    |
+|   **M21**    | _Can it steward its own knowledge base?_                                      |
+| **Deferred** | **_Episodic consolidation:_** _Can experiences be abstracted into knowledge?_ |
+| **Deferred** | **_Source synchronization:_** _Can knowledge stay aligned with the world?_    |
 
 Each milestone is tracked in:
 
@@ -187,14 +196,14 @@ play with the stack.
   Resources). The web-client image compiles the Angular app during
   `docker compose build`, which needs ~1.5 GB; on a 2 GB Docker host the
   build fails with esbuild `JS heap out of memory` errors.
+- **8 GB VRAM minimum** if you serve models through the Docker Model
+  Runner (memory + chat models share one GPU budget; below this the
+  runner evicts or degrades models).
 - **Node.js 24.13.0** and **npm 11.6.2** — only needed for local development
   outside Docker.
-- An OpenAI-compatible LLM endpoint.
+- An OpenAI-compatible LLM endpoint (local or remote; see below).
 
 The model itself does not need to run on the same machine.
-
-Local models can be provided through software such as Ollama or llama.cpp, via
-the Docker Model Runner, or remote providers can be used where appropriate.
 
 ---
 
@@ -249,10 +258,16 @@ The exact variables and defaults may change as development continues, so **`core
 
 ## Run ICOS (Docker — recommended)
 
+New users without a local model setup should start here: **one command,
+zero sidecars.** The Docker Model Runner serves the memory model (and,
+eventually, the chat model) inside the compose stack — no Ollama daemon,
+no separate model downloads, no extra terminals.
+
 From the repository root:
 
 ```sh
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose-dmr.yml up --build -d
+# shorthand: bin/dmr up -d --build
 ```
 
 Once the `icos-v3-core` service is healthy, open:
@@ -263,15 +278,38 @@ http://localhost:4200
 
 (Or `http://<host>:4200` when running on another machine on your network.)
 
-The development chat interface should be available there.
+The development chat interface should be available there. Give the stack
+a minute after first boot: models download once (GBs) and the vector
+index rebuilds before recall is at full strength.
 
-Stop with `Ctrl+C`, or `docker compose down` from another shell.
+Stop with `docker compose -f docker-compose.yml -f docker-compose-dmr.yml down`
+(shorthand: `bin/dmr down`). Bring the stack down before starting the
+other variant — both bind the same host ports.
+
+> **DMR status: in testing.** The compose file, model refs, and VRAM
+> behaviour are still being validated. It works today; treat sharp
+> edges as expected.
 
 ---
 
-## Run ICOS locally (without Docker)
+## Run ICOS with your own models (Docker)
 
-For bare-metal development:
+If you already run Ollama, llama.cpp, or a remote provider, use the
+default compose file and point Core at your endpoints:
+
+```sh
+docker compose up --build -d
+```
+
+Configure `LLM_*` / `MEMORY_*` in `core/.env` (see Configuration
+below). Inside the container, `localhost` means the container itself —
+use `http://host.docker.internal:<port>/v1` for host-local models.
+
+---
+
+## Run ICOS locally (legacy, without Docker)
+
+For bare-metal development (self-configured Ollama + `npm` + `ng serve`):
 
 ```sh
 cd core
@@ -280,6 +318,9 @@ npm run start
 ```
 
 Then open `http://localhost:4200` as above.
+
+This path still works but is no longer the recommended way to try the
+stack — prefer the DMR variant unless you have a reason not to.
 
 ---
 
@@ -357,9 +398,17 @@ The project is organized around the runtime and its experimental evidence.
 ```text
 core/                   # ICOS runtime
   Dockerfile            # Dev server image for docker-compose use
-  .env.sample           # Authoritative runtime configuration template
+  ...                   # Project files
+
+web-cient/
+  Dockerfile            # Dev web client image for docker-compose use
+  ...                   # Project files
 
 docker-compose.yml      # Supported launch path (icos-v3-core service)
+docker-compose-dmr.yml  # DMR override: same stack, models served in-stack
+                        # (usage: -f docker-compose.yml -f docker-compose-dmr.yml,
+                        #  or bin/dmr; in testing)
+bin/dmr                 # Shorthand for the DMR variant
 
 .reference/
   plans/                # Milestone plans

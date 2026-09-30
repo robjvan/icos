@@ -1,7 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { Server } from 'node:http';
 import { CoreModule } from './core.module';
 import { loadConfig } from './config';
+import { RealtimeModule } from './realtime/realtime.module';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -24,6 +26,11 @@ async function bootstrap() {
   core.enableCors();
 
   await core.listen(config.port);
+
+  // Same HTTP server, same port: no new infrastructure, no compose change.
+  if (config.realtimeEnabled) {
+    core.get(RealtimeModule).attach(core.getHttpServer() as Server);
+  }
 }
 
 void bootstrap();

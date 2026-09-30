@@ -1,5 +1,8 @@
 import { MEMORY_CANDIDATE_KINDS, ValidatedCandidate } from './memory-candidate';
-import type { MemoryCandidateKind } from './memory-candidate';
+import type {
+  CandidateSourceRole,
+  MemoryCandidateKind,
+} from './memory-candidate';
 
 const MAX_FIELD_LENGTH = 500;
 
@@ -26,6 +29,21 @@ function cleanKind(value: unknown): MemoryCandidateKind | null {
   return (MEMORY_CANDIDATE_KINDS as readonly string[]).includes(kind)
     ? (kind as MemoryCandidateKind)
     : null;
+}
+
+function cleanSourceRole(value: unknown): CandidateSourceRole {
+  if (typeof value !== 'string') return 'unknown';
+  const role = value.trim().toLowerCase();
+  return role === 'user' || role === 'assistant' ? role : 'unknown';
+}
+
+/**
+ * M10e negation marker. Only an explicit boolean true negates —
+ * truthy strings, numbers, and "not"-flavored text never do. Absent
+ * reads false: affirmation is the default, negation is marked.
+ */
+function cleanNegated(value: unknown): boolean {
+  return value === true;
 }
 
 function validateOne(raw: unknown): ValidatedCandidate | null {
@@ -56,6 +74,8 @@ function validateOne(raw: unknown): ValidatedCandidate | null {
     confidence,
     importance,
     stability,
+    sourceRole: cleanSourceRole(raw.source),
+    negated: cleanNegated(raw.negated),
   };
 }
 
@@ -84,6 +104,9 @@ export function validateCandidates(raw: unknown): ValidatedCandidate[] {
       candidate.subject.toLowerCase(),
       candidate.predicate.toLowerCase(),
       candidate.object.toLowerCase(),
+      // Affirmation and negation of one triple are rival observations,
+      // never duplicates — collapsing them would eat a contradiction.
+      candidate.negated ? 'negated' : 'affirmed',
     ].join('|');
     if (seen.has(key)) continue;
     seen.add(key);

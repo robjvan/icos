@@ -3,6 +3,7 @@ import { coreConfigProvider } from '../config';
 import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
 import { ClarificationsController } from '../clarifications/clarifications.controller';
@@ -18,7 +19,22 @@ import {
 import { LlmMemoryCandidateExtractor } from '../memory/llm-memory-candidate-extractor';
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import { AssociativeRecall } from '../memory/associative-recall';
+import { ClaimIndex } from '../memory/claim-index';
+import { ClaimRepository } from '../memory/claim.repository';
+import { KbBridge, NullKbBridge } from '../memory/kb-bridge';
 import { MemoryDatabaseService } from '../memory/memory-database.service';
+import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
+import { PromotionService } from '../memory/promotion.service';
+import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
+import { RankService } from '../memory/rank.service';
+import { RecallService } from '../memory/recall.service';
+import { RecallTraceStore } from '../memory/recall-trace.store';
+import { RuvectorClaimIndex } from '../memory/ruvector-claim-index';
+import { SqliteClaimRepository } from '../memory/sqlite-claim.repository';
+import { SqliteLexicalClaimIndex } from '../memory/sqlite-lexical-claim-index';
+import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-item.repository';
+import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
 import { SessionDatabaseService } from '../session/session-database.service';
 import { SessionRepository } from '../session/session.repository';
@@ -30,6 +46,12 @@ import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { CandidatesController } from './candidates.controller';
+import { ClaimsController } from './claims.controller';
+import { ProspectiveController } from './prospective.controller';
+import { RecallController } from './recall.controller';
+import { PromotionsController } from './promotions.controller';
+import { HealthController } from '../health/health.controller';
+import { HealthService } from '../health/health.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
@@ -64,13 +86,19 @@ const toolExecutionServiceProvider = {
 };
 
 @Module({
+  imports: [RealtimeModule],
   controllers: [
     ConversationController,
     SessionsController,
     CandidatesController,
+    ClaimsController,
+    ProspectiveController,
+    RecallController,
+    PromotionsController,
     ApprovalsController,
     ClarificationsController,
     SkillsController,
+    HealthController,
   ],
   providers: [
     coreConfigProvider,
@@ -84,6 +112,32 @@ const toolExecutionServiceProvider = {
       provide: MemoryCandidateRepository,
       useClass: SqliteMemoryCandidateRepository,
     },
+    {
+      provide: ClaimRepository,
+      useClass: SqliteClaimRepository,
+    },
+    {
+      provide: PromotionJournalRepository,
+      useClass: SqlitePromotionJournalRepository,
+    },
+    {
+      provide: ProspectiveItemRepository,
+      useClass: SqliteProspectiveItemRepository,
+    },
+    {
+      provide: ClaimIndex,
+      useClass: RuvectorClaimIndex,
+    },
+    SqliteLexicalClaimIndex,
+    AssociativeRecall,
+    {
+      provide: KbBridge,
+      useClass: NullKbBridge,
+    },
+    RecallService,
+    RankService,
+    RecallTraceStore,
+    PromotionService,
     {
       provide: MemoryCandidateExtractor,
       useClass: LlmMemoryCandidateExtractor,
@@ -102,6 +156,7 @@ const toolExecutionServiceProvider = {
     conversationLlmClientProvider,
     DisplayPreferenceStore,
     HostHealthProvider,
+    HealthService,
     SkillService,
     CommandDispatcher,
     ToolRegistry,

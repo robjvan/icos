@@ -236,4 +236,34 @@ describe('ConversationStore', () => {
     expect(last?.role).toBe('system');
     expect(last?.content).toBe('Error: boom');
   });
+
+  it('should filter memory.promote approvals out of the chat surface', async () => {
+    const approvalsApi = TestBed.inject(ApprovalService) as unknown as {
+      listPending: ReturnType<typeof vi.fn>;
+    };
+    approvalsApi.listPending.mockResolvedValue([
+      {
+        id: 'tool-1',
+        sessionId: 's1',
+        action: 'session.rename',
+        description: 'Rename',
+        status: 'pending',
+        createdAt: 't',
+        updatedAt: 't',
+      },
+      {
+        id: 'mem-1',
+        sessionId: 's1',
+        action: 'memory.promote',
+        description: 'Promote to belief',
+        status: 'pending',
+        createdAt: 't',
+        updatedAt: 't',
+      },
+    ]);
+    store.sessionId.set('s1');
+
+    await store.refreshApprovals();
+    expect(store.approvals().map((row) => row.id)).toEqual(['tool-1']);
+  });
 });

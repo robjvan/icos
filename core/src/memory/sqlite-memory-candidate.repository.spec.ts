@@ -24,6 +24,14 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'mem',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -34,6 +42,9 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     agentMaxIterations: 5,
     agentMaxToolSteps: 5,
     agentMaxTurnDurationMs: 900000,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
   };
 }
 
@@ -49,9 +60,11 @@ const candidate = (
   confidence: 0.9,
   importance: 0.7,
   stability: 0.8,
-  source: { sessionId, messageId },
+  sourceRole: 'user',
+  source: { sessionId, messageId, role: 'user' },
   extractorModel: 'mem',
-  extractorVersion: 'memory-extraction-v1',
+  extractorVersion: 'memory-extraction-v2',
+  negated: false,
 });
 
 describe('SqliteMemoryCandidateRepository', () => {
@@ -89,11 +102,21 @@ describe('SqliteMemoryCandidateRepository', () => {
       subject: 'user',
       predicate: 'prefers',
       object: 'TypeScript',
-      source: { sessionId: 's1', messageId: 7 },
+      source: { sessionId: 's1', messageId: 7, role: 'user' },
       extractorModel: 'mem',
-      extractorVersion: 'memory-extraction-v1',
+      extractorVersion: 'memory-extraction-v2',
     });
     expect(saved?.extractedAt).toBeDefined();
+  });
+
+  it('fetches single rows and null for unknown ids', async () => {
+    const repository = openRepo();
+    const [saved] = await repository.saveCandidates([candidate('s1', 7)]);
+
+    expect((await repository.getCandidate(saved.id))?.object).toBe(
+      'TypeScript',
+    );
+    expect(await repository.getCandidate('missing')).toBeNull();
   });
 
   it('lists newest-first, optionally filtered by session', async () => {
@@ -126,7 +149,83 @@ describe('SqliteMemoryCandidateRepository', () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({
       object: 'TypeScript',
-      source: { sessionId: 's1', messageId: 3 },
+      source: { sessionId: 's1', messageId: 3, role: 'user' },
     });
+  });
+
+  it('reads pre-stamp rows as unknown, never defaulted', async () => {
+    const repository = openRepo();
+    // Simulate a pre-M10b ledger row: no source_role written.
+    const service = services[services.length - 1] as MemoryDatabaseService;
+    service.connection
+      .prepare(
+        `INSERT INTO memory_candidates
+           (id, session_id, message_id, kind, subject, predicate, object,
+            confidence, importance, stability,
+            extractor_model, extractor_version, extracted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'old-1',
+        's9',
+        1,
+        'fact',
+        'user',
+        'likes',
+        'teal',
+        0.8,
+        0.5,
+        0.5,
+        'mem',
+        'memory-extraction-v1',
+        new Date().toISOString(),
+      );
+
+    const [row] = await repository.listCandidates('s9');
+    expect(row?.source.role).toBe('unknown');
+    expect(row?.sourceRole).toBe('unknown');
+  });
+
+  it('round-trips the negation marker', async () => {
+    const repository = openRepo();
+    const [saved] = await repository.saveCandidates([
+      { ...candidate('s1', 7), negated: true },
+    ]);
+
+    expect(saved?.negated).toBe(true);
+    expect((await repository.getCandidate(saved.id))?.negated).toBe(true);
+    expect((await repository.listCandidates('s1'))[0]?.negated).toBe(true);
+  });
+
+  it('reads pre-marker rows as affirmed, never negated', async () => {
+    const repository = openRepo();
+    const service = services[services.length - 1] as MemoryDatabaseService;
+    service.connection
+      .prepare(
+        `INSERT INTO memory_candidates
+           (id, session_id, message_id, kind, subject, predicate, object,
+            confidence, importance, stability,
+            extractor_model, extractor_version, extracted_at, source_role)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'old-neg',
+        's9',
+        1,
+        'fact',
+        'user',
+        'likes',
+        'teal',
+        0.8,
+        0.5,
+        0.5,
+        'mem',
+        'memory-extraction-v1',
+        new Date().toISOString(),
+        'user',
+      );
+
+    const [row] = await repository.listCandidates('s9');
+    expect(row?.negated).toBe(false);
   });
 });

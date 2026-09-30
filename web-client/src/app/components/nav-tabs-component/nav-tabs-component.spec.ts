@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { NavTabsComponent } from './nav-tabs-component';
+import { MemoryReviewService } from '../../services/memory-review.service';
 
 describe('NavTabsComponent', () => {
   let component: NavTabsComponent;
@@ -10,7 +11,10 @@ describe('NavTabsComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [NavTabsComponent],
-      providers: [provideRouter([])],
+      providers: [
+        provideRouter([]),
+        { provide: MemoryReviewService, useValue: { pendingCount: () => 0 } },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(NavTabsComponent);

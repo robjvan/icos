@@ -6,9 +6,20 @@
 
 # Environment variables
 **/.env
+**/.*.env
 
 # Environment config
 **/.vscode
 
 # Agent spec blueprint files
 .reference/web-client-blueprint.md
+
+# Opencode session transcripts
+session-*.md
+
+# Deepwork session state (orchestrator scratch, never committed)
+.slim/deepwork/
+
+# Brainstorming documents
+.reference/notes/memory-system-feedback.md
+.reference/notes/tools-out-of-context.md

@@ -10,11 +10,18 @@ import type { StreamSink } from '../llm/llm.client';
 import type { LlmResult, LlmToolRequest } from '../llm/llm.protocol';
 import { InvalidSearchQueryError } from '../session/session.repository';
 import type { ValidatedCandidate } from '../memory/memory-candidate';
+import type { Claim } from '../memory/claim';
+import { ClaimRepository } from '../memory/claim.repository';
+import { RankService } from '../memory/rank.service';
+import type { RankOptions } from '../memory/rank.service';
+import { RecallService } from '../memory/recall.service';
+import { RecallTraceStore } from '../memory/recall-trace.store';
 import type { NewMemoryCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import type { MemoryExtractionInput } from '../memory/memory-candidate-extractor';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import type { MemoryCandidate } from '../memory/memory-candidate';
+import { PromotionService } from '../memory/promotion.service';
 import { CommandDispatcher } from '../commands/command-dispatcher';
 import { DisplayPreferenceStore } from '../commands/display-preferences';
 import { HostHealthProvider } from '../commands/host-health';
@@ -26,6 +33,7 @@ import type {
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { NoopPublisher } from '../realtime/noop.publisher';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -68,6 +76,14 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     memoryLlmBaseUrl: 'http://localhost:11434/v1',
     memoryLlmModel: 'test-model',
     memoryLlmTimeoutMs: 1000,
+    memoryPromotionAuto: false,
+    memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
+    memoryRecallConfidenceGate: 0.3,
+    memoryRecallExcludeOrigins: [],
+    memoryRecallMaxBandTokens: 800,
+    memoryRecallTimeoutMs: 5000,
+    vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
     skillsMaxBodyChars: 12000,
@@ -78,6 +94,9 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     agentMaxIterations: MAX_ITERATIONS,
     agentMaxToolSteps: MAX_TOOL_STEPS,
     agentMaxTurnDurationMs: MAX_TURN_DURATION_MS,
+    realtimeEnabled: false,
+    realtimeHeartbeatMs: 30000,
+    realtimeAllowedOrigins: ['*'],
     ...overrides,
   };
 }
@@ -211,6 +230,59 @@ function setup(
   if (consumeImpl) tools.consume.mockImplementation(consumeImpl);
   const registry = new ToolRegistry();
   const agentRuns = stubAgentRuns();
+  const proposeCandidates = jest.fn<Promise<unknown[]>, [MemoryCandidate[]]>(
+    () => Promise.resolve([]),
+  );
+  const promotion = { proposeCandidates } as unknown as PromotionService;
+  // Recall/rank/trace/claims seams for M11d turn tests. Default stubs
+  // recall nothing (byte-identical context); individual tests override.
+  const recallMock: jest.Mock = jest.fn(() =>
+    Promise.resolve({
+      query: { text: '', tokens: [] as string[] },
+      lexical: {
+        surface: 'lexical' as const,
+        available: false,
+        reason: 'empty_query',
+        hits: [] as { claimId: string; score: number; surface: 'lexical' }[],
+      },
+      semantic: {
+        surface: 'semantic' as const,
+        available: false,
+        reason: 'empty_query',
+        hits: [] as { claimId: string; score: number; surface: 'semantic' }[],
+      },
+      associative: {
+        surface: 'associative' as const,
+        available: false,
+        reason: 'empty_query',
+        hits: [] as {
+          claimId: string;
+          score: number;
+          surface: 'associative';
+        }[],
+      },
+      kb: { available: false, hits: [] as { id: string; score: number }[] },
+    }),
+  );
+  const recall = { recall: recallMock } as unknown as RecallService;
+  const rankMock: jest.Mock = jest.fn(() =>
+    Promise.resolve({
+      ranked: [],
+      trace: {
+        gated: [],
+        lensExcluded: [],
+        demoted: [],
+        familiar: [],
+        duplicates: [],
+        vanished: [],
+        recencyFallback: [],
+      },
+    }),
+  );
+  const rank = { rank: rankMock } as unknown as RankService;
+  const traces = new RecallTraceStore();
+  const recordAccessed = jest.fn(() => Promise.resolve());
+  const claims = { recordAccessed } as unknown as ClaimRepository;
   return {
     service: new ConversationService(
       store,
@@ -223,6 +295,12 @@ function setup(
       registry,
       agentRuns.service,
       config,
+      promotion,
+      recall,
+      rank,
+      traces,
+      claims,
+      new NoopPublisher(),
     ),
     repository,
     chatWithTools,
@@ -231,6 +309,11 @@ function setup(
     agentRuns,
     extract,
     saveCandidates,
+    proposeCandidates,
+    recallMock,
+    rankMock,
+    traces,
+    recordAccessed,
   };
 }
 
@@ -278,9 +361,7 @@ describe('ConversationService', () => {
     const system = String(sent.messages[0].content);
     expect(system).toContain('Goal for this turn: find teal');
     expect(system).toContain('session.search (runs immediately)');
-    expect(system).toContain(
-      'session.rename (pauses for human approval and ends your turn)',
-    );
+    expect(system).toContain('session.rename (runs immediately)');
     expect(system).toContain('at most 5 tool steps');
   });
 
@@ -1753,6 +1834,8 @@ describe('ConversationService', () => {
       confidence: 0.94,
       importance: 0.72,
       stability: 0.88,
+      sourceRole: 'user',
+      negated: false,
     };
 
     it('persists validated candidates with provenance after a turn', async () => {
@@ -1776,11 +1859,27 @@ describe('ConversationService', () => {
       expect(saveCandidates.mock.calls[0][0]).toEqual([
         {
           ...preference,
-          source: { sessionId, messageId: 1 },
+          source: { sessionId, messageId: 1, role: 'user' },
           extractorModel: 'test-model',
-          extractorVersion: 'memory-extraction-v1',
+          extractorVersion: 'memory-extraction-v2',
         },
       ]);
+    });
+
+    it('chains saved candidates into promotion proposals', async () => {
+      const { service, proposeCandidates } = setup(
+        testConfig(),
+        undefined,
+        undefined,
+        () => Promise.resolve([preference]),
+      );
+
+      await service.converse('I prefer TypeScript');
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(proposeCandidates).toHaveBeenCalledTimes(1);
+      expect(proposeCandidates.mock.calls[0][0]).toHaveLength(1);
     });
 
     it('extracts after streamed turns too', async () => {
@@ -1822,6 +1921,399 @@ describe('ConversationService', () => {
       await flushMicrotasks();
 
       expect(extract).not.toHaveBeenCalled();
+    });
+  });
+
+  const sentMessages = (chatWithTools: {
+    mock: { calls: unknown[][] };
+  }): { role: string; content: string }[] => {
+    const raw: unknown = chatWithTools.mock.calls[0]?.[0];
+    const request = raw as {
+      messages: { role: string; content: string }[];
+    };
+    return request.messages;
+  };
+
+  describe('memory recall (M11d)', () => {
+    const recalledClaim = (object = 'BANDMARKER-tea'): Claim => ({
+      id: 'claim-1',
+      subject: 'user',
+      predicate: 'prefers',
+      object,
+      category: 'preference',
+      status: 'active',
+      extractorConfidence: 0.9,
+      confidence: 0.9,
+      firstAssertedAt: 'cand-1',
+      lastSurfacedAt: 'cand-1',
+      origin: 'user',
+      negated: false,
+      sourceType: null,
+      summary: null,
+      evidence: [{ candidateId: 'cand-1', role: 'user' }],
+      related: [],
+      entities: ['user'],
+      timesObserved: 1,
+      accessCount: 0,
+      lastAccessedAt: null,
+      activation: null,
+      locked: false,
+      emotional: null,
+      promotion: 'approved:appr-1',
+      createdAt: 't',
+      updatedAt: 't',
+    });
+
+    const recallResult = () => ({
+      query: {
+        text: 'do you remember my drink?',
+        tokens: ['remember', 'drink'],
+      },
+      lexical: {
+        surface: 'lexical' as const,
+        available: true,
+        hits: [{ claimId: 'claim-1', score: -1, surface: 'lexical' as const }],
+      },
+      semantic: {
+        surface: 'semantic' as const,
+        available: false,
+        reason: 'index_unavailable',
+        hits: [],
+      },
+      associative: {
+        surface: 'associative' as const,
+        available: true,
+        hits: [],
+      },
+      kb: { available: false, hits: [] },
+    });
+
+    const rankResult = (claim: Claim) => ({
+      ranked: [
+        {
+          claim,
+          fusedScore: 0.5,
+          surfaces: ['lexical' as const],
+          disposition: 'recalled' as const,
+          demoted: false,
+          reasons: ['test recall'],
+        },
+      ],
+      trace: {
+        gated: [],
+        lensExcluded: [],
+        demoted: [],
+        familiar: [],
+        duplicates: [],
+        vanished: [],
+        recencyFallback: [],
+      },
+    });
+
+    const driveRecallTurn = async (
+      config: CoreConfig = testConfig(),
+      claim: Claim = recalledClaim(),
+    ) => {
+      const h = setup(config);
+      h.recallMock.mockResolvedValue(recallResult());
+      h.rankMock.mockResolvedValue(rankResult(claim));
+      const result = await h.service.converse('do you remember my drink?');
+      await flushMicrotasks();
+      return { ...h, result };
+    };
+
+    it('injects recalled beliefs as a labeled band, never as user speech', async () => {
+      const { result, chatWithTools, repository } = await driveRecallTurn();
+
+      expect(result.status).toBe('ok');
+      const messages = sentMessages(chatWithTools);
+      const bands = messages.filter((m) => m.role === 'system');
+      expect(bands.map((m) => m.content)).toEqual([
+        expect.stringContaining('test-system'),
+        expect.stringContaining('[memory:'),
+      ]);
+      const band = bands[1]?.content ?? '';
+      expect(band).toContain('BANDMARKER-tea');
+      expect(band).toContain('origin user');
+      expect(band).toContain('confidence 0.90');
+      expect(
+        messages.filter((m) => m.role === 'user').map((m) => m.content),
+      ).toEqual(['do you remember my drink?']);
+      // Transcript holds the turn only — the band is prompt-only.
+      expect(await repository.getMessages(result.sessionId)).toEqual([
+        { role: 'user', content: 'do you remember my drink?' },
+        { role: 'assistant', content: 'hi back' },
+      ]);
+    });
+
+    it('never lets injected context reach extraction (anti-laundering)', async () => {
+      const { result, extract } = await driveRecallTurn();
+
+      expect(extract).toHaveBeenCalledTimes(1);
+      const input = extract.mock.calls[0][0];
+      const seen = JSON.stringify(input);
+      expect(seen).not.toContain('BANDMARKER-tea');
+      expect(seen).not.toContain('[memory:');
+      expect(input).toMatchObject({
+        sessionId: result.sessionId,
+        userMessage: {
+          role: 'user',
+          content: 'do you remember my drink?',
+        },
+        assistantMessage: { role: 'assistant', content: 'hi back' },
+      });
+    });
+
+    it('observes access for surfaced claims and traces the turn', async () => {
+      const { result, recordAccessed, traces, rankMock } =
+        await driveRecallTurn();
+
+      expect(recordAccessed).toHaveBeenCalledWith(['claim-1']);
+      const trace = traces.get(result.sessionId);
+      expect(trace?.query.text).toBe('do you remember my drink?');
+      expect(trace?.bands).toEqual({ memory: true, kb: false });
+      expect(trace?.ranked).toMatchObject([
+        { claimId: 'claim-1', disposition: 'recalled' },
+      ]);
+      expect(trace?.surfaces['lexical']).toMatchObject({
+        available: true,
+        hits: 1,
+      });
+      expect(trace?.surfaces['semantic']).toMatchObject({
+        available: false,
+      });
+      expect(rankMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes the configured origin lens into ranking', async () => {
+      const { rankMock } = await driveRecallTurn(
+        testConfig({ memoryRecallExcludeOrigins: ['agent'] }),
+      );
+
+      expect(rankMock).toHaveBeenCalledTimes(1);
+      const options = (
+        rankMock.mock.calls as unknown[][]
+      )[0]?.[1] as RankOptions;
+      expect(options.lens).toEqual({ exclude: ['agent'] });
+    });
+
+    it('degrades to bare context when recall fails, turn succeeds', async () => {
+      const h = setup();
+      h.recallMock.mockRejectedValue(new Error('recall down'));
+
+      const result = await h.service.converse('hello');
+      await flushMicrotasks();
+
+      expect(result.status).toBe('ok');
+      expect(result.reply).toBe('hi back');
+      const contents = sentMessages(h.chatWithTools).map((m) => m.content);
+      expect(contents.join('\n')).not.toContain('[memory:');
+      expect(h.rankMock).not.toHaveBeenCalled();
+      expect(h.recordAccessed).not.toHaveBeenCalled();
+      expect(h.traces.get(result.sessionId)?.degraded).toEqual([
+        'recall_error:recall down',
+      ]);
+    });
+
+    it('skips recall for slash commands', async () => {
+      const h = setup();
+
+      await h.service.converse('/health');
+
+      expect(h.recallMock).not.toHaveBeenCalled();
+      expect(h.traces.get('')).toBeNull();
+    });
+  });
+
+  describe('recall budgeting and uncertainty (M11e)', () => {
+    const budgetedClaim = (id: string, object: string): Claim => ({
+      id,
+      subject: 'user',
+      predicate: 'prefers',
+      object,
+      category: 'preference',
+      status: 'active',
+      extractorConfidence: 0.9,
+      confidence: 0.9,
+      firstAssertedAt: 'cand-1',
+      lastSurfacedAt: 'cand-1',
+      origin: 'user',
+      negated: false,
+      sourceType: null,
+      summary: null,
+      evidence: [{ candidateId: 'cand-1', role: 'user' }],
+      related: [],
+      entities: ['user'],
+      timesObserved: 1,
+      accessCount: 0,
+      lastAccessedAt: null,
+      activation: null,
+      locked: false,
+      emotional: null,
+      promotion: 'approved:appr-1',
+      createdAt: 't',
+      updatedAt: 't',
+    });
+
+    const rankedRow = (claim: Claim, fusedScore: number) => ({
+      claim,
+      fusedScore,
+      surfaces: ['lexical' as const],
+      disposition: 'recalled' as const,
+      demoted: false,
+      reasons: [],
+    });
+
+    const emptyTrace = () => ({
+      gated: [],
+      lensExcluded: [],
+      demoted: [],
+      familiar: [],
+      duplicates: [],
+      vanished: [],
+      recencyFallback: [],
+    });
+
+    it('shrinks bands familiar-first, never the user message', async () => {
+      const h = setup(testConfig({ memoryRecallMaxBandTokens: 65 }));
+      const keep = budgetedClaim('claim-keep', 'TypeScript-kept');
+      const drop = budgetedClaim('claim-drop', 'Rust-dropped');
+      h.recallMock.mockResolvedValue({
+        query: { text: 'languages', tokens: ['languages'] },
+        lexical: {
+          surface: 'lexical' as const,
+          available: true,
+          hits: [
+            { claimId: keep.id, score: -1, surface: 'lexical' as const },
+            { claimId: drop.id, score: -2, surface: 'lexical' as const },
+          ],
+        },
+        semantic: {
+          surface: 'semantic' as const,
+          available: true,
+          hits: [],
+        },
+        associative: {
+          surface: 'associative' as const,
+          available: true,
+          hits: [],
+        },
+        kb: { available: false, hits: [] },
+      });
+      h.rankMock.mockResolvedValue({
+        ranked: [rankedRow(keep, 0.9), rankedRow(drop, 0.1)],
+        trace: emptyTrace(),
+      });
+
+      const result = await h.service.converse('languages');
+      await flushMicrotasks();
+
+      expect(result.status).toBe('ok');
+      const contents = sentMessages(h.chatWithTools).map((m) => m.content);
+      const joined = contents.join('\n');
+      expect(joined).toContain('- user prefers "TypeScript-kept"');
+      // The dropped row is gone — but the conflict note still names
+      // the rivalry (budget never trims honesty).
+      expect(joined).not.toContain('- user prefers "Rust-dropped"');
+      expect(joined).toContain('[conflict]');
+      // The user band is outside the budget entirely.
+      expect(contents[contents.length - 1]).toBe('languages');
+      expect(h.traces.get(result.sessionId)?.degraded).toContain(
+        'budget:claim-drop',
+      );
+      // Dropped rows were never shown: access unobserved.
+      expect(h.recordAccessed).toHaveBeenCalledWith(['claim-keep']);
+    });
+
+    it('declares an active miss instead of staying silent', async () => {
+      const h = setup();
+      h.recallMock.mockResolvedValue({
+        query: { text: 'the weather', tokens: ['weather'] },
+        lexical: {
+          surface: 'lexical' as const,
+          available: true,
+          hits: [],
+        },
+        semantic: {
+          surface: 'semantic' as const,
+          available: true,
+          hits: [],
+        },
+        associative: {
+          surface: 'associative' as const,
+          available: true,
+          hits: [],
+        },
+        kb: { available: false, hits: [] },
+      });
+      h.rankMock.mockResolvedValue({ ranked: [], trace: emptyTrace() });
+
+      const result = await h.service.converse('the weather');
+
+      expect(result.status).toBe('ok');
+      const joined = sentMessages(h.chatWithTools)
+        .map((m) => m.content)
+        .join('\n');
+      expect(joined).toContain('[memory: nothing recalled for this turn');
+      expect(h.traces.get(result.sessionId)?.bands).toEqual({
+        memory: true,
+        kb: false,
+      });
+    });
+
+    it('stays bandless on partial recall (a surface down)', async () => {
+      const h = setup();
+      h.recallMock.mockResolvedValue({
+        query: { text: 'the weather', tokens: ['weather'] },
+        lexical: {
+          surface: 'lexical' as const,
+          available: true,
+          hits: [],
+        },
+        semantic: {
+          surface: 'semantic' as const,
+          available: false,
+          reason: 'index_unavailable',
+          hits: [],
+        },
+        associative: {
+          surface: 'associative' as const,
+          available: true,
+          hits: [],
+        },
+        kb: { available: false, hits: [] },
+      });
+      h.rankMock.mockResolvedValue({ ranked: [], trace: emptyTrace() });
+
+      const result = await h.service.converse('the weather');
+
+      const joined = sentMessages(h.chatWithTools)
+        .map((m) => m.content)
+        .join('\n');
+      expect(joined).not.toContain('[memory:');
+      expect(h.traces.get(result.sessionId)?.bands).toEqual({
+        memory: false,
+        kb: false,
+      });
+    });
+
+    it('times out a stalled pipeline instead of stalling the turn', async () => {
+      const h = setup(testConfig({ memoryRecallTimeoutMs: 5 }));
+      h.recallMock.mockImplementation(() => new Promise(() => {}));
+
+      const result = await h.service.converse('hello');
+      await flushMicrotasks();
+
+      expect(result.status).toBe('ok');
+      expect(result.reply).toBe('hi back');
+      const joined = sentMessages(h.chatWithTools)
+        .map((m) => m.content)
+        .join('\n');
+      expect(joined).not.toContain('[memory:');
+      expect(h.traces.get(result.sessionId)?.degraded).toEqual([
+        'recall_error:recall_timeout',
+      ]);
+      expect(h.recordAccessed).not.toHaveBeenCalled();
     });
   });
 
