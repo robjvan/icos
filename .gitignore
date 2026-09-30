@@ -19,3 +19,7 @@ session-*.md
 
 # Deepwork session state (orchestrator scratch, never committed)
 .slim/deepwork/
+
+# Brainstorming documents
+.reference/notes/memory-system-feedback.md
+.reference/notes/tools-out-of-context.md
