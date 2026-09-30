@@ -12,8 +12,24 @@ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { LucideSearch } from '@lucide/angular';
 import type { Claim, ClaimCategory, ClaimOrigin, ClaimStatus } from '../../models/claim';
 import type { MemoryCandidate } from '../../models/memory-candidate';
+import type { PromotionJournalEntry } from '../../models/promotion';
+import type { ProspectiveItem } from '../../models/prospective';
+import {
+  contradictionPairs,
+  counterpartClaim,
+  pairFor,
+  prospectiveFor,
+} from '../../models/contradiction';
+import type { ClaimPairView } from '../../models/contradiction';
 import { ClaimService } from '../../services/claim.service';
 import { StatusBadge } from '../status-badge/status-badge';
+
+/** Pairing display for one claim: counterpart, direction, parked question. */
+export interface ClaimPairDisplay {
+  readonly view: ClaimPairView;
+  readonly counterpart: Claim | null;
+  readonly question: ProspectiveItem | null;
+}
 
 /**
  * Beliefs lens (Axis B): read-only browse over the claim store.
@@ -55,8 +71,57 @@ export class ClaimList implements OnInit {
   readonly selected = signal<Claim | null>(null);
   readonly selectedEvidence = signal<readonly (MemoryCandidate | null)[]>([]);
   readonly selectedHistory = signal<readonly { readonly operation: string; readonly state: string }[]>([]);
+  /** Committed CONTRADICT rows (pairing input — derivation is pure). */
+  readonly journal = signal<readonly PromotionJournalEntry[]>([]);
+  /** Open parked questions for pair linking. */
+  readonly prospective = signal<readonly ProspectiveItem[]>([]);
 
   readonly hasResults = computed(() => this.results().length > 0);
+
+  /**
+   * Pairing views keyed by claim id (Phase 5): counterpart, direction,
+   * parked question. Derived from committed journal rows + the loaded
+   * claim list — a counterpart missing from the list renders by id.
+   */
+  readonly pairViews = computed(() => {
+    const claims = this.claims();
+    const pairs = contradictionPairs(this.journal());
+    const items = this.prospective();
+    const views = new Map<string, ClaimPairDisplay>();
+    for (const claim of claims) {
+      const view = pairFor(claim.id, pairs);
+      if (!view) {
+        continue;
+      }
+      views.set(claim.id, {
+        view,
+        counterpart: counterpartClaim(view.counterpartId, claims),
+        question: prospectiveFor(claim.id, items),
+      });
+    }
+    return views;
+  });
+
+  /** Pairing for the open detail (falls back past the list when needed). */
+  readonly selectedPair = computed(() => {
+    const claim = this.selected();
+    if (!claim) {
+      return null;
+    }
+    const fromList = this.pairViews().get(claim.id);
+    if (fromList) {
+      return fromList;
+    }
+    const view = pairFor(claim.id, contradictionPairs(this.journal()));
+    if (!view) {
+      return null;
+    }
+    return {
+      view,
+      counterpart: counterpartClaim(view.counterpartId, this.claims()),
+      question: prospectiveFor(claim.id, this.prospective()),
+    } satisfies ClaimPairDisplay;
+  });
 
   readonly filterForm = new FormGroup({
     status: new FormControl<'' | ClaimStatus>('', { nonNullable: true }),
@@ -85,6 +150,18 @@ export class ClaimList implements OnInit {
     } catch (error) {
       this.claims.set([]);
       this.error.set(error instanceof Error ? error.message : String(error));
+    }
+    // Pairing inputs are best-effort: a failed journal/prospective
+    // fetch leaves unpaired rows, never a failed Beliefs view.
+    try {
+      this.journal.set(await this.claimsApi.listCommittedContradictions());
+    } catch {
+      this.journal.set([]);
+    }
+    try {
+      this.prospective.set((await this.claimsApi.listProspective()).items);
+    } catch {
+      this.prospective.set([]);
     }
   }
 

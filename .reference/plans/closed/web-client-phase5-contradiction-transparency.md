@@ -1,6 +1,10 @@
 # Web Client — Phase 5: Contradiction Transparency (`web-client/`)
 
-Status: **plan only — no code touched.**
+Status: **complete 2026-09-30** — shipped on `dev`, no push.
+Evidence:
+`.reference/plans/evidence/web-client-phase5-contradiction-transparency.md`
+(168 client tests, tsc/eslint clean, browser dark+light AXE-clean,
+live contradiction leg).
 Scope: `web-client/` only. No core changes (the pairing data already
 exists server-side; UI reads it). Follows the same verification bar
 as Phase 4 (`tsc` + `eslint` clean, `ng test` green, AXE clean,

@@ -13,6 +13,7 @@ export const CLARIFICATIONS_ENDPOINT = '/core/clarifications';
 export const MEMORY_CANDIDATES_ENDPOINT = '/core/memory-candidates';
 export const PROMOTIONS_ENDPOINT = '/core/promotions';
 export const CLAIMS_ENDPOINT = '/core/claims';
+export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
 export const HEALTH_ENDPOINT = '/core/health';
 

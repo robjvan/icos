@@ -161,6 +161,57 @@
   font-size: 0.8125rem;
 }
 
+.pair {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.pair-label {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+}
+
+.beliefs button.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.125rem;
+  cursor: pointer;
+}
+
+.beliefs button.link:hover {
+  color: var(--text-primary);
+}
+
+.question-cue {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--badge-amber-text);
+}
+
+.question {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.pair-block {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.75rem;
+}
+
 .claim-detail {
   border: 1px solid var(--border-subtle);
   border-radius: 0.75rem;
