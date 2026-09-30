@@ -11,6 +11,7 @@ import {
   ClaimIndexUnavailableError,
   type SimilarClaim,
 } from '../memory/claim-index';
+import { ClaimHistoryRepository } from '../memory/claim-history.repository';
 import { ClaimRepository } from '../memory/claim.repository';
 import type { MemoryCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
@@ -35,6 +36,7 @@ export class ClaimsController {
     private readonly candidates: MemoryCandidateRepository,
     private readonly journal: PromotionJournalRepository,
     private readonly index: ClaimIndex,
+    private readonly history: ClaimHistoryRepository,
   ) {}
 
   @Get()
@@ -85,6 +87,7 @@ export class ClaimsController {
       claim,
       evidence,
       history: await this.journal.listByClaimId(id),
+      maintenance: await this.history.listByClaimId(id),
     };
   }
 }

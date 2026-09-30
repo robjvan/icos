@@ -178,6 +178,8 @@ describe('Conversation (e2e)', () => {
         memoryRecallExcludeOrigins: [],
         memoryRecallMaxBandTokens: 800,
         memoryRecallTimeoutMs: 5000,
+        memoryMaintenanceEnabled: true,
+        memoryMaintenanceIntervalMs: 3600000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
@@ -713,6 +715,64 @@ describe('Conversation (e2e)', () => {
     expect((ledger.body as { candidates: unknown[] }).candidates).toHaveLength(
       2,
     );
+  });
+
+  it('runs belief maintenance explicitly with a durable summary', async () => {
+    const empty = await request(http())
+      .post('/core/maintenance/run')
+      .expect(200);
+    expect(
+      (empty.body as { summary: Record<string, number> }).summary,
+    ).toMatchObject({
+      compounded: 0,
+      linked: 0,
+      gistProposed: 0,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(
+      (empty.body as { summary: { durationMs: number } }).summary.durationMs,
+    ).toEqual(expect.any(Number));
+
+    // One promoted belief: a pass touches it (skip — single
+    // observation) and its detail carries both histories.
+    const first = await request(http())
+      .post('/core/conversation')
+      .send({ message: 'I prefer oak' })
+      .expect(200);
+    const sessionId = (first.body as ConversationResponse).sessionId;
+    let pending: { approvalId: string; state: string }[] = [];
+    for (let i = 0; i < 100 && pending.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const res = await request(http())
+        .get('/core/promotions/pending')
+        .expect(200);
+      pending = (res.body as { pending: typeof pending }).pending.filter(
+        (row) => row.state === 'proposed',
+      );
+    }
+    await request(http())
+      .post(`/core/approvals/${pending[0].approvalId}/approve`)
+      .send({ sessionId })
+      .expect(200);
+    await request(http()).post('/core/promotions/run').expect(200);
+    const swept = await request(http())
+      .post('/core/maintenance/run')
+      .expect(200);
+    expect(
+      (swept.body as { summary: Record<string, number> }).summary,
+    ).toMatchObject({ compounded: 0, skipped: 1 });
+
+    const listed = await request(http()).get('/core/claims').expect(200);
+    const claims = (listed.body as { claims: { id: string }[] }).claims;
+    expect(claims).toHaveLength(1);
+    const detail = await request(http())
+      .get(`/core/claims/${claims[0]?.id}`)
+      .expect(200);
+    expect(detail.body as object).toMatchObject({
+      history: [{ operation: 'NEW', state: 'committed' }],
+      maintenance: [],
+    });
   });
 
   it('traces turn-time recall per session for inspection', async () => {

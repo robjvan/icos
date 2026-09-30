@@ -296,6 +296,41 @@ export class SqliteClaimRepository extends ClaimRepository {
       .run(nowIso(), nowIso(), ...unique);
   }
 
+  async adjustConfidence(
+    id: string,
+    confidence: number,
+  ): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET confidence = ?, updated_at = ? WHERE id = ?')
+      .run(confidence, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async addRelated(id: string, relatedIds: string[]): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    const current = toClaim(row);
+    const merged = [...current.related];
+    for (const relatedId of relatedIds) {
+      if (relatedId !== id && !merged.includes(relatedId)) {
+        merged.push(relatedId);
+      }
+    }
+    if (merged.length === current.related.length) return current;
+    this.database
+      .prepare(
+        'UPDATE claims SET related_json = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(JSON.stringify(merged), nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
   async listClaims(options?: {
     status?: ClaimStatus;
     category?: ClaimCategory;

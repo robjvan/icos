@@ -27,6 +27,8 @@ const baseConfig: CoreConfig = {
   memoryRecallExcludeOrigins: [],
   memoryRecallMaxBandTokens: 800,
   memoryRecallTimeoutMs: 5000,
+  memoryMaintenanceEnabled: true,
+  memoryMaintenanceIntervalMs: 3600000,
   vectorDbPath: '/tmp/icos-test-claims-vector.db',
   skillsDirPath: '/tmp/icos-test-skills-missing',
   skillsEnabled: true,

@@ -449,6 +449,31 @@ CREATE INDEX IF NOT EXISTS idx_prospective_items_subject_predicate
 ON prospective_items(subject_norm, predicate_norm);
 
 /**
+ * M12 maintenance history (append-only audit of belief aging).
+ * Every M12 mutation writes exactly one row here with before/after
+ * confidence: beliefs evolve, history never rewrites. Claims keep
+ * no aging state of their own — levels (e.g. last compounded
+ * timesObserved) are re-derived from these rows, so a crash
+ * mid-pass replays cleanly instead of half-applying.
+ */
+CREATE TABLE IF NOT EXISTS claim_history (
+    id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL,
+    transition TEXT NOT NULL
+        CHECK (transition IN (
+            'compound', 'decay', 'revise', 'retire', 'link',
+            'gist_proposed', 'lock', 'unlock', 'suppress'
+        )),
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    confidence_before REAL,
+    confidence_after REAL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_claim_history_claim
+ON claim_history(claim_id);
+
+/**
  * M11a lexical recall surface. External-content FTS5 over the
  * immutable claim text (subject/predicate/object/entities) — the
  * same trigger-kept pattern as messages_fts. Claim text never
@@ -516,6 +541,7 @@ const SCHEMAS: Record<
       'claims_fts',
       'promotion_journal',
       'prospective_items',
+      'claim_history',
     ],
     triggers: ['claims_ai', 'claims_ad', 'claims_au'],
   },

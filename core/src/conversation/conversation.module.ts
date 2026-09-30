@@ -20,6 +20,7 @@ import { LlmMemoryCandidateExtractor } from '../memory/llm-memory-candidate-extr
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { AssociativeRecall } from '../memory/associative-recall';
+import { ClaimHistoryRepository } from '../memory/claim-history.repository';
 import { ClaimIndex } from '../memory/claim-index';
 import { ClaimRepository } from '../memory/claim.repository';
 import { KbBridge, NullKbBridge } from '../memory/kb-bridge';
@@ -27,11 +28,13 @@ import { MemoryDatabaseService } from '../memory/memory-database.service';
 import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
 import { PromotionService } from '../memory/promotion.service';
 import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
+import { MaintenanceService } from '../memory/maintenance.service';
 import { RankService } from '../memory/rank.service';
 import { RecallService } from '../memory/recall.service';
 import { RecallTraceStore } from '../memory/recall-trace.store';
 import { RuvectorClaimIndex } from '../memory/ruvector-claim-index';
 import { SqliteClaimRepository } from '../memory/sqlite-claim.repository';
+import { SqliteClaimHistoryRepository } from '../memory/sqlite-claim-history.repository';
 import { SqliteLexicalClaimIndex } from '../memory/sqlite-lexical-claim-index';
 import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-item.repository';
 import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
@@ -47,6 +50,7 @@ import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { CandidatesController } from './candidates.controller';
 import { ClaimsController } from './claims.controller';
+import { MaintenanceController } from './maintenance.controller';
 import { ProspectiveController } from './prospective.controller';
 import { RecallController } from './recall.controller';
 import { PromotionsController } from './promotions.controller';
@@ -92,6 +96,7 @@ const toolExecutionServiceProvider = {
     SessionsController,
     CandidatesController,
     ClaimsController,
+    MaintenanceController,
     ProspectiveController,
     RecallController,
     PromotionsController,
@@ -121,6 +126,10 @@ const toolExecutionServiceProvider = {
       useClass: SqlitePromotionJournalRepository,
     },
     {
+      provide: ClaimHistoryRepository,
+      useClass: SqliteClaimHistoryRepository,
+    },
+    {
       provide: ProspectiveItemRepository,
       useClass: SqliteProspectiveItemRepository,
     },
@@ -137,6 +146,7 @@ const toolExecutionServiceProvider = {
     RecallService,
     RankService,
     RecallTraceStore,
+    MaintenanceService,
     PromotionService,
     {
       provide: MemoryCandidateExtractor,

@@ -58,6 +58,14 @@ export interface CoreConfig {
   /** M11e turn-time recall latency budget in ms. */
   memoryRecallTimeoutMs: number;
   /**
+   * M12 maintenance kill-switch (default on): false disables the
+   * scheduled pass entirely (explicit runs still work). Async
+   * aging must never surprise an operator.
+   */
+  memoryMaintenanceEnabled: boolean;
+  /** M12 maintenance cadence in ms (default: hourly). */
+  memoryMaintenanceIntervalMs: number;
+  /**
    * M10e clarification trigger: a contradiction parks a prospective
    * item when the contradicted claim's confidence sits below this
    * (default 0.5). Repeat contests park regardless of confidence.
@@ -202,6 +210,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.MEMORY_RECALL_TIMEOUT_MS,
       5000,
       'MEMORY_RECALL_TIMEOUT_MS',
+    ),
+    memoryMaintenanceEnabled: parseBoolean(
+      env.MEMORY_MAINTENANCE_ENABLED,
+      true,
+    ),
+    memoryMaintenanceIntervalMs: parsePositiveInt(
+      env.MEMORY_MAINTENANCE_INTERVAL_MS,
+      3600000,
+      'MEMORY_MAINTENANCE_INTERVAL_MS',
     ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,

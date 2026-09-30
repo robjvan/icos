@@ -32,6 +32,8 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,

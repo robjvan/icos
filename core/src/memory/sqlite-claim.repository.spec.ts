@@ -31,6 +31,8 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -301,6 +303,36 @@ describe('SqliteClaimRepository', () => {
     await repository.recordAccessed([saved.id, saved.id]);
     expect((await repository.getClaim(saved.id))?.accessCount).toBe(2);
     await repository.recordAccessed([]);
+  });
+
+  it('adjusts engine confidence without touching lifecycle or provenance', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+
+    const updated = await repository.adjustConfidence(saved.id, 0.96);
+    expect(updated?.confidence).toBe(0.96);
+    expect(updated).toMatchObject({
+      status: 'candidate',
+      origin: 'user',
+      firstAssertedAt: 'cand-1',
+      extractorConfidence: 0.9,
+    });
+    expect(await repository.adjustConfidence('missing', 0.5)).toBeNull();
+  });
+
+  it('appends related ids deduped, never self-linked', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+
+    const linked = await repository.addRelated(saved.id, ['b', 'c', 'b']);
+    expect(linked?.related).toEqual(['b', 'c']);
+    const relinked = await repository.addRelated(saved.id, [
+      'c',
+      'd',
+      saved.id,
+    ]);
+    expect(relinked?.related).toEqual(['b', 'c', 'd']);
+    expect(await repository.addRelated('missing', ['b'])).toBeNull();
   });
 
   it('coexists affirmed and negated rivals under one triple', async () => {

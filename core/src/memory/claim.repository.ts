@@ -59,12 +59,31 @@ export abstract class ClaimRepository {
   }): Promise<Claim[]>;
 
   /**
-   * M11 access observation: bump `accessCount` and touch
+   * M12 access observation: bump `accessCount` and touch
    * `lastAccessedAt` for claims surfaced in a turn. The single
    * mutation M11 is allowed — M12 owns its meaning, and nothing
    * else here writes beliefs. Missing ids are ignored.
    */
   abstract recordAccessed(ids: string[]): Promise<void>;
+
+  /**
+   * M12 confidence write: set the engine estimate with lifecycle
+   * intact (no status change, no provenance touch). The caller
+   * records the matching history row — confidence never moves
+   * without audit. Returns null when the claim is missing.
+   */
+  abstract adjustConfidence(
+    id: string,
+    confidence: number,
+  ): Promise<Claim | null>;
+
+  /**
+   * M12 cross-link maintenance: append claim ids to `related[]`
+   * (deduped, order-stable). Reserved refs become traversal
+   * substrate here — M11 promised to read, never to write.
+   * Returns null when the claim is missing.
+   */
+  abstract addRelated(id: string, relatedIds: string[]): Promise<Claim | null>;
 
   /** Cheap liveness probe for health checks. */
   abstract ping(): Promise<void>;

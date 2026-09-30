@@ -1,6 +1,7 @@
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Claim } from '../../memory/claim';
+import type { ClaimHistory } from '../../memory/claim-history';
 import type { MemoryCandidate } from '../../memory/memory-candidate';
 import type { PromotionJournalEntry } from '../../memory/promotion';
 
@@ -35,6 +36,8 @@ export class ClaimDetailResponseDto {
   evidence!: (MemoryCandidate | null)[];
   /** Journal rows that built or touched this claim, oldest first. */
   history!: PromotionJournalEntry[];
+  /** M12 maintenance transitions on this claim, oldest first. */
+  maintenance!: ClaimHistory[];
 }
 
 export class SearchClaimsQueryDto {

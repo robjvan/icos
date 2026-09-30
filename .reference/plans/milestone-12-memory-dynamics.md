@@ -54,7 +54,9 @@ Same constraint as M10/M11: `core/` and `.reference/` only.
 
 ---
 
-# [ ] M12a — Reinforcement (Consolidation)
+# [x] M12a — Reinforcement (Consolidation) (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-12a-evidence-reinforcement.md`.
 
 Repeated observation strengthens — with a ceiling, not a ratchet
 to certainty (v2's capped compounding):

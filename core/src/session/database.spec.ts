@@ -119,6 +119,7 @@ describe('openDatabase', () => {
         'claims',
         'promotion_journal',
         'prospective_items',
+        'claim_history',
         'claims_fts',
         'claims_fts_data',
         'claims_fts_idx',
