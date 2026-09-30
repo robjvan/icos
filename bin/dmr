@@ -1,0 +1,7 @@
+#!/bin/sh
+# DMR stack shorthand: `bin/dmr up -d --build` (up | down | logs | ...).
+# Same stack as docker-compose.yml, DMR backend swapped in via
+# docker-compose-dmr.yml. Standard path stays plain `docker compose`.
+set -e
+cd "$(dirname "$0")/.."
+exec docker compose -f docker-compose.yml -f docker-compose-dmr.yml "$@"

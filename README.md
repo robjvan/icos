@@ -260,7 +260,8 @@ no separate model downloads, no extra terminals.
 From the repository root:
 
 ```sh
-docker compose -f docker-compose-dmr.yml up --build -d
+docker compose -f docker-compose.yml -f docker-compose-dmr.yml up --build -d
+# shorthand: bin/dmr up -d --build
 ```
 
 Once the `icos-v3-core` service is healthy, open:
@@ -275,7 +276,9 @@ The development chat interface should be available there. Give the stack
 a minute after first boot: models download once (GBs) and the vector
 index rebuilds before recall is at full strength.
 
-Stop with `docker compose -f docker-compose-dmr.yml down`.
+Stop with `docker compose -f docker-compose.yml -f docker-compose-dmr.yml down`
+(shorthand: `bin/dmr down`). Bring the stack down before starting the
+other variant — both bind the same host ports.
 
 > **DMR status: in testing.** The compose file, model refs, and VRAM
 > behaviour are still being validated. It works today; treat sharp
@@ -311,7 +314,7 @@ npm run start
 Then open `http://localhost:4200` as above.
 
 This path still works but is no longer the recommended way to try the
-stack — prefer the DMR compose file unless you have a reason not to.
+stack — prefer the DMR variant unless you have a reason not to.
 
 ---
 
@@ -396,7 +399,10 @@ web-cient/
   ...                   # Project files
 
 docker-compose.yml      # Supported launch path (icos-v3-core service)
-docker-compose-dmr.yml  # DMR launch path (models served in-stack; in testing)
+docker-compose-dmr.yml  # DMR override: same stack, models served in-stack
+                        # (usage: -f docker-compose.yml -f docker-compose-dmr.yml,
+                        #  or bin/dmr; in testing)
+bin/dmr                 # Shorthand for the DMR variant
 
 .reference/
   plans/                # Milestone plans
