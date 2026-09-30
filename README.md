@@ -3,7 +3,7 @@
 <center>
 
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
-![Updated](https://img.shields.io/badge/Updated-2026%2F09%23-CBA701)
+![Updated](https://img.shields.io/badge/Updated-2026%2F09%30-CBA701)
 ![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.13.0-red)
@@ -99,7 +99,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M9 are complete. M10 (epistemic memory) is in progress.**
+**M1–M11 are complete. M12 (memory dynamics) is the active milestone.**
 
 The current system provides:
 
@@ -117,9 +117,15 @@ The current system provides:
 - Standard-format skills support
 - Tool integration with a durable invocation ledger
 - Agent orchestration (bounded plan → act → observe loop)
+- Epistemic memory (evidence → provenance-traced beliefs, human-approved
+  promotion, contradiction handling with a clarification queue)
+- Turn-time recall (lexical + semantic + associative surfaces, ranked
+  with confidence gating and provenance lenses, band-separated context
+  that never confuses memory with user speech)
 
-The active milestone is **M10: Epistemic Memory** (evidence → beliefs
-with provenance, human-approved promotion, contradiction handling).
+The active milestone is **M12: Memory Dynamics** (consolidation, decay,
+supersession, belief revision — beliefs that evolve instead of only
+accumulating).
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
@@ -129,31 +135,31 @@ Development is active and the architecture is expected to change substantially a
 
 ICOS v3 is being developed as a sequence of increasingly capable experiments.
 
-| Milestone | Question |
-| :---: | --- |
-| **M1** | *Can it talk?* |
-| **M2** | *Can it stream?* |
-| **M3** | *Can it remember what happened?* |
-| **M4** | *Can it notice potentially meaningful things?* |
-| **M5** | *Can I change its brain without changing its body?* |
-| **M6** | *Can a human interact with it properly?* |
-| **M7** | *Can it acquire capabilities?* |
-| **M8** | *Can it actually use those capabilities?* |
-| **M9** | *Can it autonomously complete a task?* |
-| **M10** | *Can it form knowledge?* |
-| **M11** | *Can it retrieve and use that knowledge?* |
-| **M12** | *Can that knowledge evolve?* |
-| **M13** | *Can it expose its capabilities to other systems?* |
-| **M14** | *Can it maintain a persistent persona?* |
-| **M15** | *Can it detect and correct its own drift?* |
-| **M16** | *Can it communicate through external channels?* |
-| **M17** | *Can it autonomously select and execute actions?* |
-| **M18** | *Can it perceive the world beyond conversation?* |
-| **M19** | *Can it delegate work to other agents?* |
-| **M20** | *Can it react to external events without requiring a conversational turn?* |
-| **M21** | *Can it steward its own knowledge base?* |
-| **Deferred** | ***Episodic consolidation:*** *Can experiences be abstracted into knowledge?* |
-| **Deferred** | ***Source synchronization:*** *Can knowledge stay aligned with the world?* |
+|  Milestone   | Question                                                                      |
+| :----------: | ----------------------------------------------------------------------------- |
+|    **M1**    | _Can it talk?_                                                                |
+|    **M2**    | _Can it stream?_                                                              |
+|    **M3**    | _Can it remember what happened?_                                              |
+|    **M4**    | _Can it notice potentially meaningful things?_                                |
+|    **M5**    | _Can I change its brain without changing its body?_                           |
+|    **M6**    | _Can a human interact with it properly?_                                      |
+|    **M7**    | _Can it acquire capabilities?_                                                |
+|    **M8**    | _Can it actually use those capabilities?_                                     |
+|    **M9**    | _Can it autonomously complete a task?_                                        |
+|   **M10**    | _Can it form knowledge?_                                                      |
+|   **M11**    | _Can it retrieve and use that knowledge?_                                     |
+|   **M12**    | _Can that knowledge evolve?_                                                  |
+|   **M13**    | _Can it expose its capabilities to other systems?_                            |
+|   **M14**    | _Can it maintain a persistent persona?_                                       |
+|   **M15**    | _Can it detect and correct its own drift?_                                    |
+|   **M16**    | _Can it communicate through external channels?_                               |
+|   **M17**    | _Can it autonomously select and execute actions?_                             |
+|   **M18**    | _Can it perceive the world beyond conversation?_                              |
+|   **M19**    | _Can it delegate work to other agents?_                                       |
+|   **M20**    | _Can it react to external events without requiring a conversational turn?_    |
+|   **M21**    | _Can it steward its own knowledge base?_                                      |
+| **Deferred** | **_Episodic consolidation:_** _Can experiences be abstracted into knowledge?_ |
+| **Deferred** | **_Source synchronization:_** _Can knowledge stay aligned with the world?_    |
 
 Each milestone is tracked in:
 
