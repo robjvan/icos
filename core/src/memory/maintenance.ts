@@ -23,11 +23,59 @@ export const GIST_FAMILY_SIZE = 3;
 /** Max claims touched per pass (bounded background work). */
 export const MAINTENANCE_PASS_LIMIT = 500;
 
+/**
+ * Decay policy (M12b). Passive exponential half-life for records
+ * unaccessed past a grace period — category-scoped (v2's
+ * categorical-lifecycle lesson: tastes fade faster than bonds).
+ * Floors hold (decay never deletes); locked claims never decay
+ * (certainty guards loss, not growth); recent access shields
+ * (v2's mark_accessed: being remembered protects memory —
+ * corroboration-free access slows decay but never raises
+ * confidence, which stays M12a's job).
+ */
+
+/** Neglect days before decay starts ticking. */
+export const DECAY_GRACE_DAYS = 30;
+
+/** Base half-life in days (multiplied per category). */
+export const DECAY_HALF_LIFE_DAYS = 90;
+
+/** Half-life multipliers by claim category. */
+export const DECAY_HALF_LIFE_MULTIPLIER: Record<string, number> = {
+  fact: 1.0,
+  preference: 0.8,
+  relationship: 2.0,
+  procedure: 1.5,
+};
+
+/** Confidence floors by category — decay stops here, never deletes. */
+export const DECAY_FLOOR: Record<string, number> = {
+  fact: 0.2,
+  preference: 0.15,
+  relationship: 0.3,
+  procedure: 0.25,
+};
+
+/** Access within this many days shields the next decay pass. */
+export const ACCESS_SHIELD_DAYS = 7;
+
+/**
+ * Deliberate retirement (M12b): unretrieved this many days AND at
+ * or below this confidence retires explicitly through the endpoint
+ * (`retired` finally gets its writer). An explicit "forget this"
+ * instruction takes the same path with force (HITL authority is
+ * the caller). Retirement is a status transition with history —
+ * never a delete, recoverable in history.
+ */
+export const RETIRE_AFTER_DAYS = 180;
+export const RETIRE_CONFIDENCE_MAX = 0.3;
+
 export type MaintenanceOutcome =
-  'compounded' | 'linked' | 'gist_proposed' | 'skipped' | 'failed';
+  'compounded' | 'decayed' | 'linked' | 'gist_proposed' | 'skipped' | 'failed';
 
 export interface PassSummary {
   compounded: number;
+  decayed: number;
   linked: number;
   gistProposed: number;
   skipped: number;
@@ -38,6 +86,7 @@ export interface PassSummary {
 
 export const EMPTY_PASS: PassSummary = {
   compounded: 0,
+  decayed: 0,
   linked: 0,
   gistProposed: 0,
   skipped: 0,

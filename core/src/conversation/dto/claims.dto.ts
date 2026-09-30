@@ -1,4 +1,12 @@
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Claim } from '../../memory/claim';
 import type { ClaimHistory } from '../../memory/claim-history';
@@ -38,6 +46,21 @@ export class ClaimDetailResponseDto {
   history!: PromotionJournalEntry[];
   /** M12 maintenance transitions on this claim, oldest first. */
   maintenance!: ClaimHistory[];
+}
+
+export class RetireClaimDto {
+  /**
+   * Explicit "forget this": bypasses the eligibility rule
+   * (unretrieved window + low confidence). The caller is the HITL
+   * authority; the bypass is recorded in history either way.
+   */
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
+export class RetireClaimResponseDto {
+  claim!: Claim;
 }
 
 export class SearchClaimsQueryDto {

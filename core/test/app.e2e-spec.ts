@@ -773,6 +773,36 @@ describe('Conversation (e2e)', () => {
       history: [{ operation: 'NEW', state: 'committed' }],
       maintenance: [],
     });
+
+    // Fresh confident beliefs refuse retirement; force retires with
+    // history; the row stays queryable; re-retire is a no-op.
+    const claimId = claims[0]?.id ?? '';
+    await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({})
+      .expect(400);
+    const retired = await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({ force: true })
+      .expect(200);
+    expect((retired.body as { claim: { status: string } }).claim.status).toBe(
+      'retired',
+    );
+    const after = await request(http())
+      .get(`/core/claims/${claimId}`)
+      .expect(200);
+    expect(after.body as object).toMatchObject({
+      claim: { status: 'retired' },
+      maintenance: [{ transition: 'retire' }],
+    });
+    await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({ force: true })
+      .expect(200);
+    await request(http())
+      .post('/core/claims/00000000-0000-0000-0000-000000000000/retire')
+      .send({})
+      .expect(404);
   });
 
   it('traces turn-time recall per session for inspection', async () => {

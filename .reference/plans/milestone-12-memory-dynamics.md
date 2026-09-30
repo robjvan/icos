@@ -79,7 +79,9 @@ to certainty (v2's capped compounding):
 
 ---
 
-# [ ] M12b — Decay and Forgetting
+# [x] M12b — Decay and Forgetting (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-12b-evidence-decay.md`.
 
 Forgetting is a first-class operation with two modes — passive and
 chosen (v2's retrieval-shaped-forgetting lineage):

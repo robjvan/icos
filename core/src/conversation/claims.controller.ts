@@ -4,6 +4,10 @@ import {
   NotFoundException,
   Param,
   Query,
+  Post,
+  Body,
+  BadRequestException,
+  HttpCode,
 } from '@nestjs/common';
 import type { Claim } from '../memory/claim';
 import {
@@ -13,6 +17,10 @@ import {
 } from '../memory/claim-index';
 import { ClaimHistoryRepository } from '../memory/claim-history.repository';
 import { ClaimRepository } from '../memory/claim.repository';
+import {
+  MaintenanceService,
+  RetirementIneligibleError,
+} from '../memory/maintenance.service';
 import type { MemoryCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
@@ -20,6 +28,8 @@ import {
   ClaimDetailResponseDto,
   ListClaimsQueryDto,
   ListClaimsResponseDto,
+  RetireClaimDto,
+  RetireClaimResponseDto,
   SearchClaimsQueryDto,
   SearchClaimsResponseDto,
 } from './dto/claims.dto';
@@ -37,6 +47,7 @@ export class ClaimsController {
     private readonly journal: PromotionJournalRepository,
     private readonly index: ClaimIndex,
     private readonly history: ClaimHistoryRepository,
+    private readonly maintenance: MaintenanceService,
   ) {}
 
   @Get()
@@ -89,5 +100,32 @@ export class ClaimsController {
       history: await this.journal.listByClaimId(id),
       maintenance: await this.history.listByClaimId(id),
     };
+  }
+
+  /**
+   * Deliberate retirement (M12b): explicit status transition with
+   * history — the `retired` writer. Missing rows 404; ineligible
+   * rows 400 unless forced (explicit "forget this", caller = HITL
+   * authority, bypass recorded). Retirement is never a delete:
+   * the row stays queryable with full history.
+   */
+  @Post(':id/retire')
+  @HttpCode(200)
+  async retire(
+    @Param('id') id: string,
+    @Body() body: RetireClaimDto,
+  ): Promise<RetireClaimResponseDto> {
+    try {
+      const claim = await this.maintenance.retireClaim(id, {
+        force: body.force,
+      });
+      if (!claim) throw new NotFoundException(`Unknown claim "${id}"`);
+      return { claim };
+    } catch (err) {
+      if (err instanceof RetirementIneligibleError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 }
