@@ -2022,6 +2022,9 @@ export class ConversationService {
                 // 'unknown', never invented.
                 role: candidate.sourceRole ?? 'unknown',
               },
+              // Foreign extractor implementations may omit the M10e
+              // marker; absence reads affirmed, never negated.
+              negated: candidate.negated ?? false,
               extractorModel: this.config.memoryLlmModel,
               extractorVersion: EXTRACTION_VERSION,
             })),

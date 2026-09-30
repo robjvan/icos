@@ -11,6 +11,7 @@ import type { MemoryCandidate, NewMemoryCandidate } from './memory-candidate';
 import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repository';
 import { SqliteClaimRepository } from './sqlite-claim.repository';
 import { SqlitePromotionJournalRepository } from './sqlite-promotion-journal.repository';
+import { SqliteProspectiveItemRepository } from './sqlite-prospective-item.repository';
 import { PromotionService } from './promotion.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import type { RealtimeEvent } from '../realtime/realtime-event';
@@ -38,6 +39,7 @@ function testConfig(
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -72,6 +74,7 @@ const candidate = (
   source: { sessionId, messageId: 1, role: 'user' },
   extractorModel: 'mem',
   extractorVersion: 'memory-extraction-v2',
+  negated: false,
   ...overrides,
 });
 
@@ -90,6 +93,7 @@ describe('PromotionService', () => {
     const candidates = new SqliteMemoryCandidateRepository(service);
     const claims = new SqliteClaimRepository(service);
     const journal = new SqlitePromotionJournalRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
     const approvals = new SqliteApprovalRepository(sessionService);
     // ApprovalService.create binds sessions; the unit approval path
     // delegates straight to the real repository (e2e covers binding).
@@ -113,6 +117,7 @@ describe('PromotionService', () => {
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
       new NoopPublisher(),
+      prospective,
     );
     // Approvals bind sessions by FK; the turn's session exists at runtime.
     sessionService.connection
@@ -120,7 +125,15 @@ describe('PromotionService', () => {
         'INSERT INTO sessions (id, created_at, updated_at) VALUES (?, ?, ?)',
       )
       .run('s1', 't', 't');
-    return { promotion, candidates, claims, journal, approvals, db: service };
+    return {
+      promotion,
+      candidates,
+      claims,
+      journal,
+      prospective,
+      approvals,
+      db: service,
+    };
   };
 
   const save = async (
@@ -191,6 +204,10 @@ describe('PromotionService', () => {
     const done = await s.journal.getEntry(entry.id);
     expect(done?.state).toBe('committed');
     expect(done?.claimId).toBe(claims[0].id);
+    // The belief points back at its derivation, not just its evidence.
+    expect(await s.journal.listByClaimId(claims[0].id)).toMatchObject([
+      { operation: 'NEW', state: 'committed' },
+    ]);
   });
 
   it('auto-commits admitted NEW kinds without approval when opted in', async () => {
@@ -253,6 +270,8 @@ describe('PromotionService', () => {
     expect(claims).toHaveLength(1);
     expect(claims[0]?.evidence).toHaveLength(2);
     expect(claims[0]?.confidence).toBeCloseTo(0.95, 5);
+    // Engine confidence moves; the extractor's observation never does.
+    expect(claims[0]?.extractorConfidence).toBe(0.9);
     expect(claims[0]?.timesObserved).toBe(2);
     expect(claims[0]?.firstAssertedAt).toBe(first.id);
     expect((await s.journal.getEntry(e2.id))?.detail).toContain(
@@ -370,6 +389,7 @@ describe('PromotionService', () => {
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
       new NoopPublisher(),
+      s.prospective,
     );
     const [saved] = await save(s, [candidate('s1')]);
     await expect(promotion.proposeCandidates([saved])).resolves.toHaveLength(0);
@@ -446,6 +466,7 @@ describe('PromotionService', () => {
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
       new NoopPublisher(),
+      new SqliteProspectiveItemRepository(autoService),
     );
     const [autoSaved] = await new SqliteMemoryCandidateRepository(
       autoService,
@@ -490,6 +511,7 @@ describe('PromotionService', () => {
         status: jest.fn(() => Promise.resolve({ enabled: false })),
       },
       probe,
+      s.prospective,
     );
     const [saved] = await save(s, [candidate('s1')]);
     await probing.proposeCandidates([saved]);
@@ -498,5 +520,263 @@ describe('PromotionService', () => {
     // Global fanout: no sessionId, so the gateway delivers to every socket.
     expect(proposed?.sessionId).toBeUndefined();
     expect(proposed?.payload?.['journalId']).toBeDefined();
+  });
+
+  it('contradicts a same-triple negation instead of reinforcing', async () => {
+    const s = setup();
+    const [affirmed] = await save(s, [candidate('s1', 'TypeScript')]);
+    const [e1] = await s.promotion.proposeCandidates([affirmed]);
+    await s.approvals.resolveApproval(e1.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({ new: 1 });
+
+    const [denial] = await save(s, [
+      candidate('s1', 'TypeScript', { negated: true, confidence: 0.85 }),
+    ]);
+    const [e2] = await s.promotion.proposeCandidates([denial]);
+    expect(e2?.operation).toBe('CONTRADICT');
+    const approval = await s.approvals.getApproval(e2.approvalId!);
+    expect(approval?.description).toContain('negated');
+
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({ contradicted: 1 });
+
+    const active = await s.claims.listClaims({ status: 'active' });
+    const contradicted = await s.claims.listClaims({
+      status: 'contradicted',
+    });
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({ object: 'TypeScript', negated: true });
+    expect(contradicted).toHaveLength(1);
+    expect(contradicted[0]).toMatchObject({
+      object: 'TypeScript',
+      negated: false,
+    });
+    const done = await s.journal.getEntry(e2.id);
+    expect(done?.operation).toBe('CONTRADICT');
+    expect(done?.detail).toContain(`contradicts:${contradicted[0].id}`);
+    // Confident loser, first contest: no question parked.
+    expect(await s.prospective.listItems()).toHaveLength(0);
+  });
+
+  it('reinforces same-marker repeats without forking', async () => {
+    const s = setup();
+    const [first] = await save(s, [
+      candidate('s1', 'TypeScript', { negated: true }),
+    ]);
+    const [second] = await save(s, [
+      candidate('s1', 'TypeScript', { negated: true }),
+    ]);
+
+    const [e1] = await s.promotion.proposeCandidates([first]);
+    const [e2] = await s.promotion.proposeCandidates([second]);
+    await s.approvals.resolveApproval(e1.approvalId!, 'approved');
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({
+      new: 1,
+      reinforced: 1,
+    });
+
+    const claims = await s.claims.listClaims();
+    expect(claims).toHaveLength(1);
+    expect(claims[0]).toMatchObject({ negated: true });
+    expect(claims[0]?.evidence).toHaveLength(2);
+  });
+
+  it('parks a question when the loser sits below threshold', async () => {
+    const s = setup();
+    const [weak] = await save(s, [
+      candidate('s1', 'TypeScript', { confidence: 0.3 }),
+    ]);
+    const [strong] = await save(s, [
+      candidate('s1', 'Rust', { confidence: 0.9 }),
+    ]);
+
+    const [e1] = await s.promotion.proposeCandidates([weak]);
+    const [e2] = await s.promotion.proposeCandidates([strong]);
+    await s.approvals.resolveApproval(e1.approvalId!, 'approved');
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({ contradicted: 1 });
+
+    const items = await s.prospective.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      subject: 'user',
+      predicate: 'prefers',
+      status: 'open',
+      contestCount: 1,
+      trigger: 'confidence_drop',
+    });
+    expect(items[0]?.options).toMatchObject([
+      { object: 'TypeScript', origin: 'user', confidence: 0.3 },
+      { object: 'Rust', origin: 'user', confidence: 0.9 },
+    ]);
+    expect(items[0]?.suggestedQuestion).toContain('TypeScript');
+    expect(items[0]?.suggestedQuestion).toContain('Rust');
+    expect(items[0]?.suggestedQuestion).toContain('origin user');
+  });
+
+  it('leaves no question for a confident first contest', async () => {
+    const s = setup();
+    const [first] = await save(s, [candidate('s1', 'TypeScript')]);
+    const [second] = await save(s, [candidate('s1', 'Rust')]);
+
+    const [e1] = await s.promotion.proposeCandidates([first]);
+    const [e2] = await s.promotion.proposeCandidates([second]);
+    await s.approvals.resolveApproval(e1.approvalId!, 'approved');
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({ contradicted: 1 });
+    expect(await s.prospective.listItems()).toHaveLength(0);
+  });
+
+  it('parks on repeat contest regardless of confidence, merging further rounds', async () => {
+    const s = setup();
+    const [a] = await save(s, [candidate('s1', 'TypeScript')]);
+    const [b] = await save(s, [candidate('s1', 'Rust')]);
+    const [c] = await save(s, [candidate('s1', 'Go')]);
+    const [d] = await save(s, [candidate('s1', 'Zig')]);
+
+    const entries = await s.promotion.proposeCandidates([a, b, c, d]);
+    for (const entry of entries) {
+      await s.approvals.resolveApproval(entry.approvalId!, 'approved');
+    }
+    expect(await s.promotion.sweep()).toMatchObject({ contradicted: 3 });
+
+    // First contest parked nothing; the second parked; the third merged.
+    const items = await s.prospective.listItems();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      trigger: 'repeated_contest',
+      contestCount: 3,
+      status: 'open',
+    });
+    expect(items[0]?.options.map((entry) => entry.object).sort()).toEqual([
+      'Go',
+      'Rust',
+      'TypeScript',
+      'Zig',
+    ]);
+    expect(items[0]?.suggestedQuestion).toContain('Zig');
+  });
+
+  it('auto-admits NEW only: reinforce and contradict still need approval', async () => {
+    const s = setup({
+      memoryPromotionAuto: true,
+      memoryPromotionAutoKinds: ['fact'],
+    });
+    const fact = (
+      object: string,
+      overrides: Partial<NewMemoryCandidate> = {},
+    ): NewMemoryCandidate =>
+      candidate('s1', object, {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+        ...overrides,
+      });
+    const [a] = await save(s, [fact('teal')]);
+    const [e1] = await s.promotion.proposeCandidates([a]);
+    expect(e1?.state).toBe('committed');
+    expect(e1?.approvalId).toBeNull();
+
+    // Same triple (REINFORCE) and same pair new object (CONTRADICT):
+    // above the NEW-only risk bar, so both park for approval.
+    const [b] = await save(s, [fact('teal')]);
+    const [c] = await save(s, [fact('azure')]);
+    const [e2] = await s.promotion.proposeCandidates([b]);
+    const [e3] = await s.promotion.proposeCandidates([c]);
+    expect(e2).toMatchObject({ operation: 'REINFORCE', state: 'proposed' });
+    expect(e2?.approvalId).toBeDefined();
+    expect(e3).toMatchObject({ operation: 'CONTRADICT', state: 'proposed' });
+    expect(e3?.approvalId).toBeDefined();
+    expect(await s.promotion.sweep()).toMatchObject({
+      reinforced: 0,
+      contradicted: 0,
+      skipped: 2,
+    });
+
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    await s.approvals.resolveApproval(e3.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({
+      reinforced: 1,
+      contradicted: 1,
+    });
+    // Every claim carries its derivation: no belief without a
+    // committed journal row pointing at it.
+    for (const claim of await s.claims.listClaims()) {
+      const history = await s.journal.listByClaimId(claim.id);
+      expect(history.length).toBeGreaterThanOrEqual(1);
+      expect(history.every((row) => row.state === 'committed')).toBe(true);
+    }
+  });
+
+  it('leaves reserved fields neutral through every M10 path', async () => {
+    const s = setup({
+      memoryPromotionAuto: true,
+      memoryPromotionAutoKinds: ['fact'],
+    });
+    const [a] = await save(s, [
+      candidate('s1', 'teal', {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+      }),
+    ]);
+    const [b] = await save(s, [
+      candidate('s1', 'teal', {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+      }),
+    ]);
+    const [c] = await save(s, [
+      candidate('s1', 'azure', {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+      }),
+    ]);
+    const [e1] = await s.promotion.proposeCandidates([a]);
+    expect(e1?.state).toBe('committed');
+    const [e2] = await s.promotion.proposeCandidates([b]);
+    const [e3] = await s.promotion.proposeCandidates([c]);
+    await s.approvals.resolveApproval(e2.approvalId!, 'approved');
+    await s.approvals.resolveApproval(e3.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({
+      reinforced: 1,
+      contradicted: 1,
+    });
+
+    const claims = await s.claims.listClaims();
+    expect(claims.length).toBeGreaterThan(0);
+    for (const claim of claims) {
+      expect(claim.sourceType).toBeNull();
+      expect(claim.summary).toBeNull();
+      expect(claim.related).toEqual([]);
+      expect(claim.accessCount).toBe(0);
+      expect(claim.lastAccessedAt).toBeNull();
+      expect(claim.activation).toBeNull();
+      expect(claim.locked).toBe(false);
+      expect(claim.emotional).toBeNull();
+    }
+  });
+
+  it('keeps agent-mined facts agent-origin end to end', async () => {
+    const s = setup();
+    const [saved] = await save(s, [
+      candidate('s1', 'TypeScript', {
+        sourceRole: 'assistant',
+        source: { sessionId: 's1', messageId: 1, role: 'assistant' },
+      }),
+    ]);
+    const [entry] = await s.promotion.proposeCandidates([saved]);
+    await s.approvals.resolveApproval(entry.approvalId!, 'approved');
+    expect(await s.promotion.sweep()).toMatchObject({ new: 1 });
+
+    const claims = await s.claims.listClaims();
+    expect(claims).toHaveLength(1);
+    expect(claims[0]).toMatchObject({
+      origin: 'agent',
+      evidence: [{ candidateId: saved.id, role: 'assistant' }],
+    });
   });
 });

@@ -25,6 +25,7 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -132,5 +133,45 @@ describe('SqlitePromotionJournalRepository', () => {
     expect(await repository.listByClaimId('missing')).toEqual([]);
     expect(await repository.getByCandidate('c1')).toBeDefined();
     expect(await repository.getByCandidate('missing')).toBeNull();
+  });
+
+  it('survives close and reopen with states intact', async () => {
+    const path = join(dir, 'persist.sqlite');
+    const first = new MemoryDatabaseService(testConfig(path, dir));
+    first.onModuleInit();
+    const repo = new SqlitePromotionJournalRepository(first);
+    const proposed = await repo.recordProposal({
+      candidateId: 'c1',
+      operation: 'NEW',
+      approvalId: 'appr-1',
+    });
+    const done = await repo.recordProposal({
+      candidateId: 'c2',
+      operation: 'CONTRADICT',
+    });
+    await repo.setState(done.id, 'committed', {
+      claimId: 'claim-9',
+      detail: 'contradicts:claim-8',
+    });
+    first.onModuleDestroy();
+
+    const second = new MemoryDatabaseService(testConfig(path, dir));
+    second.onModuleInit();
+    services.push(second);
+    const reopened = new SqlitePromotionJournalRepository(second);
+    expect(await reopened.getEntry(proposed.id)).toMatchObject({
+      state: 'proposed',
+      operation: 'NEW',
+      approvalId: 'appr-1',
+    });
+    expect(await reopened.getEntry(done.id)).toMatchObject({
+      state: 'committed',
+      operation: 'CONTRADICT',
+      claimId: 'claim-9',
+      detail: 'contradicts:claim-8',
+    });
+    expect(
+      (await reopened.listByClaimId('claim-9')).map((row) => row.candidateId),
+    ).toEqual(['c2']);
   });
 });

@@ -26,6 +26,7 @@ const claim: Claim = {
   firstAssertedAt: 'cand-1',
   lastSurfacedAt: 'cand-1',
   origin: 'user',
+  negated: false,
   sourceType: null,
   summary: null,
   evidence: [{ candidateId: 'cand-1', role: 'user' }],

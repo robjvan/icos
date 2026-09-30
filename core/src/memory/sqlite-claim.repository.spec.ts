@@ -26,6 +26,7 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -54,6 +55,7 @@ const claim = (object = 'TypeScript'): NewClaim => ({
   firstAssertedAt: 'cand-1',
   lastSurfacedAt: 'cand-1',
   origin: 'user',
+  negated: false,
   evidence: [{ candidateId: 'cand-1', role: 'user' }],
   entities: ['user'],
   promotion: 'approved:appr-1',
@@ -271,5 +273,80 @@ describe('SqliteClaimRepository', () => {
     const listed = await reopened.listClaims({ status: 'active' });
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ object: 'TypeScript', origin: 'user' });
+  });
+
+  it('coexists affirmed and negated rivals under one triple', async () => {
+    const repository = openRepo();
+    const affirmed = await repository.createClaim(claim());
+    const negated = await repository.createClaim({
+      ...claim(),
+      negated: true,
+      promotion: 'approved:appr-2',
+    });
+
+    expect(affirmed.id).not.toBe(negated.id);
+    expect(negated.negated).toBe(true);
+    expect(
+      (
+        await repository.findByTriple({
+          subject: 'user',
+          predicate: 'prefers',
+          object: 'TypeScript',
+        })
+      )?.id,
+    ).toBe(affirmed.id);
+    expect(
+      (
+        await repository.findByTriple({
+          subject: 'user',
+          predicate: 'prefers',
+          object: 'TypeScript',
+          negated: true,
+        })
+      )?.id,
+    ).toBe(negated.id);
+  });
+
+  it('still refuses same-marker duplicates', async () => {
+    const repository = openRepo();
+    await repository.createClaim({ ...claim(), negated: true });
+
+    await expect(
+      repository.createClaim({ ...claim(), negated: true }),
+    ).rejects.toThrow('already exists');
+  });
+
+  it('migrates pre-marker claim files without losing rows', async () => {
+    const path = join(dir, 'legacy.sqlite');
+    const legacy = new MemoryDatabaseService(testConfig(path, dir));
+    legacy.onModuleInit();
+    const legacyRepo = new SqliteClaimRepository(legacy);
+    const saved = await legacyRepo.createClaim(claim());
+    // Simulate the pre-M10e file shape: no marker column, unique on
+    // identity_key alone. Row data is preserved; only the shape ages.
+    legacy.connection.exec(
+      `DROP INDEX idx_claims_identity;
+       ALTER TABLE claims DROP COLUMN negated;
+       CREATE UNIQUE INDEX idx_claims_identity ON claims(identity_key);`,
+    );
+    legacy.onModuleDestroy();
+
+    // Reopen through the migration: marker backfilled as affirmed,
+    // index rebuilt composite, old rows intact.
+    const migrated = new MemoryDatabaseService(testConfig(path, dir));
+    migrated.onModuleInit();
+    services.push(migrated);
+    const reopened = new SqliteClaimRepository(migrated);
+    expect((await reopened.getClaim(saved.id))?.negated).toBe(false);
+    // And the affirmed row still converges by triple.
+    expect(
+      (
+        await reopened.findByTriple({
+          subject: 'user',
+          predicate: 'prefers',
+          object: 'TypeScript',
+        })
+      )?.id,
+    ).toBe(saved.id);
   });
 });

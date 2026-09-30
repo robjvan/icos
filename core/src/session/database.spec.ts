@@ -118,6 +118,7 @@ describe('openDatabase', () => {
         'memory_candidates',
         'claims',
         'promotion_journal',
+        'prospective_items',
       ]);
     } finally {
       db.close();

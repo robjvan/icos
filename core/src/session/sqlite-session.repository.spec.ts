@@ -26,6 +26,7 @@ function testConfig(sessionDbPath: string, dir: string): CoreConfig {
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,

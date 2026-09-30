@@ -39,6 +39,12 @@ export interface CoreConfig {
   memoryPromotionAuto: boolean;
   /** Candidate kinds eligible for automatic promotion (default: none). */
   memoryPromotionAutoKinds: string[];
+  /**
+   * M10e clarification trigger: a contradiction parks a prospective
+   * item when the contradicted claim's confidence sits below this
+   * (default 0.5). Repeat contests park regardless of confidence.
+   */
+  memoryProspectiveConfidenceThreshold: number;
   /** RuVector claim-index store path (M10d semantic surface). */
   vectorDbPath: string;
   /** Filesystem skill catalog root (M7). One `<name>/SKILL.md` per skill. */
@@ -85,6 +91,20 @@ function parsePositiveInt(
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
+/** 0..1 score with a fallback; rejects NaN and out-of-range input. */
+function parseScore(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${name} must be a number between 0 and 1 (got "${raw}")`);
   }
   return value;
 }
@@ -142,6 +162,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     ),
     memoryPromotionAuto: parseBoolean(env.MEMORY_PROMOTION_AUTO, false),
     memoryPromotionAutoKinds: parseKindList(env.MEMORY_PROMOTION_AUTO_KINDS),
+    memoryProspectiveConfidenceThreshold: parseScore(
+      env.MEMORY_PROSPECTIVE_CONFIDENCE_THRESHOLD,
+      0.5,
+      'MEMORY_PROSPECTIVE_CONFIDENCE_THRESHOLD',
+    ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',

@@ -72,6 +72,7 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
@@ -1767,6 +1768,7 @@ describe('ConversationService', () => {
       importance: 0.72,
       stability: 0.88,
       sourceRole: 'user',
+      negated: false,
     };
 
     it('persists validated candidates with provenance after a turn', async () => {

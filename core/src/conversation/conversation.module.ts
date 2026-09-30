@@ -24,8 +24,10 @@ import { ClaimRepository } from '../memory/claim.repository';
 import { MemoryDatabaseService } from '../memory/memory-database.service';
 import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
 import { PromotionService } from '../memory/promotion.service';
+import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
 import { RuvectorClaimIndex } from '../memory/ruvector-claim-index';
 import { SqliteClaimRepository } from '../memory/sqlite-claim.repository';
+import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-item.repository';
 import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
 import { SessionDatabaseService } from '../session/session-database.service';
@@ -39,6 +41,7 @@ import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { CandidatesController } from './candidates.controller';
 import { ClaimsController } from './claims.controller';
+import { ProspectiveController } from './prospective.controller';
 import { PromotionsController } from './promotions.controller';
 import { HealthController } from '../health/health.controller';
 import { HealthService } from '../health/health.service';
@@ -82,6 +85,7 @@ const toolExecutionServiceProvider = {
     SessionsController,
     CandidatesController,
     ClaimsController,
+    ProspectiveController,
     PromotionsController,
     ApprovalsController,
     ClarificationsController,
@@ -107,6 +111,10 @@ const toolExecutionServiceProvider = {
     {
       provide: PromotionJournalRepository,
       useClass: SqlitePromotionJournalRepository,
+    },
+    {
+      provide: ProspectiveItemRepository,
+      useClass: SqliteProspectiveItemRepository,
     },
     {
       provide: ClaimIndex,

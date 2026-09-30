@@ -307,7 +307,11 @@ CREATE TABLE IF NOT EXISTS memory_candidates (
 
     -- M10b: which side of the turn the candidate was mined from.
     -- Stamped at extraction; pre-stamp rows read 'unknown', never defaulted.
-    source_role TEXT NOT NULL DEFAULT 'unknown'
+    source_role TEXT NOT NULL DEFAULT 'unknown',
+
+    -- M10e: explicit negation marker (1 = the turn denies the triple).
+    -- Stamped by the extractor; pre-marker rows read affirmed (0).
+    negated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_candidates_session
@@ -353,6 +357,12 @@ CREATE TABLE IF NOT EXISTS claims (
 
     origin TEXT NOT NULL CHECK (origin IN ('user', 'agent')),
 
+    -- M10e: same-triple negation marker, part of the identity pair
+    -- (identity_key, negated). Affirmation and negation of one triple
+    -- are rival beliefs that coexist as rows; promotion contradicts
+    -- one into the other, never merges them.
+    negated INTEGER NOT NULL DEFAULT 0,
+
     source_type TEXT,
     summary TEXT,
 
@@ -374,7 +384,7 @@ CREATE TABLE IF NOT EXISTS claims (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_identity
-ON claims(identity_key);
+ON claims(identity_key, negated);
 
 CREATE INDEX IF NOT EXISTS idx_claims_status
 ON claims(status);
@@ -405,6 +415,38 @@ CREATE TABLE IF NOT EXISTS promotion_journal (
 
 CREATE INDEX IF NOT EXISTS idx_promotion_journal_state
 ON promotion_journal(state);
+
+/**
+ * M10e clarification queue (storage half). One open row per contested
+ * subject+predicate: the conflicting values with their origins and
+ * confidences, a contest counter, and a deterministic suggested
+ * question. Parked evidence that a question exists — nothing retries,
+ * nothing nags, and no turn-time behavior reads this table (M11+).
+ * dismissed has no writer until a later milestone (same reservation
+ * discipline as M10b retired).
+ */
+CREATE TABLE IF NOT EXISTS prospective_items (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    subject_norm TEXT NOT NULL DEFAULT '',
+    predicate_norm TEXT NOT NULL DEFAULT '',
+    options_json TEXT NOT NULL,
+    contest_count INTEGER NOT NULL DEFAULT 1,
+    trigger TEXT NOT NULL
+        CHECK (trigger IN ('confidence_drop', 'repeated_contest')),
+    suggested_question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'dismissed')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospective_items_status
+ON prospective_items(status);
+
+CREATE INDEX IF NOT EXISTS idx_prospective_items_subject_predicate
+ON prospective_items(subject_norm, predicate_norm);
 `;
 
 const SCHEMAS: Record<
@@ -433,7 +475,12 @@ const SCHEMAS: Record<
   },
   memories: {
     sql: MEMORIES_SCHEMA_SQL,
-    tables: ['memory_candidates', 'claims', 'promotion_journal'],
+    tables: [
+      'memory_candidates',
+      'claims',
+      'promotion_journal',
+      'prospective_items',
+    ],
     triggers: [],
   },
 };
@@ -494,6 +541,15 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       'source_role',
       `TEXT NOT NULL DEFAULT 'unknown'`,
     );
+    // M10e: live files predate the negation marker.
+    addColumnIfMissing(
+      db,
+      'memory_candidates',
+      'negated',
+      `INTEGER NOT NULL DEFAULT 0`,
+    );
+    addColumnIfMissing(db, 'claims', 'negated', `INTEGER NOT NULL DEFAULT 0`);
+    migrateClaimIdentityIndex(db);
     // M10c: live claim files predate conflict-lookup columns.
     addColumnIfMissing(
       db,
@@ -601,6 +657,26 @@ function ensureToolRequestsTrigger(db: Database.Database): void {
   db.exec(`DROP TRIGGER IF EXISTS tool_requests_identity_immutable;`);
   db.exec(TOOL_REQUESTS_IMMUTABLE_TRIGGER_SQL);
 }
+/**
+ * M10e upgrade for the M10b-era identity index: pre-M10e tables enforce
+ * uniqueness on `identity_key` alone, which forbids the negated rival
+ * of an affirmed triple. Rebuilds the index as the (identity_key,
+ * negated) pair — row data untouched, so convergence history survives.
+ * Idempotent: composite tables are left alone.
+ */
+function migrateClaimIdentityIndex(db: Database.Database): void {
+  const index = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_claims_identity'`,
+    )
+    .get() as { sql: string | null } | undefined;
+  if (index?.sql?.includes('negated')) return;
+  db.exec(`DROP INDEX IF EXISTS idx_claims_identity;`);
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_identity ON claims(identity_key, negated);`,
+  );
+}
+
 /**
  * M10c backfill for claim rows predating the norm columns. SQL-level
  * approximation (case/whitespace/underscores) — close enough for

@@ -71,8 +71,17 @@ describe('LlmMemoryCandidateExtractor', () => {
         importance: 0.7,
         stability: 0.8,
         sourceRole: 'unknown',
+        negated: false,
       },
     ]);
+  });
+
+  it('passes through an explicit extractor negation marker', async () => {
+    const { extractor } = extractorWith(
+      '[{"kind":"preference","subject":"user","predicate":"prefers","object":"TypeScript","confidence":0.85,"importance":0.7,"stability":0.8,"negated":true}]',
+    );
+    const candidates = await extractor.extract(input);
+    expect(candidates).toMatchObject([{ negated: true }]);
   });
 
   it('stamps the extractor-reported side, defaulting to unknown', async () => {

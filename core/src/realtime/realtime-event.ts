@@ -20,6 +20,8 @@ export type RealtimeServerEventType =
   | 'promotion.denied'
   | 'promotion.failed'
   | 'claim.updated'
+  | 'prospective.created'
+  | 'prospective.updated'
   | 'session.updated'
   | 'error';
 
@@ -36,6 +38,8 @@ export const REALTIME_SERVER_EVENT_TYPES: readonly RealtimeServerEventType[] = [
   'promotion.denied',
   'promotion.failed',
   'claim.updated',
+  'prospective.created',
+  'prospective.updated',
   'session.updated',
   'error',
 ];

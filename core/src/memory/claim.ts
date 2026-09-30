@@ -53,6 +53,13 @@ export interface NewClaim {
   /** Most recent supporting evidence reference. */
   lastSurfacedAt: string;
   origin: ClaimOrigin;
+  /**
+   * M10e negation marker, part of the identity pair. True when the
+   * belief denies its own triple ("no longer prefers X"). Affirmation
+   * and negation coexist as rival rows; promotion contradicts between
+   * them, never merges.
+   */
+  negated: boolean;
   evidence: ClaimEvidence[];
   entities: string[];
   promotion: string;
@@ -67,7 +74,8 @@ export interface NewClaim {
  * beyond its counter role, `accessCount`, `lastAccessedAt`,
  * `activation`, `locked`, `emotional`) exist so later milestones
  * need no migration. Each has exactly one future owner (see the M10
- * plan); M10 paths leave them at their defaults.
+ * plan); M10 paths leave them at their defaults. `negated` is NOT
+ * reserved — M10e populates it on every claim.
  */
 export interface Claim extends NewClaim {
   id: string;

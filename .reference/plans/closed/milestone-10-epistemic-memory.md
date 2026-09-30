@@ -309,7 +309,9 @@ write: `accessCount`/`lastAccessedAt` counters. Nothing else.)
 
 ---
 
-# [ ] M10e — Contradiction Handling
+# [x] M10e — Contradiction Handling (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-10e-evidence-contradiction.md`.
 
 Define what conflict means narrowly (same subject+predicate,
 different object — plus an explicit same-triple negation marker,
@@ -344,7 +346,9 @@ storage half:
 
 ---
 
-# [ ] M10f — Verification
+# [x] M10f — Verification (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-10f-evidence-verification.md`.
 
 Verification focuses on **epistemic invariants**:
 

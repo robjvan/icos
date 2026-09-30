@@ -26,6 +26,7 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -59,6 +60,7 @@ const candidate = (
   source: { sessionId, messageId, role: 'user' },
   extractorModel: 'mem',
   extractorVersion: 'memory-extraction-v2',
+  negated: false,
 });
 
 describe('SqliteMemoryCandidateRepository', () => {
@@ -178,5 +180,48 @@ describe('SqliteMemoryCandidateRepository', () => {
     const [row] = await repository.listCandidates('s9');
     expect(row?.source.role).toBe('unknown');
     expect(row?.sourceRole).toBe('unknown');
+  });
+
+  it('round-trips the negation marker', async () => {
+    const repository = openRepo();
+    const [saved] = await repository.saveCandidates([
+      { ...candidate('s1', 7), negated: true },
+    ]);
+
+    expect(saved?.negated).toBe(true);
+    expect((await repository.getCandidate(saved.id))?.negated).toBe(true);
+    expect((await repository.listCandidates('s1'))[0]?.negated).toBe(true);
+  });
+
+  it('reads pre-marker rows as affirmed, never negated', async () => {
+    const repository = openRepo();
+    const service = services[services.length - 1] as MemoryDatabaseService;
+    service.connection
+      .prepare(
+        `INSERT INTO memory_candidates
+           (id, session_id, message_id, kind, subject, predicate, object,
+            confidence, importance, stability,
+            extractor_model, extractor_version, extracted_at, source_role)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'old-neg',
+        's9',
+        1,
+        'fact',
+        'user',
+        'likes',
+        'teal',
+        0.8,
+        0.5,
+        0.5,
+        'mem',
+        'memory-extraction-v1',
+        new Date().toISOString(),
+        'user',
+      );
+
+    const [row] = await repository.listCandidates('s9');
+    expect(row?.negated).toBe(false);
   });
 });

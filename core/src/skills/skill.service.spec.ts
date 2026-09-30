@@ -28,6 +28,7 @@ function testConfig(
     memoryLlmTimeoutMs: 1000,
     memoryPromotionAuto: false,
     memoryPromotionAutoKinds: [],
+    memoryProspectiveConfidenceThreshold: 0.5,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath,
     skillsEnabled: true,

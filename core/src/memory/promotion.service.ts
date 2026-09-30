@@ -6,9 +6,12 @@ import type { CoreConfig } from '../config';
 import type { MemoryCandidate } from './memory-candidate';
 import { categoryFromKind } from './claim';
 import type { Claim } from './claim';
+import { normalizeTripleField } from './claim-identity';
 import { ClaimIndex } from './claim-index';
 import { ClaimRepository } from './claim.repository';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
+import { ProspectiveItemRepository } from './prospective-item.repository';
+import type { ProspectiveOption } from './prospective-item';
 import type {
   JournalState,
   PromotionJournalEntry,
@@ -41,9 +44,44 @@ function describe(
 ): string {
   return (
     `[${intent}] Promote to belief: ${candidate.subject} ${candidate.predicate} ` +
-    `"${candidate.object}" (origin ${candidate.source.role}, ` +
+    `"${candidate.object}"` +
+    (candidate.negated ? ' (negated — denies the triple)' : '') +
+    ` (origin ${candidate.source.role}, ` +
     `confidence ${candidate.confidence}, candidate ${candidate.id.slice(0, 8)})`
   );
+}
+
+/**
+ * Deterministic clarification phrasing for a parked contest. A
+ * template, never model output: every option's value, origin, and
+ * confidence is listed so the question is answerable from the row
+ * alone. Regenerated on merge so repeat contests refresh the full set.
+ */
+function suggestQuestion(
+  subject: string,
+  predicate: string,
+  options: ProspectiveOption[],
+): string {
+  const sides = options
+    .map(
+      (option) =>
+        `"${option.object}" (origin ${option.origin}, ` +
+        `confidence ${option.confidence.toFixed(2)})`,
+    )
+    .join(' vs ');
+  return (
+    `Conflicting beliefs about ${subject} ${predicate}: ` +
+    `${sides}. Which should be kept?`
+  );
+}
+
+function claimOption(claim: Claim): ProspectiveOption {
+  return {
+    object: claim.object,
+    origin: claim.origin,
+    confidence: claim.confidence,
+    claimId: claim.id,
+  };
 }
 
 /**
@@ -82,6 +120,7 @@ export class PromotionService implements OnModuleInit {
     private readonly approvals: ApprovalRepository,
     private readonly index: ClaimIndex,
     private readonly realtime: RealtimePublisher,
+    private readonly prospective: ProspectiveItemRepository,
   ) {}
 
   /** Crash recovery: rows stranded mid-execution replay on next sweep. */
@@ -182,8 +221,36 @@ export class PromotionService implements OnModuleInit {
   ): Promise<PromotionOperation> {
     const exact = await this.claims.findByTriple(candidate);
     if (exact) return 'REINFORCE';
+    // Same triple text, opposite marker: an explicit denial, not
+    // model vibes — a contradiction, never reinforcement.
+    if (await this.negatedRival(candidate)) return 'CONTRADICT';
     const conflicts = await this.contestable(candidate);
     return conflicts.length > 0 ? 'CONTRADICT' : 'NEW';
+  }
+
+  /**
+   * Same-triple negation rival: a candidate/active claim with
+   * identical normalized triple text but the opposite marker.
+   * Narrower than subject+predicate conflict, so it takes precedence
+   * in `apply`. Prefers the active rival when both states exist.
+   */
+  private async negatedRival(
+    candidate: MemoryCandidate,
+  ): Promise<Claim | null> {
+    const rivals = await this.claims.findBySubjectPredicate(
+      candidate.subject,
+      candidate.predicate,
+    );
+    const matches = rivals.filter(
+      (claim) =>
+        (claim.status === 'candidate' || claim.status === 'active') &&
+        normalizeTripleField(claim.object) ===
+          normalizeTripleField(candidate.object) &&
+        claim.negated !== candidate.negated,
+    );
+    return (
+      matches.find((claim) => claim.status === 'active') ?? matches[0] ?? null
+    );
   }
 
   private async contestable(candidate: MemoryCandidate): Promise<Claim[]> {
@@ -364,15 +431,18 @@ export class PromotionService implements OnModuleInit {
     }
 
     const conflicts = await this.contestable(candidate);
-    const contradicted = conflicts[0];
+    // Same-triple negation outranks the newest-touch rival: a denial
+    // contradicts its own triple first.
+    const contradicted = (await this.negatedRival(candidate)) ?? conflicts[0];
     if (contradicted) {
-      if (contradicted.status === 'candidate') {
-        // Never-active claim in the way: retire, don't contradict.
-        await this.claims.setStatus(contradicted.id, 'retired');
-      } else {
-        await this.claims.setStatus(contradicted.id, 'contradicted');
-      }
+      const settled =
+        contradicted.status === 'candidate'
+          ? // Never-active claim in the way: retire, don't contradict.
+            await this.claims.setStatus(contradicted.id, 'retired')
+          : await this.claims.setStatus(contradicted.id, 'contradicted');
+      if (!settled) throw new Error('claim_vanished');
       const created = await this.createActive(candidate, promotion, role);
+      await this.maybeParkQuestion(settled, created);
       return {
         operation: 'CONTRADICT',
         claim: created,
@@ -406,11 +476,116 @@ export class PromotionService implements OnModuleInit {
       firstAssertedAt: candidate.id,
       lastSurfacedAt: candidate.id,
       origin: role === 'user' ? 'user' : 'agent',
+      negated: candidate.negated,
       evidence: [{ candidateId: candidate.id, role }],
       entities: extractEntities(candidate),
       promotion,
     });
     return (await this.claims.setStatus(created.id, 'active')) ?? created;
+  }
+
+  /**
+   * M10e clarification surfacing (storage half). Parks a prospective
+   * item when the contradiction meets either trigger: the loser sits
+   * below the configured confidence threshold, or the same
+   * subject+predicate was contested before. A parked open row absorbs
+   * repeat contests (options merge, counter bumps) instead of
+   * duplicating. Best-effort like claim indexing: parking never fails
+   * a commit, and denial/ignore leaves the row parked — nothing
+   * retries, nothing nags.
+   */
+  private async maybeParkQuestion(loser: Claim, winner: Claim): Promise<void> {
+    try {
+      const rivals = await this.claims.findBySubjectPredicate(
+        loser.subject,
+        loser.predicate,
+      );
+      // Prior contests leave contradicted/retired scars on the same
+      // pair. In M10 `retired` is written only by this path
+      // (never-active blocker), so both statuses count as history.
+      const prior = rivals.filter(
+        (claim) =>
+          claim.id !== loser.id &&
+          claim.id !== winner.id &&
+          (claim.status === 'contradicted' || claim.status === 'retired'),
+      ).length;
+      const repeated = prior >= 1;
+      const lowConfidence =
+        loser.confidence < this.config.memoryProspectiveConfidenceThreshold;
+      if (!repeated && !lowConfidence) return;
+      const trigger = repeated ? 'repeated_contest' : 'confidence_drop';
+      // Seed with scarred rivals first: the question lists every
+      // contender for the pair, not just the latest round.
+      const seeded: ProspectiveOption[] = [];
+      const seenIds = new Set<string>();
+      for (const rival of rivals) {
+        if (
+          (rival.status === 'contradicted' || rival.status === 'retired') &&
+          rival.id !== loser.id &&
+          rival.id !== winner.id &&
+          !seenIds.has(rival.id)
+        ) {
+          seenIds.add(rival.id);
+          seeded.push(claimOption(rival));
+        }
+      }
+      for (const option of [claimOption(loser), claimOption(winner)]) {
+        if (!seenIds.has(option.claimId)) {
+          seenIds.add(option.claimId);
+          seeded.push(option);
+        }
+      }
+      const fresh = seeded;
+      const open = await this.prospective.findOpenBySubjectPredicate(
+        loser.subject,
+        loser.predicate,
+      );
+      if (open) {
+        const seen = new Set(open.options.map((item) => item.claimId));
+        const unseen = fresh.filter((item) => !seen.has(item.claimId));
+        const question = suggestQuestion(loser.subject, loser.predicate, [
+          ...open.options,
+          ...unseen,
+        ]);
+        const merged = await this.prospective.mergeContest(
+          open.id,
+          unseen,
+          trigger,
+          question,
+        );
+        if (merged) {
+          this.realtime.publish(
+            realtimeEvent('prospective.updated', {
+              prospectiveId: merged.id,
+            }),
+          );
+        }
+        return;
+      }
+      const created = await this.prospective.create({
+        subject: loser.subject,
+        predicate: loser.predicate,
+        options: fresh,
+        contestCount: prior + 1,
+        trigger,
+        suggestedQuestion: suggestQuestion(
+          loser.subject,
+          loser.predicate,
+          fresh,
+        ),
+      });
+      this.realtime.publish(
+        realtimeEvent('prospective.created', {
+          prospectiveId: created.id,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Prospective parking failed for ${loser.id}: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   /** Explicit execution path: manual trigger, post-approval driver, recovery. */

@@ -20,7 +20,9 @@ export abstract class ClaimRepository {
   abstract getClaim(id: string): Promise<Claim | null>;
 
   /** Find by normalized triple identity (dedup / convergence). */
-  abstract findByTriple(triple: Triple): Promise<Claim | null>;
+  abstract findByTriple(
+    triple: Triple & { negated?: boolean },
+  ): Promise<Claim | null>;
 
   /**
    * Conflict lookup: claims sharing normalized subject+predicate

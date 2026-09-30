@@ -66,11 +66,26 @@ describe('Conversation (e2e)', () => {
       if (extractFails) {
         return Promise.reject(new Error('extractor down'));
       }
-      // Only the preference message yields a candidate: every other
+      // Only the preference messages yield candidates: every other
       // turn extracts nothing, so promotion proposals stay scoped to
       // the tests that assert them.
       const message = (input as { userMessage?: { content?: string } })
         .userMessage?.content;
+      if (message === 'I prefer pine') {
+        return Promise.resolve([
+          {
+            kind: 'preference',
+            subject: 'user',
+            predicate: 'prefers',
+            object: 'e2e-rival',
+            confidence: 0.9,
+            importance: 0.7,
+            stability: 0.8,
+            sourceRole: 'user',
+            negated: false,
+          },
+        ]);
+      }
       if (message !== 'I prefer oak') return Promise.resolve([]);
       return Promise.resolve([
         {
@@ -82,6 +97,7 @@ describe('Conversation (e2e)', () => {
           importance: 0.7,
           stability: 0.8,
           sourceRole: 'user',
+          negated: false,
         },
       ]);
     },
@@ -154,6 +170,10 @@ describe('Conversation (e2e)', () => {
         memoryLlmTimeoutMs: 1000,
         memoryPromotionAuto: false,
         memoryPromotionAutoKinds: [],
+        // High enough that the 0.9-confidence e2e loser still trips the
+        // confidence_drop trigger: the contradiction test asserts the
+        // parked question without needing a repeat contest.
+        memoryProspectiveConfidenceThreshold: 0.95,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
@@ -601,6 +621,94 @@ describe('Conversation (e2e)', () => {
     expect(
       (again.body as { summary: Record<string, number> }).summary,
     ).toMatchObject({ new: 0, reinforced: 0, contradicted: 0, failed: 0 });
+  });
+
+  it('contradicts a belief and parks a prospective question', async () => {
+    const approveSweep = async (
+      message: string,
+    ): Promise<{ sessionId: string; summary: Record<string, number> }> => {
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message })
+        .expect(200);
+      const sessionId = (turn.body as ConversationResponse).sessionId;
+      let pending: { approvalId: string; state: string }[] = [];
+      for (let i = 0; i < 100 && pending.length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const res = await request(http())
+          .get('/core/promotions/pending')
+          .expect(200);
+        pending = (res.body as { pending: typeof pending }).pending.filter(
+          (row) => row.state === 'proposed',
+        );
+      }
+      expect(pending).toHaveLength(1);
+      await request(http())
+        .post(`/core/approvals/${pending[0].approvalId}/approve`)
+        .send({ sessionId })
+        .expect(200);
+      const run = await request(http())
+        .post('/core/promotions/run')
+        .expect(200);
+      return {
+        sessionId,
+        summary: (run.body as { summary: Record<string, number> }).summary,
+      };
+    };
+
+    expect((await approveSweep('I prefer oak')).summary).toMatchObject({
+      new: 1,
+    });
+    expect((await approveSweep('I prefer pine')).summary).toMatchObject({
+      contradicted: 1,
+    });
+
+    // History is kept, not rewritten: the loser stays queryable.
+    const contradicted = await request(http())
+      .get('/core/claims')
+      .query({ status: 'contradicted' })
+      .expect(200);
+    const losers = (contradicted.body as { claims: { object: string }[] })
+      .claims;
+    expect(losers.map((claim) => claim.object)).toEqual(['e2e-subject']);
+
+    // The question is parked with both values, origins, and confidences.
+    const parked = await request(http()).get('/core/prospective').expect(200);
+    const items = (
+      parked.body as {
+        items: {
+          status: string;
+          trigger: string;
+          contestCount: number;
+          options: { object: string; origin: string; confidence: number }[];
+          suggestedQuestion: string;
+        }[];
+      }
+    ).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      status: 'open',
+      trigger: 'confidence_drop',
+      contestCount: 1,
+    });
+    expect(items[0]?.options.map((option) => option.object).sort()).toEqual([
+      'e2e-rival',
+      'e2e-subject',
+    ]);
+    expect(items[0]?.options).toMatchObject([
+      { origin: 'user', confidence: 0.9 },
+      { origin: 'user', confidence: 0.9 },
+    ]);
+    expect(items[0]?.suggestedQuestion).toContain('e2e-subject');
+    expect(items[0]?.suggestedQuestion).toContain('e2e-rival');
+
+    // Promotion never touches the ledger: both observations intact.
+    const ledger = await request(http())
+      .get('/core/memory-candidates')
+      .expect(200);
+    expect((ledger.body as { candidates: unknown[] }).candidates).toHaveLength(
+      2,
+    );
   });
 
   it('conversation still succeeds when extraction fails', async () => {

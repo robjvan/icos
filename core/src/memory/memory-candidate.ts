@@ -44,6 +44,13 @@ export interface ValidatedCandidate {
    * it) — never a default for a known side.
    */
   sourceRole: CandidateSourceRole;
+  /**
+   * M10e explicit negation marker: true when the turn *denies* the
+   * triple (retraction, correction — "no longer", "not anymore").
+   * Stamped by the extractor as structured data, never inferred
+   * downstream from wording. Absent reads false (affirmative).
+   */
+  negated: boolean;
 }
 
 /** Which side of the turn a candidate was mined from. */

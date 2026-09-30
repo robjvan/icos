@@ -46,6 +46,7 @@ interface ClaimRow {
   first_asserted_at: string;
   last_surfaced_at: string;
   origin: string;
+  negated: number;
   source_type: string | null;
   summary: string | null;
   evidence_json: string;
@@ -117,6 +118,8 @@ function toClaim(row: ClaimRow): Claim {
     firstAssertedAt: row.first_asserted_at,
     lastSurfacedAt: row.last_surfaced_at,
     origin: row.origin as ClaimOrigin,
+    // Pre-M10e claim rows carry no marker; absence reads affirmed.
+    negated: row.negated !== 0,
     sourceType: row.source_type,
     summary: row.summary,
     evidence: parseEvidence(row.evidence_json, row.id),
@@ -154,9 +157,10 @@ export class SqliteClaimRepository extends ClaimRepository {
     const id = randomUUID();
     const now = nowIso();
     const key = identityKey(claim);
+    const negated = claim.negated ? 1 : 0;
     const existing = this.database
-      .prepare('SELECT id FROM claims WHERE identity_key = ?')
-      .get(key) as { id: string } | undefined;
+      .prepare('SELECT id FROM claims WHERE identity_key = ? AND negated = ?')
+      .get(key, negated) as { id: string } | undefined;
     if (existing) {
       throw new Error(
         `Claim identity already exists (${existing.id}); ` +
@@ -170,10 +174,10 @@ export class SqliteClaimRepository extends ClaimRepository {
             subject_norm, predicate_norm,
             category, status,
             extractor_confidence, confidence,
-            first_asserted_at, last_surfaced_at, origin,
+            first_asserted_at, last_surfaced_at, origin, negated,
             evidence_json, entities_json, promotion,
             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -190,6 +194,7 @@ export class SqliteClaimRepository extends ClaimRepository {
         claim.firstAssertedAt,
         claim.lastSurfacedAt,
         claim.origin,
+        negated,
         JSON.stringify(claim.evidence),
         JSON.stringify(claim.entities),
         claim.promotion,
@@ -206,10 +211,12 @@ export class SqliteClaimRepository extends ClaimRepository {
     return row ? toClaim(row) : null;
   }
 
-  async findByTriple(triple: Triple): Promise<Claim | null> {
+  async findByTriple(
+    triple: Triple & { negated?: boolean },
+  ): Promise<Claim | null> {
     const row = this.database
-      .prepare('SELECT * FROM claims WHERE identity_key = ?')
-      .get(identityKey(triple)) as ClaimRow | undefined;
+      .prepare('SELECT * FROM claims WHERE identity_key = ? AND negated = ?')
+      .get(identityKey(triple), triple.negated ? 1 : 0) as ClaimRow | undefined;
     return row ? toClaim(row) : null;
   }
 

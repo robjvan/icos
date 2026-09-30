@@ -37,6 +37,15 @@ function cleanSourceRole(value: unknown): CandidateSourceRole {
   return role === 'user' || role === 'assistant' ? role : 'unknown';
 }
 
+/**
+ * M10e negation marker. Only an explicit boolean true negates —
+ * truthy strings, numbers, and "not"-flavored text never do. Absent
+ * reads false: affirmation is the default, negation is marked.
+ */
+function cleanNegated(value: unknown): boolean {
+  return value === true;
+}
+
 function validateOne(raw: unknown): ValidatedCandidate | null {
   if (!isRecord(raw)) return null;
   const kind = cleanKind(raw.kind);
@@ -66,6 +75,7 @@ function validateOne(raw: unknown): ValidatedCandidate | null {
     importance,
     stability,
     sourceRole: cleanSourceRole(raw.source),
+    negated: cleanNegated(raw.negated),
   };
 }
 
@@ -94,6 +104,9 @@ export function validateCandidates(raw: unknown): ValidatedCandidate[] {
       candidate.subject.toLowerCase(),
       candidate.predicate.toLowerCase(),
       candidate.object.toLowerCase(),
+      // Affirmation and negation of one triple are rival observations,
+      // never duplicates — collapsing them would eat a contradiction.
+      candidate.negated ? 'negated' : 'affirmed',
     ].join('|');
     if (seen.has(key)) continue;
     seen.add(key);

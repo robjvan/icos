@@ -54,6 +54,7 @@ const RESPONSE_SCHEMA = `Return a JSON array. Each element must have exactly the
 - importance: 0 to 1, how likely this matters in the future
 - stability: 0 to 1, how likely this stays true over time
 - source: "user" when mined from the user message, "assistant" when mined from the assistant response (omit when unclear)
+- negated: true only when the turn explicitly denies the triple (retraction or correction, e.g. "I no longer prefer X", "X is wrong"); omit or false for plain affirmations. Never set this from implication or tone.
 
 Return [] when nothing in the turn is worth retaining.
 Example: [{"kind":"preference","subject":"user","predicate":"prefers","object":"TypeScript","confidence":0.94,"importance":0.72,"stability":0.88}]`;

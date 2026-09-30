@@ -29,6 +29,7 @@ interface CandidateRow {
   extractor_version: string;
   extracted_at: string;
   source_role: string;
+  negated: number;
 }
 
 function toCandidate(row: CandidateRow): MemoryCandidate {
@@ -43,6 +44,8 @@ function toCandidate(row: CandidateRow): MemoryCandidate {
     importance: row.importance,
     stability: row.stability,
     sourceRole: role === 'user' || role === 'assistant' ? role : 'unknown',
+    // Pre-M10e ledger rows carry no marker; absence reads affirmed.
+    negated: row.negated !== 0,
     source: {
       sessionId: row.session_id,
       messageId: row.message_id,
@@ -73,8 +76,9 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
       `INSERT INTO memory_candidates
          (id, session_id, message_id, kind, subject, predicate, object,
           confidence, importance, stability,
-          extractor_model, extractor_version, extracted_at, source_role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          extractor_model, extractor_version, extracted_at, source_role,
+          negated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const saveAll = this.database.transaction(
       (items: NewMemoryCandidate[]): MemoryCandidate[] =>
@@ -95,6 +99,7 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
             item.extractorVersion,
             extractedAt,
             item.source.role,
+            item.negated ? 1 : 0,
           );
           return { ...item, id, extractedAt };
         }),
@@ -107,7 +112,8 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
       .prepare(
         `SELECT id, session_id, message_id, kind, subject, predicate, object,
                 confidence, importance, stability,
-                extractor_model, extractor_version, extracted_at, source_role
+                extractor_model, extractor_version, extracted_at, source_role,
+                negated
            FROM memory_candidates WHERE id = ?`,
       )
       .get(id) as CandidateRow | undefined;
@@ -129,7 +135,8 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
     const sql =
       `SELECT id, session_id, message_id, kind, subject, predicate, object,
               confidence, importance, stability,
-              extractor_model, extractor_version, extracted_at, source_role
+              extractor_model, extractor_version, extracted_at, source_role,
+              negated
          FROM memory_candidates` +
       (clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '') +
       ` ORDER BY rowid DESC LIMIT ?`;
