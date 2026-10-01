@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { CoreController } from './core.controller';
 import { CoreService } from './core.service';
 import { TestClientController } from './test-client.controller';
+import { AuthModule } from './auth/auth.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
-  imports: [ConversationModule, RealtimeModule],
+  imports: [AuthModule, ConversationModule, RealtimeModule],
   controllers: [CoreController, TestClientController],
   providers: [CoreService],
 })

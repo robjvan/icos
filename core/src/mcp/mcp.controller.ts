@@ -22,6 +22,7 @@ import type {
   McpResourceRead,
 } from './mcp-client';
 import { McpExceptionFilter } from './mcp-exception.filter';
+import { RequireRole } from '../auth/decorators';
 import { GetPromptDto } from './dto/mcp.dto';
 
 /**
@@ -49,6 +50,7 @@ export class McpController {
   }
 
   /** Re-read the catalog without a restart; reports per-server results. */
+  @RequireRole('admin')
   @Post('reload')
   @HttpCode(200)
   reload(): Promise<McpReloadReport> {

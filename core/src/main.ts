@@ -48,6 +48,7 @@ async function bootstrap() {
     port: config.port,
     corsAllowedOrigins: config.corsAllowedOrigins,
     exposeAcknowledged: config.exposeAcknowledged,
+    authEnabled: config.authEnabled,
     inContainer: isRunningInContainer(process.env, existsSync),
   });
   for (const notice of posture.notices) {

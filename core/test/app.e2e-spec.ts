@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -147,6 +153,10 @@ describe('Conversation (e2e)', () => {
     sessionDbPath: string,
     memoryDbPath: string,
     legacyDbPath?: string,
+    auth: { dir: string; enabled: boolean } = {
+      dir: join(dir, 'auth-unused'),
+      enabled: false,
+    },
   ): Promise<INestApplication<App>> {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CoreModule],
@@ -157,6 +167,10 @@ describe('Conversation (e2e)', () => {
         host: '127.0.0.1',
         corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
         exposeAcknowledged: false,
+        authEnabled: auth.enabled,
+        authDirPath: auth.dir,
+        authSessionTtlMs: 2592000000,
+        authCookieSecure: false,
         provider: 'ollama',
         llmBaseUrl: 'http://localhost:11434/v1',
         llmModel: 'test-model',
@@ -201,7 +215,7 @@ describe('Conversation (e2e)', () => {
         agentMaxTurnDurationMs: MAX_TURN_DURATION_MS,
         realtimeEnabled: false,
         realtimeHeartbeatMs: 30000,
-        realtimeAllowedOrigins: ['*'],
+        realtimeAllowedOrigins: ['http://localhost:4200'],
       })
       .overrideProvider(LlmClient)
       .useValue({ chatWithTools, chatStreamWithTools })
@@ -2169,6 +2183,89 @@ describe('Conversation (e2e)', () => {
         sessions.body as { sessions: { sessionId: string; title?: string }[] }
       ).sessions.find((s) => s.sessionId === sessionId);
       expect(renamed?.title).toBe('Ward map');
+    });
+  });
+
+  describe('authentication (S2)', () => {
+    let authApp: INestApplication<App>;
+    let authDir: string;
+    let token: string;
+
+    const agent = () => request(authApp.getHttpServer());
+
+    beforeAll(async () => {
+      authDir = mkdtempSync(join(tmpdir(), 'icos-e2e-auth-'));
+      authApp = await createApp(
+        join(authDir, 'sessions.sqlite'),
+        join(authDir, 'memories.sqlite'),
+        undefined,
+        { dir: authDir, enabled: true },
+      );
+      token = readFileSync(join(authDir, 'token'), 'utf8').trim();
+    });
+
+    afterAll(async () => {
+      await authApp.close();
+      rmSync(authDir, { recursive: true, force: true });
+    });
+
+    it('keeps liveness public and locks everything else', async () => {
+      await agent().get('/core/health/live').expect(200);
+      await agent().get('/core/health').expect(401);
+      await agent().get('/core/sessions').expect(401);
+      await agent().get('/core/mcp/servers').expect(401);
+    });
+
+    it('rejects a wrong token without leaking why', async () => {
+      await agent()
+        .post('/core/auth/login')
+        .send({ token: 'nope' })
+        .expect(401);
+      await agent().post('/core/auth/login').send({}).expect(400);
+    });
+
+    it('logs in, verifies the session, and gates mutations on CSRF', async () => {
+      const login = await agent()
+        .post('/core/auth/login')
+        .send({ token })
+        .expect(200);
+      const cookies =
+        (login.headers['set-cookie'] as unknown as string[]) ?? [];
+      const cookieHeader = cookies.map((c) => c.split(';')[0]).join('; ');
+      expect(cookieHeader).toContain('icos_session=');
+      const csrf = /icos_csrf=([^;]+)/.exec(cookieHeader)?.[1] ?? '';
+      expect(csrf).not.toBe('');
+
+      await agent()
+        .get('/core/auth/session')
+        .set('Cookie', cookieHeader)
+        .expect(200, { authenticated: true, role: 'admin' });
+      await agent()
+        .get('/core/sessions')
+        .set('Cookie', cookieHeader)
+        .expect(200);
+
+      // Mutation without the CSRF header is refused even with a session.
+      await agent()
+        .post('/core/mcp/reload')
+        .set('Cookie', cookieHeader)
+        .expect(403);
+      // With the double-submit header it clears the guard.
+      await agent()
+        .post('/core/mcp/reload')
+        .set('Cookie', cookieHeader)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+    });
+
+    it('clears both cookies on logout', async () => {
+      const logout = await agent().post('/core/auth/logout').expect(200, {
+        authenticated: false,
+      });
+      const setCookie = String(logout.headers['set-cookie']);
+      expect(setCookie).toContain('icos_session=;');
+      expect(setCookie).toContain('icos_csrf=;');
+      expect(setCookie).toContain('Max-Age=0');
     });
   });
 });

@@ -39,6 +39,7 @@ describe('assessPosture', () => {
     port: 3000,
     corsAllowedOrigins: ['http://localhost:4200'],
     exposeAcknowledged: false,
+    authEnabled: true,
     inContainer: false,
   };
 
@@ -51,14 +52,29 @@ describe('assessPosture', () => {
     );
   });
 
-  it('warns loudly when exposed and unacknowledged', () => {
+  it('warns about TLS (not auth) when exposed with auth on', () => {
     const posture = assessPosture({ ...base, host: '0.0.0.0' });
     expect(posture.loopback).toBe(false);
-    const warnings = posture.notices.filter((n) => n.level === 'warn');
-    expect(warnings.length).toBeGreaterThanOrEqual(3);
-    const text = warnings.map((n) => n.message).join(' ');
+    const text = posture.notices
+      .filter((n) => n.level === 'warn')
+      .map((n) => n.message)
+      .join(' ');
     expect(text).toContain('EXPOSED');
-    expect(text).toContain('no authentication');
+    expect(text).toContain('HTTPS');
+    expect(text).not.toContain('AUTH_ENABLED=false');
+  });
+
+  it('warns hard when exposed with auth off', () => {
+    const posture = assessPosture({
+      ...base,
+      host: '0.0.0.0',
+      authEnabled: false,
+    });
+    const text = posture.notices
+      .filter((n) => n.level === 'warn')
+      .map((n) => n.message)
+      .join(' ');
+    expect(text).toContain('AUTH_ENABLED=false');
   });
 
   it('notes the container port-mapping boundary', () => {

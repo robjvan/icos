@@ -196,11 +196,9 @@ available for local development, but Docker is the expected way to launch and
 play with the stack.
 
 > **Security first.** ICOS binds to `127.0.0.1` and publishes only to
-> loopback by default, so nothing is reachable from your network until you
-> change that. **Do not expose it beyond your machine until TLS and
-> authentication are in front of it** — authentication inside ICOS is
-> planned but not built yet, so anyone who can reach the port can read your
-> conversations and spend your LLM credits. See [docs/security.md](docs/security.md).
+> loopback by default, and requires a login. **Put TLS in front before
+> exposing it** — session cookies are `Secure`, so they need HTTPS. See
+> [docs/security.md](docs/security.md).
 
 ## Requirements
 

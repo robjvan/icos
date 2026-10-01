@@ -31,6 +31,12 @@ describe('loadConfig', () => {
       ],
     });
     expect(config.llmApiKey).toBeUndefined();
+    expect(config).toMatchObject({
+      authEnabled: true,
+      authSessionTtlMs: 30 * 24 * 60 * 60 * 1000,
+      authCookieSecure: true,
+    });
+    expect(config.authDirPath).toContain('.icos');
   });
 
   it('parses agent budget overrides and rejects non-positive values', () => {
@@ -305,5 +311,28 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ LLM_MODEL: 'm', MCP_TIMEOUT_MS: '0' })).toThrow(
       /MCP_TIMEOUT_MS/,
     );
+  });
+
+  it('parses authentication settings (S2)', () => {
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      AUTH_ENABLED: 'false',
+      AUTH_DIR_PATH: '/etc/icos/auth',
+      AUTH_SESSION_TTL_MS: '60000',
+      AUTH_COOKIE_SECURE: 'false',
+    });
+    expect(configured).toMatchObject({
+      authEnabled: false,
+      authDirPath: '/etc/icos/auth',
+      authSessionTtlMs: 60000,
+      authCookieSecure: false,
+    });
+
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', AUTH_SESSION_TTL_MS: '0' }),
+    ).toThrow(/AUTH_SESSION_TTL_MS/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', AUTH_ENABLED: 'sometimes' }),
+    ).toThrow(/Expected a boolean/);
   });
 });

@@ -64,22 +64,26 @@ Evidence: `.reference/plans/evidence/security-s1-evidence-defaults.md`.
 - [x] Docker compose defaults aligned (no accidental `0.0.0.0` publish
       without a note).
 
-### [ ] S2 — API authentication + authorization (single-user)
+### [x] S2 — API authentication + authorization (single-user)
 
-- [ ] First-run **bootstrap credential** (generated once, shown/!!written
-      0600 into the data dir; or an operator-set admin password hashed
-      with Argon2id/scrypt — no plaintext at rest).
-- [ ] Session login: `httpOnly`, `Secure`, `SameSite=Strict` cookie;
+Evidence: `.reference/plans/evidence/security-s2-evidence-auth.md`.
+(Login **screen** lands with the web-client step; the API is complete
+and scriptable.)
+
+- [x] First-run **bootstrap credential** (generated once, written 0600
+      into the data dir; token, not a hashed password — it is the login
+      credential and must be owner-recoverable).
+- [x] Session login: `httpOnly`, `Secure`, `SameSite=Strict` cookie;
       CSRF double-submit on mutating routes; login rate-limited.
-- [ ] **Roles**: `admin` (manage providers/catalog/secrets/settings)
-      vs `user` (converse). One identity may hold both; the split still
-      exists so a read-only frontend token cannot mint credentials.
-- [ ] A guard applied by default (deny-by-default) with an explicit
-      allowlist for unauthenticated routes (health liveness only).
-- [ ] Audit log of admin mutations and secret changes (actor, action,
-      target, time — never values).
-- [ ] Document the TLS requirement (Secure cookies need HTTPS; a
-      documented loopback-only dev exception).
+- [x] **Roles**: `admin` vs `user` (one identity may hold both; the
+      split exists — `admin` enforced on catalog mutation, default
+      `user`).
+- [x] A guard applied by default (deny-by-default) with an explicit
+      allowlist for unauthenticated routes (auth endpoints + liveness).
+- [x] Audit log of admin mutations and secret changes (actor, action,
+      target, time, ip — never values).
+- [x] Document the TLS requirement (Secure cookies need HTTPS; a
+      documented loopback/LAN dev exception via `AUTH_COOKIE_SECURE`).
 
 ### [ ] S3 — SecretStore + encrypted file vault
 

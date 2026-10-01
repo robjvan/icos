@@ -1,10 +1,7 @@
 /**
- * Boot-time security posture (S1). Pure and testable: it decides what
+ * Boot-time security posture (S1/S2). Pure and testable: it decides what
  * to tell the operator about where the process is reachable and whether
  * that is safe, without touching the network or the logger.
- *
- * ICOS has no authentication yet (that is the next slice), so binding
- * beyond loopback is genuine exposure and must say so loudly.
  */
 
 export interface SecurityPostureInput {
@@ -14,13 +11,14 @@ export interface SecurityPostureInput {
   corsAllowedOrigins: readonly string[];
   /** Operator asserts exposure is deliberate and protected. */
   exposeAcknowledged: boolean;
+  /** API authentication is on (S2). */
+  authEnabled: boolean;
   /** Are we inside a container? (Exposure boundary is the port map.) */
   inContainer: boolean;
 }
 
 export interface SecurityNotice {
   level: 'info' | 'warn';
-  /** Single logical line (may contain a leading marker for emphasis). */
   message: string;
 }
 
@@ -51,7 +49,8 @@ export function isRunningInContainer(
 
 /**
  * Describe the posture. Loopback is quiet; anything reachable beyond
- * this machine warns until the operator acknowledges it.
+ * this machine warns until the operator acknowledges it. The warning is
+ * stronger when authentication is off entirely.
  */
 export function assessPosture(input: SecurityPostureInput): SecurityPosture {
   const loopback = isLoopbackHost(input.host);
@@ -78,7 +77,7 @@ export function assessPosture(input: SecurityPostureInput): SecurityPosture {
     notices.push({
       level: 'info',
       message:
-        'Exposed beyond loopback (EXPOSE_ACKNOWLEDGED=true). Ensure TLS and authentication are in front of it.',
+        'Exposed beyond loopback (EXPOSE_ACKNOWLEDGED=true). Ensure TLS terminates in front so session cookies stay Secure.',
     });
     return { host: input.host, port: input.port, loopback, notices };
   }
@@ -86,15 +85,26 @@ export function assessPosture(input: SecurityPostureInput): SecurityPosture {
   const boundary = input.inContainer
     ? 'Inside a container the boundary is the published port: publish to 127.0.0.1 unless you mean to expose it.'
     : 'This is a plain off-loopback bind.';
+
   notices.push({
     level: 'warn',
     message: `EXPOSED: bound to ${input.host}:${input.port}, reachable beyond this machine.`,
   });
-  notices.push({
-    level: 'warn',
-    message:
-      'ICOS has no authentication yet — anyone who can reach this port can read your conversations and spend your LLM credits.',
-  });
+  if (input.authEnabled) {
+    notices.push({
+      level: 'warn',
+      message:
+        'Authentication is on, but traffic is unencrypted: session cookies need HTTPS ' +
+        '(AUTH_COOKIE_SECURE=true). Put a TLS reverse proxy in front, or set ' +
+        'AUTH_COOKIE_SECURE=false only for trusted loopback/LAN development.',
+    });
+  } else {
+    notices.push({
+      level: 'warn',
+      message:
+        'AUTH_ENABLED=false — anyone who can reach this port can read your conversations and spend your LLM credits.',
+    });
+  }
   notices.push({ level: 'warn', message: boundary });
   notices.push({
     level: 'warn',

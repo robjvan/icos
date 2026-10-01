@@ -1,6 +1,7 @@
 import { Inject, Module } from '@nestjs/common';
 import { CORE_CONFIG, coreConfigProvider } from '../config';
 import type { CoreConfig } from '../config';
+import { AuthModule } from '../auth/auth.module';
 import { NoopPublisher } from './noop.publisher';
 import { RealtimeGateway } from './realtime.gateway';
 import { RealtimePublisher } from './realtime.publisher';
@@ -20,6 +21,7 @@ import { RealtimePublisher } from './realtime.publisher';
  * across sessions); missed events are covered by D5 resync.
  */
 @Module({
+  imports: [AuthModule],
   providers: [
     coreConfigProvider,
     RealtimeGateway,

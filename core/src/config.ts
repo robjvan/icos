@@ -24,6 +24,22 @@ export interface CoreConfig {
    * it changes no technical behavior.
    */
   exposeAcknowledged: boolean;
+  /**
+   * API authentication (S2). **On by default**: every route needs a
+   * valid session except the explicit liveness/login allowlist. Set
+   * false only for local throwaway use.
+   */
+  authEnabled: boolean;
+  /** Directory holding the bootstrap token, session key, and audit log. */
+  authDirPath: string;
+  /** Session lifetime in ms (default 30 days). */
+  authSessionTtlMs: number;
+  /**
+   * Send the session cookie with `Secure`. Requires HTTPS — keep true.
+   * Set false ONLY for loopback/LAN HTTP development (the documented
+   * exception); it downgrades transport protection.
+   */
+  authCookieSecure: boolean;
   provider: string;
   llmBaseUrl: string;
   llmModel: string;
@@ -214,6 +230,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     host: (env.HOST ?? '').trim() || '127.0.0.1',
     corsAllowedOrigins,
     exposeAcknowledged: parseBoolean(env.EXPOSE_ACKNOWLEDGED, false),
+    authEnabled: parseBoolean(env.AUTH_ENABLED, true),
+    authDirPath: resolvePath(env.AUTH_DIR_PATH, '~/.icos/auth'),
+    authSessionTtlMs: parsePositiveInt(
+      env.AUTH_SESSION_TTL_MS,
+      30 * 24 * 60 * 60 * 1000,
+      'AUTH_SESSION_TTL_MS',
+    ),
+    authCookieSecure: parseBoolean(env.AUTH_COOKIE_SECURE, true),
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,
