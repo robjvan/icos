@@ -1,5 +1,99 @@
-<app-tab-placeholder
-  title="MCP servers"
-  description="Model Context Protocol server management. Unimplemented in the server."
-  milestone="M13"
-/>
+<section class="tab-pane" aria-label="MCP servers">
+  <div class="tab-pane-header">
+    <h1>MCP servers</h1>
+    <span class="badge">references only · values live in the vault</span>
+    <span class="grow"></span>
+    <button type="button" (click)="reload()" [disabled]="busy()">Reload</button>
+    <button type="button" (click)="startAdd()" [disabled]="busy()">Add server</button>
+  </div>
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (notice() !== null) {
+    <p class="notice" role="status">{{ notice() }}</p>
+  }
+
+  <table class="grid" aria-label="Configured MCP servers">
+    <thead>
+      <tr>
+        <th scope="col">Server</th>
+        <th scope="col">Transport</th>
+        <th scope="col">State</th>
+        <th scope="col">Tools</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (status of servers(); track status.name) {
+        <tr>
+          <td class="mono">{{ status.name }}</td>
+          <td>{{ status.transport }}</td>
+          <td [class]="stateClass(status.state)" [title]="status.reason ?? ''">
+            {{ status.state }}
+          </td>
+          <td>{{ status.toolCount }}</td>
+          <td class="actions">
+            @if (entryFor(status.name); as entry) {
+              <button type="button" (click)="startEdit(entry)" [disabled]="busy()">
+                Edit
+              </button>
+              <button type="button" (click)="remove(entry)" [disabled]="busy()">
+                Remove
+              </button>
+            }
+          </td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="5">No MCP servers configured.</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  @if (formOpen()) {
+    <form class="editor" [formGroup]="form" (ngSubmit)="submit()" aria-label="MCP server editor">
+      <h2>{{ editingName() ? 'Edit server' : 'Add server' }}</h2>
+
+      <label for="mcp-name">Name</label>
+      <input id="mcp-name" formControlName="name" autocomplete="off" />
+
+      <label for="mcp-transport">Transport</label>
+      <select id="mcp-transport" formControlName="transport">
+        <option value="stdio">stdio</option>
+        <option value="http">http</option>
+      </select>
+
+      @if (isStdio()) {
+        <label for="mcp-command">Command</label>
+        <input id="mcp-command" formControlName="command" autocomplete="off" />
+        <label for="mcp-args">Args (space-separated)</label>
+        <input id="mcp-args" formControlName="args" autocomplete="off" />
+        <label for="mcp-env">Environment references (KEY=$VAR or KEY=secret:NAME)</label>
+        <textarea id="mcp-env" formControlName="env" rows="3" spellcheck="false"></textarea>
+      } @else {
+        <label for="mcp-url">URL</label>
+        <input id="mcp-url" formControlName="url" autocomplete="off" />
+        <label for="mcp-headers">Header references (NAME=$VAR or NAME=secret:NAME)</label>
+        <textarea id="mcp-headers" formControlName="headers" rows="3" spellcheck="false"></textarea>
+      }
+
+      <label for="mcp-approval">Approval</label>
+      <select id="mcp-approval" formControlName="approval">
+        <option value="required">required</option>
+        <option value="none">none</option>
+      </select>
+
+      <label class="inline">
+        <input type="checkbox" formControlName="enabled" />
+        Enabled
+      </label>
+
+      <div class="actions">
+        <button type="submit" [disabled]="busy()">Save</button>
+        <button type="button" (click)="cancel()" [disabled]="busy()">Cancel</button>
+      </div>
+    </form>
+  }
+</section>

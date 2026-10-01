@@ -17,6 +17,12 @@ export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
 export const HEALTH_ENDPOINT = '/core/health';
 
+// Management surfaces (security S5).
+export const MCP_ENDPOINT = '/core/mcp';
+export const PROVIDERS_ENDPOINT = '/core/providers';
+export const SECRETS_ENDPOINT = '/core/secrets';
+export const SECURITY_ENDPOINT = '/core/security';
+
 // Authentication (S2). The session lives in an httpOnly cookie, so every
 // request must carry credentials; mutating requests echo the CSRF cookie.
 export const AUTH_LOGIN_ENDPOINT = '/core/auth/login';

@@ -123,14 +123,17 @@ Evidence: `.reference/plans/evidence/security-s4-evidence-providers.md`.
 - [x] Health surface reports provider state (configured/reachable),
       never the key.
 
-### [ ] S5 — Frontend management (web-client, in scope for this milestone)
+### [x] S5 — Frontend management (web-client, in scope for this milestone)
 
-- [ ] Server/provider management UI: add/edit/enable/disable/remove;
+Evidence: `.reference/plans/evidence/security-s5-evidence-frontend.md`.
+(Login/logout landed in S2; core catalog CRUD in `5e87107`.)
+
+- [x] Server/provider management UI: add/edit/enable/disable/remove;
       catalog + provider refresh without restart.
-- [ ] Secret entry fields are write-only and masked; show presence +
+- [x] Secret entry fields are write-only and masked; show presence +
       last-updated + last-4/fingerprint only.
-- [ ] Login/logout, session expiry handling, admin-only sections.
-- [ ] Clear "you are exposing this instance" warnings for non-loopback.
+- [x] Login/logout, session expiry handling, admin-only sections.
+- [x] Clear "you are exposing this instance" warnings for non-loopback.
 
 ### [ ] S6 — Verification
 

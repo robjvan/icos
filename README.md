@@ -135,7 +135,7 @@ The current system provides:
 - Security posture (loopback-by-default binding, authentication with a
   bootstrap token, an encrypted secret vault, and an LLM provider
   registry selected at runtime with key references resolved through the
-  vault)
+  vault) — managed from the web client (MCP servers, providers, secrets)
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 

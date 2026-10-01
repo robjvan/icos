@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   AUTH_LOGIN_ENDPOINT,
   AUTH_LOGOUT_ENDPOINT,
@@ -19,10 +20,23 @@ interface SessionResponse {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(CoreApiService);
+  private readonly router = inject(Router);
 
   private readonly state = signal<'unknown' | 'authenticated' | 'anonymous'>('unknown');
   private readonly currentRole = signal<string | null>(null);
   private pending: Promise<boolean> | null = null;
+
+  constructor() {
+    // Any API call that comes back 401 (expired session) drops us back to
+    // the login screen — one place, no per-component handling.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('icos:unauthorized', () => {
+        this.state.set('anonymous');
+        this.currentRole.set(null);
+        void this.router.navigateByUrl('/login');
+      });
+    }
+  }
 
   readonly authenticated = computed(() => this.state() === 'authenticated');
   readonly checked = computed(() => this.state() !== 'unknown');
