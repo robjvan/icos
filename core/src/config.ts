@@ -6,6 +6,24 @@ export const CORE_CONFIG = 'CORE_CONFIG';
 
 export interface CoreConfig {
   port: number;
+  /**
+   * Interface to bind (S1). Default `127.0.0.1` — reachable only from
+   * this machine. Set `0.0.0.0` (or a specific address) to expose it,
+   * but read the boot warning first: ICOS has no authentication until
+   * the security-hardening milestone lands.
+   */
+  host: string;
+  /**
+   * Browser origins allowed to call the API (S1). Explicit origins only
+   * (`*` is refused); defaults to the bundled local dev client.
+   */
+  corsAllowedOrigins: string[];
+  /**
+   * Operator assertion that exposure is deliberate and protected
+   * (TLS + auth in front). Silences the off-loopback boot warning only;
+   * it changes no technical behavior.
+   */
+  exposeAcknowledged: boolean;
   provider: string;
   llmBaseUrl: string;
   llmModel: string;
@@ -124,8 +142,10 @@ export interface CoreConfig {
   /** Server heartbeat cadence in ms for socket liveness frames. */
   realtimeHeartbeatMs: number;
   /**
-   * Socket origin allowlist. Default `*` in dev with the same posture as
-   * the permissive CORS TODO in main.ts — restrict when frontends land.
+   * Socket origin allowlist (S1). Explicit origins only (`*` is
+   * refused); falls back to `corsAllowedOrigins` when unset. A socket
+   * with no Origin header is rejected unless the list is wildcard —
+   * and wildcard is refused, so missing-origin clients are rejected.
    */
   realtimeAllowedOrigins: string[];
 }
@@ -182,8 +202,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     .trim()
     .replace(/\/+$/, '');
 
+  // Parsed once; the realtime allowlist falls back to it when unset.
+  const corsAllowedOrigins = parseOriginList(
+    env.CORS_ALLOWED_ORIGINS,
+    DEFAULT_ALLOWED_ORIGINS,
+    'CORS_ALLOWED_ORIGINS',
+  );
+
   return {
     port: parsePositiveInt(env.PORT, 3000, 'PORT'),
+    host: (env.HOST ?? '').trim() || '127.0.0.1',
+    corsAllowedOrigins,
+    exposeAcknowledged: parseBoolean(env.EXPOSE_ACKNOWLEDGED, false),
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,
@@ -321,7 +351,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       30_000,
       'REALTIME_HEARTBEAT_MS',
     ),
-    realtimeAllowedOrigins: parseOriginList(env.REALTIME_ALLOWED_ORIGINS),
+    realtimeAllowedOrigins: parseOriginList(
+      env.REALTIME_ALLOWED_ORIGINS,
+      corsAllowedOrigins,
+      'REALTIME_ALLOWED_ORIGINS',
+    ),
   };
 }
 
@@ -371,20 +405,56 @@ function parseKindList(raw: string | undefined): string[] {
 }
 
 /**
- * Comma-separated origin allowlist, e.g. "http://localhost:4200". Empty
- * or unset means `*` (dev default, same posture as the permissive CORS
- * TODO — restrict when real frontends land).
+ * Default browser origins allowed in local development: the bundled
+ * web client (`:4200`, loopback only). Anything else must be listed
+ * explicitly — the API is not open to arbitrary origins.
  */
-function parseOriginList(raw: string | undefined): string[] {
-  if (raw === undefined || raw.trim() === '') return ['*'];
-  return [
-    ...new Set(
-      raw
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part !== ''),
-    ),
-  ];
+export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = [
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+];
+
+/**
+ * Comma-separated origin allowlist. Empty/unset returns `fallback`.
+ * Wildcards are refused outright: ICOS sends credentials-capable
+ * responses and drives a live socket, and `*` would let any page the
+ * operator visits call the API. Every entry must be a bare
+ * `scheme://host[:port]` origin (no path, no trailing slash).
+ */
+function parseOriginList(
+  raw: string | undefined,
+  fallback: readonly string[],
+  name: string,
+): string[] {
+  if (raw === undefined || raw.trim() === '') return [...fallback];
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const origin = part.trim();
+    if (origin === '') continue;
+    if (origin === '*') {
+      throw new Error(
+        `${name} must list explicit origins; "*" is not allowed ` +
+          `(wildcard access is unsafe). e.g. http://localhost:4200`,
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error(`${name} entry "${origin}" is not a valid origin`);
+    }
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.origin !== origin
+    ) {
+      throw new Error(
+        `${name} entry "${origin}" must be a bare origin ` +
+          `(scheme://host[:port], no path or trailing slash)`,
+      );
+    }
+    out.push(origin);
+  }
+  return [...new Set(out)];
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

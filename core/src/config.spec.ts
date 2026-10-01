@@ -13,6 +13,9 @@ describe('loadConfig', () => {
     const config = loadConfig({ LLM_MODEL: 'llama3.1' });
     expect(config).toMatchObject({
       port: 3000,
+      host: '127.0.0.1',
+      corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+      exposeAcknowledged: false,
       llmBaseUrl: 'http://localhost:11434/v1',
       llmModel: 'llama3.1',
       llmTimeoutMs: 60000,
@@ -22,7 +25,10 @@ describe('loadConfig', () => {
       agentMaxTurnDurationMs: 900000,
       realtimeEnabled: true,
       realtimeHeartbeatMs: 30000,
-      realtimeAllowedOrigins: ['*'],
+      realtimeAllowedOrigins: [
+        'http://localhost:4200',
+        'http://127.0.0.1:4200',
+      ],
     });
     expect(config.llmApiKey).toBeUndefined();
   });
@@ -192,11 +198,14 @@ describe('loadConfig', () => {
     ).toThrow(/MEMORY_PROMOTION_AUTO_KINDS/);
   });
 
-  it('defaults realtime on with the dev-open origin posture', () => {
+  it('defaults realtime on with loopback-only origins (no wildcard)', () => {
     const config = loadConfig({ LLM_MODEL: 'm' });
     expect(config.realtimeEnabled).toBe(true);
     expect(config.realtimeHeartbeatMs).toBe(30000);
-    expect(config.realtimeAllowedOrigins).toEqual(['*']);
+    expect(config.realtimeAllowedOrigins).toEqual([
+      'http://localhost:4200',
+      'http://127.0.0.1:4200',
+    ]);
 
     const off = loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'false' });
     expect(off.realtimeEnabled).toBe(false);
@@ -210,12 +219,60 @@ describe('loadConfig', () => {
       'http://host:4200',
     ]);
 
+    // Realtime falls back to the CORS list when it has no list of its own.
+    const viaCors = loadConfig({
+      LLM_MODEL: 'm',
+      CORS_ALLOWED_ORIGINS: 'https://app.example.com',
+    });
+    expect(viaCors.realtimeAllowedOrigins).toEqual(['https://app.example.com']);
+
     expect(() =>
       loadConfig({ LLM_MODEL: 'm', REALTIME_HEARTBEAT_MS: '0' }),
     ).toThrow(/REALTIME_HEARTBEAT_MS/);
     expect(() =>
       loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'maybe' }),
     ).toThrow(/Expected a boolean/);
+  });
+
+  it('binds loopback by default and refuses wildcard origins (S1)', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults.host).toBe('127.0.0.1');
+    expect(defaults.exposeAcknowledged).toBe(false);
+    expect(defaults.corsAllowedOrigins).toEqual([
+      'http://localhost:4200',
+      'http://127.0.0.1:4200',
+    ]);
+
+    const exposed = loadConfig({
+      LLM_MODEL: 'm',
+      HOST: '0.0.0.0',
+      CORS_ALLOWED_ORIGINS: 'https://app.example.com,http://localhost:4200',
+      EXPOSE_ACKNOWLEDGED: 'true',
+    });
+    expect(exposed).toMatchObject({
+      host: '0.0.0.0',
+      exposeAcknowledged: true,
+    });
+    expect(exposed.corsAllowedOrigins).toEqual([
+      'https://app.example.com',
+      'http://localhost:4200',
+    ]);
+
+    // Wildcards are refused everywhere.
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: '*' }),
+    ).toThrow(/not allowed/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', REALTIME_ALLOWED_ORIGINS: '*' }),
+    ).toThrow(/not allowed/);
+
+    // Origins must be bare (no path/trailing slash); bad input fails loud.
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: 'http://x:4200/' }),
+    ).toThrow(/bare origin/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: 'not-a-url' }),
+    ).toThrow(/not a valid origin/);
   });
 
   it('parses MCP switches, timeout, and reconnect backoff', () => {

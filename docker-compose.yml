@@ -8,7 +8,15 @@ services:
       dockerfile: Dockerfile
 
     ports:
-      - "3000:3000" # Temporary testing UI
+      # Loopback only by default: reachable from this machine, not the
+      # LAN or the internet. To expose deliberately, see docs/security.md
+      # and heed the boot warning (ICOS is not authenticated yet).
+      - "127.0.0.1:3000:3000"
+
+    environment:
+      # Inside the container, bind all interfaces; the exposure boundary
+      # is the port mapping above, which is loopback by default.
+      HOST: 0.0.0.0
 
     env_file:
       - ./core/.env
@@ -46,7 +54,8 @@ services:
       dockerfile: Dockerfile
 
     ports:
-      - "4200:4200" # Angular
+      # Loopback only by default (see docs/security.md).
+      - "127.0.0.1:4200:4200" # Angular
 
     depends_on:
       core:

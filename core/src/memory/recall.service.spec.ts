@@ -16,6 +16,9 @@ import { SqliteLexicalClaimIndex } from './sqlite-lexical-claim-index';
 function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'm',

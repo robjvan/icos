@@ -47,19 +47,21 @@ the ones we must not endanger.
 
 ## Slices
 
-### [ ] S1 — Secure defaults + exposure docs (no new subsystem)
+### [x] S1 — Secure defaults + exposure docs (no new subsystem)
 
-- [ ] Bind to loopback (`127.0.0.1`) by default; binding to any other
+Evidence: `.reference/plans/evidence/security-s1-evidence-defaults.md`.
+
+- [x] Bind to loopback (`127.0.0.1`) by default; binding to any other
       interface is explicit opt-in.
-- [ ] Loud startup warning when bound off-loopback without auth and
+- [x] Loud startup warning when bound off-loopback without auth and
       without a TLS-terminating proxy configured.
-- [ ] CORS: stop defaulting to `*`; explicit allowed origins, and
+- [x] CORS: stop defaulting to `*`; explicit allowed origins, and
       never `*` together with credentials. Realtime origins likewise.
-- [ ] `docs/` security page: how to expose safely (TLS via
+- [x] `docs/` security page: how to expose safely (TLS via
       Caddy/traefik/nginx, WAN via tunnel/VPN, required env), what is
       protected and what is not, and the "do not expose without auth"
       rule. README links it.
-- [ ] Docker compose defaults aligned (no accidental `0.0.0.0` publish
+- [x] Docker compose defaults aligned (no accidental `0.0.0.0` publish
       without a note).
 
 ### [ ] S2 — API authentication + authorization (single-user)
