@@ -143,12 +143,14 @@ export class SdkMcpClient extends McpClient {
   private client: Client | null = null;
   private transport: Transport | null = null;
   private tools: McpTool[] | null = null;
+  /** True during an intentional close, so onclose is not a "drop". */
+  private closing = false;
 
   constructor(private readonly entry: McpServerEntry) {
     super();
   }
 
-  private buildTransport(): Transport {
+  protected buildTransport(): Transport {
     if (this.entry.transport === 'stdio') {
       // Secrets resolve here, at spawn — the catalog carries
       // references, the process carries values. Missing vars throw
@@ -198,9 +200,17 @@ export class SdkMcpClient extends McpClient {
       { name: 'icos-core', version: '0.0.1' },
       { capabilities: {} },
     );
+    this.closing = false;
+    // Drop detection (M13f): a transport close/error that we did not
+    // ask for marks the connection unavailable so the manager can
+    // drop its tools and reconnect with backoff. Intentional closes
+    // set `closing` first and are ignored.
+    client.onclose = () => this.markUnavailable();
+    client.onerror = () => this.markUnavailable();
     try {
       await client.connect(transport);
     } catch (err) {
+      this.closing = true;
       await client.close().catch(() => {});
       throw new McpError(
         `MCP connect failed for "${this.entry.name}": ${
@@ -220,8 +230,19 @@ export class SdkMcpClient extends McpClient {
     this.client = null;
     this.transport = null;
     if (client) {
+      this.closing = true;
       await client.close().catch(() => {});
     }
+  }
+
+  /** Fire the drop hook at most once per connection. */
+  private markUnavailable(): void {
+    if (this.closing) return;
+    const handler = this.onUnavailable;
+    this.client = null;
+    this.transport = null;
+    this.tools = null;
+    handler?.();
   }
 
   async listTools(): Promise<McpTool[]> {

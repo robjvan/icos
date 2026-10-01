@@ -99,7 +99,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M12 are complete. M13 (MCP server support) is the active milestone.**
+**M1–M13 are complete.**
 
 The current system provides:
 
@@ -127,9 +127,11 @@ The current system provides:
   temporal navigation)
 - Contradiction transparency in the web client (paired belief links,
   negation markers, parked-question surfacing)
-
-The active milestone is **M13: MCP Server Support** (exposing ICOS
-capabilities to other systems).
+- MCP client support (consumes standard Model Context Protocol
+  servers: namespaced tools bridged into the agent loop, approval-
+  gated execution with durable records, resources and prompt
+  templates behind a read-only fetch surface, hand-edited catalog
+  with no-restart reload and a per-server health surface)
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
@@ -153,7 +155,7 @@ ICOS v3 is being developed as a sequence of increasingly capable experiments.
 |   **M10**    | _Can it form knowledge?_                                                      |
 |   **M11**    | _Can it retrieve and use that knowledge?_                                     |
 |   **M12**    | _Can that knowledge evolve?_                                                  |
-|   **M13**    | _Can it expose its capabilities to other systems?_                            |
+|   **M13**    | _Can it use capabilities provided by other systems?_                          |
 |   **M14**    | _Can it maintain a persistent persona?_                                       |
 |   **M15**    | _Can it detect and correct its own drift?_                                    |
 |   **M16**    | _Can it communicate through external channels?_                               |

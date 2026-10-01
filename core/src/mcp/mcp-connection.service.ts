@@ -57,6 +57,23 @@ interface ManagedServer {
 /** Debounce window for catalog file-watch reloads. */
 export const CATALOG_WATCH_DEBOUNCE_MS = 250;
 
+/** Cap on operator-visible failure reasons (logs + health). */
+export const MAX_REASON_CHARS = 200;
+
+/**
+ * Keep failure reasons readable and bounded. A remote server can
+ * return an arbitrary body (e.g. an HTML error page); collapsing
+ * whitespace and capping length keeps it from flooding logs or the
+ * health surface. Never a place for secrets — reasons only ever
+ * carry transport text, and env/header values are never echoed.
+ */
+export function sanitizeReason(message: string): string {
+  const collapsed = message.replace(/\s+/g, ' ').trim();
+  return collapsed.length > MAX_REASON_CHARS
+    ? `${collapsed.slice(0, MAX_REASON_CHARS)}…`
+    : collapsed;
+}
+
 /**
  * Catalog poll interval. `fs.watch` is event-driven but documented
  * as inconsistent (events can be dropped); a hand-edited JSON file
@@ -219,6 +236,9 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
     this.servers.set(entry.name, managed);
     try {
       const client = this.factory.create(entry);
+      // Drop detection (M13f): an unexpected close marks the server
+      // unavailable, drops its tools, and schedules a backoff retry.
+      client.onUnavailable = () => this.markUnavailable(entry.name, client);
       const tools = await client.connect();
       managed.client = client;
       managed.state = 'connected';
@@ -227,12 +247,32 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       managed.client = null;
       managed.state = 'failed';
-      managed.reason = err instanceof Error ? err.message : 'unknown error';
+      managed.reason = sanitizeReason(
+        err instanceof Error ? err.message : 'unknown error',
+      );
       this.logger.warn(
         `MCP server "${entry.name}" disabled: ${managed.reason}`,
       );
       this.scheduleRetry();
     }
+  }
+
+  /**
+   * A live connection dropped on its own (M13f). Stale notifications
+   * (a client the manager has already replaced) are ignored. The
+   * server drops to `failed`, its tools leave the bridge, and the
+   * backoff retries it — turns keep working throughout.
+   */
+  private markUnavailable(serverName: string, client: McpClient): void {
+    const server = this.servers.get(serverName);
+    if (!server || server.client !== client) return;
+    server.client = null;
+    server.state = 'failed';
+    server.reason = 'connection lost';
+    server.tools = [];
+    this.logger.warn(`MCP server "${serverName}" connection lost`);
+    this.notifyToolsChanged();
+    this.scheduleRetry();
   }
 
   /**

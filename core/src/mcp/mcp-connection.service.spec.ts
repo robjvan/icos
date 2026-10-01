@@ -12,6 +12,7 @@ import type {
   McpTool,
 } from './mcp-client';
 import { McpConnectionService } from './mcp-connection.service';
+import { sanitizeReason } from './mcp-connection.service';
 import type { McpServerEntry } from './mcp-server-config';
 
 function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
@@ -131,6 +132,11 @@ class FakeClient extends McpClient {
       messages: [{ role: 'user', text: `${name}:${JSON.stringify(args)}` }],
     });
   }
+
+  /** Simulate an unexpected connection drop (M13f). */
+  drop(): void {
+    this.onUnavailable?.();
+  }
 }
 
 class FakeFactory extends McpClientFactory {
@@ -145,6 +151,15 @@ class FakeFactory extends McpClientFactory {
     return this.behavior(entry);
   }
 }
+
+describe('sanitizeReason', () => {
+  it('collapses whitespace and caps length', () => {
+    expect(sanitizeReason('a\n\n  b\t c ')).toBe('a b c');
+    const long = sanitizeReason(`start ${'x'.repeat(500)}`);
+    expect(long.length).toBe(201);
+    expect(long.endsWith('…')).toBe(true);
+  });
+});
 
 describe('McpConnectionService', () => {
   let dir = '';
@@ -334,6 +349,78 @@ describe('McpConnectionService', () => {
       await expect(
         service.getPrompt('missing', 'greet', {}),
       ).rejects.toBeInstanceOf(McpError);
+      await service.onModuleDestroy();
+    });
+  });
+
+  describe('drop detection (M13f)', () => {
+    it('marks a lost connection failed, drops tools, then retries', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const clients: FakeClient[] = [];
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path, mcpReconnectBackoffMs: 40 }),
+        new FakeFactory(() => {
+          const client = new FakeClient([{ name: 'ping', inputSchema: {} }]);
+          clients.push(client);
+          return client;
+        }),
+      );
+      const seen: number[] = [];
+      service.onToolsChanged(() => seen.push(service.allTools().length));
+      await service.initialize();
+      expect(service.statusOf('a')).toMatchObject({
+        state: 'connected',
+        toolCount: 1,
+      });
+      expect(seen).toEqual([1]);
+
+      // Unexpected drop: server fails, tools leave, listeners fire.
+      clients[0].drop();
+      expect(service.statusOf('a')).toMatchObject({
+        state: 'failed',
+        reason: 'connection lost',
+        toolCount: 0,
+      });
+      expect(service.allTools()).toEqual([]);
+      expect(seen).toEqual([1, 0]);
+
+      // Backoff retry reconnects with a fresh client.
+      const deadline = Date.now() + 15000;
+      while (
+        service.statusOf('a')?.state !== 'connected' &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(service.statusOf('a')?.state).toBe('connected');
+      expect(clients).toHaveLength(2);
+      await service.onModuleDestroy();
+    });
+
+    it('ignores a drop from a client the manager already replaced', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const clients: FakeClient[] = [];
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(() => {
+          const client = new FakeClient([{ name: 'ping', inputSchema: {} }]);
+          clients.push(client);
+          return client;
+        }),
+      );
+      await service.initialize();
+      await service.reconnect('a');
+      clients[0].drop();
+      // The stale client must not disturb the live one.
+      expect(service.statusOf('a')?.state).toBe('connected');
       await service.onModuleDestroy();
     });
   });

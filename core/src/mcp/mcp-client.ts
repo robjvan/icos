@@ -89,6 +89,13 @@ export class McpError extends Error {
 }
 
 export abstract class McpClient {
+  /**
+   * Set by the connection manager: invoked once when the connection
+   * drops unexpectedly (M13f). Intentional `disconnect()` never
+   * fires it. Optional so test doubles can ignore it.
+   */
+  onUnavailable?: () => void;
+
   /** Connect + initialize + list tools (idempotent). */
   abstract connect(): Promise<McpTool[]>;
 
