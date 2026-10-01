@@ -15,6 +15,14 @@
   <div class="flex items-center gap-3 me-3">
     <button
       type="button"
+      (click)="logout()"
+      class="p-1 rounded hover:opacity-80 text-xs"
+      aria-label="Sign out"
+    >
+      Sign out
+    </button>
+    <button
+      type="button"
       (click)="toggleTheme()"
       [attr.aria-label]="isDark() ? 'Switch to light theme' : 'Switch to dark theme'"
       class="p-1 rounded hover:opacity-80"

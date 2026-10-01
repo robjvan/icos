@@ -9,7 +9,9 @@ import {
   signal,
 } from '@angular/core';
 import { LucideMoon, LucideSun } from '@lucide/angular';
+import { Router } from '@angular/router';
 
+import { AuthService } from '../../services/auth.service';
 import { HealthService, ramPercent } from '../../services/health.service';
 import { RealtimeService } from '../../services/realtime.service';
 import { ThemeService } from '../../services/theme.service';
@@ -31,6 +33,8 @@ export class FooterComponent implements OnInit, OnDestroy {
   private readonly themeService = inject(ThemeService);
   private readonly healthService = inject(HealthService);
   private readonly realtime = inject(RealtimeService);
+  private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
   private readonly now = signal(new Date());
   private readonly clockTimer = setInterval(() => {
@@ -123,6 +127,11 @@ export class FooterComponent implements OnInit, OnDestroy {
 
   toggleTheme(): void {
     this.themeService.toggle();
+  }
+
+  async logout(): Promise<void> {
+    await this.auth.logout();
+    await this.router.navigateByUrl('/login');
   }
 
   private restartHealthPoll(intervalSeconds: number): void {

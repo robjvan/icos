@@ -77,7 +77,7 @@ describe('FooterComponent', () => {
   it('should expose a theme toggle label matching the current theme', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const button = compiled.querySelector('button[aria-label]');
+    const button = compiled.querySelector('button[aria-label*="theme"]');
     expect(button?.getAttribute('aria-label')).toContain('theme');
     expect(component.isDark()).toBe(true);
   });

@@ -6,6 +6,7 @@ import {
   SERVER_URL,
   SESSIONS_ENDPOINT,
 } from '../../constants';
+import { mutationHeaders } from '../auth/credentials';
 
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}${path}`;
@@ -36,15 +37,16 @@ export class CoreApiService {
     for (const [key, value] of Object.entries(params ?? {})) {
       url.searchParams.set(key, String(value));
     }
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { credentials: 'include' });
     return readJson<T>(response, `GET ${endpoint}`);
   }
 
   async post<T>(endpoint: string, body: unknown): Promise<T> {
     const response = await fetch(joinUrl(SERVER_URL, endpoint), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: mutationHeaders(),
       body: JSON.stringify(body),
+      credentials: 'include',
     });
     return readJson<T>(response, `POST ${endpoint}`);
   }

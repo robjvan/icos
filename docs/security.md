@@ -74,6 +74,9 @@ logged in; `POST /core/auth/logout` clears the session. Failed logins
 are rate-limited per IP, and security events are appended to
 `AUTH_DIR_PATH/audit.log` (never containing secret values).
 
+The bundled web client shows a **login screen** on first load — paste the
+same token there — and a **Sign out** button in the footer.
+
 ## Exposing safely (reverse proxy)
 
 Terminate TLS at a proxy and let it require authentication. Example with

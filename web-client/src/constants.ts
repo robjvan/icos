@@ -17,5 +17,11 @@ export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
 export const HEALTH_ENDPOINT = '/core/health';
 
+// Authentication (S2). The session lives in an httpOnly cookie, so every
+// request must carry credentials; mutating requests echo the CSRF cookie.
+export const AUTH_LOGIN_ENDPOINT = '/core/auth/login';
+export const AUTH_LOGOUT_ENDPOINT = '/core/auth/logout';
+export const AUTH_SESSION_ENDPOINT = '/core/auth/session';
+
 /** Approval action for candidate → belief promotion (mirrors core PROMOTE_ACTION). */
 export const MEMORY_PROMOTE_ACTION = 'memory.promote';

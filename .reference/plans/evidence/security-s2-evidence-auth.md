@@ -74,3 +74,25 @@ immediate follow-up (web-client); the API is fully scriptable today.
 - The web-client is cross-origin (`:4200`→`:3000`), same-site, so the
   `SameSite=Strict` cookie is sent; the login screen must send mutating
   requests with `x-icos-csrf`. That screen is the next step.
+
+## Addendum — web-client login (same slice)
+
+- `services/auth.service.ts`: signal-backed mirror of the server session
+  (`ensureChecked()` probes once, `login`, `logout`).
+- `auth/credentials.ts`: reads the readable `icos_csrf` cookie and builds
+  mutation headers. All `fetch` calls (`core-api.service`,
+  `conversation-stream.service`) now send `credentials: 'include'` and
+  mutations carry `x-icos-csrf`.
+- `auth/auth.guard.ts` + route: `/login` is public; the dashboard shell
+  is guarded by `authGuard` (redirects to `/login` when unauthenticated).
+- `components/login-page/*`: token form (reactive forms, `OnPush`,
+  `role="alert"` error, `aria-invalid`).
+- `footer-component`: a **Sign out** button.
+
+Client gate: `ng build` clean, `eslint` clean, **175 tests** (7 new:
+auth service probe/login/logout/offline, credential headers, login-page
+validation + submit/failure). Live cross-origin check: preflight for a
+POST with `x-icos-csrf` returns 204 with `Access-Control-Allow-Origin`
+echoing the exact origin, `Access-Control-Allow-Credentials: true`, and
+`Access-Control-Allow-Headers: content-type,x-icos-csrf`; a foreign
+origin gets **no** allow-origin header.
