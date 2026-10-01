@@ -69,7 +69,9 @@ UI (server list, per-tool toggles) lands later.
 
 ---
 
-# [ ] M13a — Client Transport
+# [x] M13a — Client Transport (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-13a-evidence-transport.md`.
 
 JSON-RPC client over the two transports standard servers actually
 speak: **stdio** (spawned command) and **Streamable HTTP** (URL).
@@ -90,82 +92,94 @@ reasons.
 - [ ] Transport matrix unit-tested against in-process fakes for
       both stdio and HTTP shapes.
 
-# [ ] M13b — Tool Bridging
+# [x] M13b — Tool Bridging (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-13b-evidence-bridging.md`.
 
 Foreign tools enter the registry as namespaced descriptors
 (`mcp_<server>_<tool>`, sanitized — names are protocol data, never
 trusted verbatim).
 
-- [ ] Schema translation: MCP `inputSchema` (JSON Schema) into the
+- [x] Schema translation: MCP `inputSchema` (JSON Schema) into the
       `ToolDescriptor` args shape the planner consumes. Unknown or
       unbounded schemas fail closed (tool hidden, reason logged) —
       never widened silently.
-- [ ] Arg validation against the remote schema before dispatch
+- [x] Arg validation against the remote schema before dispatch
       (same `invalid_args` failure code family, new origin noted).
-- [ ] Approval policy: **foreign tools require approval by
+- [x] Approval policy: **foreign tools require approval by
       default** (conservative; per-server/tool override in config
       only with explicit opt-in, same posture as
       `MEMORY_PROMOTION_AUTO`).
-- [ ] Execution path: dispatch through `ToolExecutionService`
+- [x] Execution path: dispatch through `ToolExecutionService`
       into MCP `tools/call`; result mapping (text blocks → result
       text, `isError` → failure, images/attachments → referenced
       not embedded); server-down mid-call → honest failure, turn
       continues per existing semantics.
-- [ ] Secrets: server `env` passthrough (API keys etc.) from
+- [x] Secrets: server `env` passthrough (API keys etc.) from
       process env only — never logged, never persisted, never
       returned by any API (same rule as `LLM_API_KEY`).
 
-# [ ] M13c — Agent-Loop Integration
+# [x] M13c — Agent-Loop Integration (complete 2026-10-01)
 
-- [ ] Planning descriptors include live foreign tools (name,
+Evidence: `.reference/plans/evidence/milestone-13c-evidence-loop.md`.
+
+- [x] Planning descriptors include live foreign tools (name,
       description, args schema) — rebuilt per round like existing
       tools; dead servers' tools simply absent (declared in the
       trace, not silent).
-- [ ] Proposal/validation accepts the generic namespaced variant;
+- [x] Proposal/validation accepts the generic namespaced variant;
       every exhaustiveness check in the loop handles it without a
       fallthrough that could misroute.
-- [ ] Observations render foreign results indistinguishably from
+- [x] Observations render foreign results indistinguishably from
       native ones (same transcript shape, same provenance note of
       which server answered).
-- [ ] Budgets, approval parks, resumption, and termination behave
+- [x] Budgets, approval parks, resumption, and termination behave
       identically — covered by running the existing M9 matrices
       with a foreign tool in the set.
 
-# [ ] M13d — Config + Ops
+# [x] M13d — Config + Ops (complete 2026-10-01)
 
-- [ ] Server catalog: JSON file (default `~/.icos/mcp-servers.json`)
+Evidence: `.reference/plans/evidence/milestone-13d-evidence-ops.md`.
+
+- [x] Server catalog: JSON file (default `~/.icos/mcp-servers.json`)
       pointed to by `MCP_SERVERS_PATH`; entries `{ name, transport,
       command | url, args?, env?, enabled?, approval? }`. Validated
       at boot: a bad entry disables that server loudly, never the
       boot. Empty/missing catalog = current behavior exactly.
-- [ ] Kill-switches: global `MCP_ENABLED` (default off until
+- [x] Kill-switches: global `MCP_ENABLED` (default off until
       proven — new capability, conservative default) plus per-server
       `enabled`.
-- [ ] Reload semantics: the catalog is frontend-editable (enable /
-      disable / add servers), so core re-reads it without a restart
+- [x] Reload semantics: the catalog is hand-edited by the
+      operator (enable / disable / add servers + export any
+      needed `$VAR`s), so core re-reads it without a restart
       — explicit reload endpoint (`POST /core/mcp/reload`) plus
       file-watch with debounce; reload diffs the set (connect new,
       drop removed, leave healthy connections alone) and reports
-      per-server results.
-- [ ] Health reporting: per-server connection state in the health
+      per-server results. No frontend CRUD and no key entry:
+      those are a future polish slice (see Scope Boundary).
+- [x] Health reporting: per-server connection state in the health
       surface (connected/disabled/failed + reason).
-- [ ] Timeouts and reconnect backoff in config with sane defaults.
+- [x] Timeouts and reconnect backoff in config with sane defaults.
 
-# [ ] M13e — Resources and Prompts (trailing slice, may slip)
+# [x] M13e — Resources and Prompts (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-13e-evidence-resources-prompts.md`.
 
 MCP servers also expose resources (read-only blobs) and prompt
 templates. Tools are the milestone; this slice is explicitly
 severable — if it slips, M13 closes on a–d + f with resources
 recorded as future work.
 
-- [ ] `resources/list` + `resources/read` behind a read-only fetch
+- [x] `resources/list` + `resources/read` behind a read-only fetch
       path (no execution semantics, size-capped like skill bodies).
-- [ ] `prompts/list` + `prompts/get` as named prompt templates
+- [x] `prompts/list` + `prompts/get` as named prompt templates
       available to context construction (no auto-injection).
-- [ ] Same approval posture question re-answered for reads
+- [x] Same approval posture question re-answered for reads
       (default: reads need no approval, writes always do).
 
-# [ ] M13f — Verification
+# [x] M13f — Verification (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-13f-evidence-verification.md`.
 
 - **Transport matrix** — stdio + HTTP, connect/discover/call,
   drop/reconnect, timeout, malformed server behavior; all against
@@ -200,6 +214,12 @@ Keep the following **out of M13**:
 - elicitation passthrough to chat (no new interaction primitives),
 - any `web-client/` changes,
 - any M4 ledger writes.
+- frontend MCP server management (add/remove/enable/disable UI),
+  in-UI API key entry, and any secret vault. Operator story is
+  hand-edited catalog + exported env (decided 2026-10-01:
+  functionality first). A vault needs an API trust story that
+  does not exist yet; until then no secret values through any
+  API and no plaintext persistence, per the M13b rule.
 
 ---
 
