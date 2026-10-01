@@ -468,7 +468,7 @@ Questions are particularly useful when they challenge an assumption behind the a
 
 # License
 
-ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE).
+ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
 
 Commercial use requires a separate license.
 
