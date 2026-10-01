@@ -37,6 +37,7 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     mcpEnabled: true,
     mcpServersPath: '',
     mcpTimeoutMs: 1000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
@@ -230,5 +231,185 @@ describe('McpConnectionService', () => {
     await service.reconnect('good');
     expect(seen).toEqual([1, 1]);
     await service.onModuleDestroy();
+  });
+
+  describe('reload (M13d)', () => {
+    it('is a no-op report when MCP is disabled', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const service = new McpConnectionService(
+        testConfig({ mcpEnabled: false, mcpServersPath: path }),
+        new FakeFactory(() => {
+          throw new Error('must never construct');
+        }),
+      );
+      const report = await service.reload();
+      expect(report).toEqual({
+        enabled: false,
+        path: '',
+        servers: [],
+        errors: [],
+      });
+      expect(service.statusAll()).toEqual([]);
+      await service.onModuleDestroy();
+    });
+
+    it('diffs the set: connects new, drops removed, leaves healthy alone', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      const write = (entries: unknown[]): void =>
+        writeFileSync(path, JSON.stringify(entries));
+      const created: string[] = [];
+      const factory = new FakeFactory((entry) => {
+        created.push(entry.name);
+        return new FakeClient([{ name: 'ping', inputSchema: {} }]);
+      });
+      write([{ name: 'a', transport: 'stdio', command: 'x' }]);
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        factory,
+      );
+      await service.initialize();
+      expect(created).toEqual(['a']);
+
+      // Add 'b', leave 'a' intact: 'a' must NOT be reconnected.
+      write([
+        { name: 'a', transport: 'stdio', command: 'x' },
+        { name: 'b', transport: 'stdio', command: 'y' },
+      ]);
+      let report = await service.reload();
+      expect(created).toEqual(['a', 'b']);
+      expect(report.servers.map((s) => `${s.name}=${s.state}`)).toEqual([
+        'a=connected',
+        'b=connected',
+      ]);
+
+      // Drop 'a', keep 'b': 'a' disconnects and disappears.
+      write([{ name: 'b', transport: 'stdio', command: 'y' }]);
+      report = await service.reload();
+      expect(created).toEqual(['a', 'b']);
+      expect(report.servers.map((s) => s.name)).toEqual(['b']);
+      expect(service.statusOf('a')).toBeNull();
+      await service.onModuleDestroy();
+    });
+
+    it('reconnects changed entries and honors disabled flips', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      const write = (entries: unknown[]): void =>
+        writeFileSync(path, JSON.stringify(entries));
+      const created: string[] = [];
+      const factory = new FakeFactory((entry) => {
+        created.push(`${entry.name}:${entry.command ?? entry.url ?? ''}`);
+        return new FakeClient([{ name: 'ping', inputSchema: {} }]);
+      });
+      write([{ name: 'a', transport: 'stdio', command: 'x' }]);
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        factory,
+      );
+      await service.initialize();
+
+      // Same name, changed command → reconnect (create again).
+      write([{ name: 'a', transport: 'stdio', command: 'x2' }]);
+      await service.reload();
+      expect(created).toEqual(['a:x', 'a:x2']);
+
+      // Flip to disabled → state disabled, tools dropped, no new create.
+      write([{ name: 'a', transport: 'stdio', command: 'x2', enabled: false }]);
+      const report = await service.reload();
+      expect(created).toEqual(['a:x', 'a:x2']);
+      expect(report.servers[0]).toMatchObject({
+        name: 'a',
+        state: 'disabled',
+        toolCount: 0,
+      });
+      await service.onModuleDestroy();
+    });
+
+    it('reports catalog parse errors without throwing', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(path, '{ not json');
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(),
+      );
+      const report = await service.reload();
+      expect(report.enabled).toBe(true);
+      expect(report.servers).toEqual([]);
+      expect(report.errors).toHaveLength(1);
+      await service.onModuleDestroy();
+    });
+
+    it('reloads on catalog file change (debounced watch)', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(
+          () => new FakeClient([{ name: 'ping', inputSchema: {} }]),
+        ),
+      );
+      try {
+        await service.onModuleInit();
+        expect(service.statusOf('a')?.state).toBe('connected');
+
+        // Add 'b' on disk; the watcher must pick it up without a restart.
+        writeFileSync(
+          path,
+          JSON.stringify([
+            { name: 'a', transport: 'stdio', command: 'x' },
+            { name: 'b', transport: 'stdio', command: 'y' },
+          ]),
+        );
+        const deadline = Date.now() + 15000;
+        while (
+          service.statusOf('b')?.state !== 'connected' &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        expect(service.statusOf('b')?.state).toBe('connected');
+      } finally {
+        await service.onModuleDestroy();
+      }
+    }, 20000);
+
+    it('retries a failed server in the background at the backoff', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'flaky', transport: 'stdio', command: 'x' }]),
+      );
+      let attempt = 0;
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path, mcpReconnectBackoffMs: 40 }),
+        new FakeFactory(() => {
+          attempt += 1;
+          return attempt === 1
+            ? new FakeClient([], { connectError: 'refused' })
+            : new FakeClient([{ name: 'ping', inputSchema: {} }]);
+        }),
+      );
+      try {
+        await service.initialize();
+        expect(service.statusOf('flaky')?.state).toBe('failed');
+
+        const deadline = Date.now() + 15000;
+        while (
+          service.statusOf('flaky')?.state !== 'connected' &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(service.statusOf('flaky')?.state).toBe('connected');
+      } finally {
+        await service.onModuleDestroy();
+      }
+    }, 20000);
   });
 });

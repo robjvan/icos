@@ -75,6 +75,13 @@ export interface CoreConfig {
   /** M13 per-call timeout in ms for MCP tool calls. */
   mcpTimeoutMs: number;
   /**
+   * M13d reconnect backoff in ms. A failed server is retried in the
+   * background at this cadence (unref'd — never blocks shutdown),
+   * until it connects or the process stops. 0 disables auto-retry
+   * (explicit `reconnect`/reload still work).
+   */
+  mcpReconnectBackoffMs: number;
+  /**
    * M12c agent dampening: agent-origin claims compound at this
    * fraction of the normal step (default conservative 0.5), so the
    * agent's own statements never inflate by self-echo.
@@ -132,6 +139,20 @@ function parsePositiveInt(
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
+/** Like parsePositiveInt but admits 0 (used for opt-out timers). */
+function parseNonNegativeInt(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer (got "${raw}")`);
   }
   return value;
 }
@@ -243,6 +264,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     mcpEnabled: parseBoolean(env.MCP_ENABLED, false),
     mcpServersPath: (env.MCP_SERVERS_PATH ?? '').trim() || '',
     mcpTimeoutMs: parsePositiveInt(env.MCP_TIMEOUT_MS, 30000, 'MCP_TIMEOUT_MS'),
+    mcpReconnectBackoffMs: parseNonNegativeInt(
+      env.MCP_RECONNECT_BACKOFF_MS,
+      10000,
+      'MCP_RECONNECT_BACKOFF_MS',
+    ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',

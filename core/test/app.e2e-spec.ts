@@ -184,6 +184,7 @@ describe('Conversation (e2e)', () => {
         mcpEnabled: false,
         mcpServersPath: '',
         mcpTimeoutMs: 30000,
+        mcpReconnectBackoffMs: 60000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,

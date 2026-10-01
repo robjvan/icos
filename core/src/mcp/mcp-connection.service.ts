@@ -1,3 +1,7 @@
+import { watch } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
+import { basename, dirname } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import {
   Inject,
   Injectable,
@@ -9,7 +13,7 @@ import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
 import { McpClientFactory, McpError } from './mcp-client';
 import type { McpCallResult, McpClient, McpTool } from './mcp-client';
-import { loadCatalogFile } from './mcp-server-config';
+import { loadCatalogFile, resolveCatalogPath } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
 
 export type McpServerState = 'connected' | 'disabled' | 'failed';
@@ -24,6 +28,17 @@ export interface McpServerStatus {
   toolCount: number;
 }
 
+/** Per-server reload result (same shape as the health surface). */
+export interface McpReloadReport {
+  /** False when MCP_ENABLED is off — nothing was read or changed. */
+  enabled: boolean;
+  /** Resolved catalog path (empty when the file is absent). */
+  path: string;
+  servers: McpServerStatus[];
+  /** Human-readable catalog parse/validation problems (never fatal). */
+  errors: string[];
+}
+
 interface ManagedServer {
   entry: McpServerEntry;
   client: McpClient | null;
@@ -32,21 +47,26 @@ interface ManagedServer {
   tools: McpTool[];
 }
 
+/** Debounce window for catalog file-watch reloads. */
+export const CATALOG_WATCH_DEBOUNCE_MS = 250;
+
 /**
- * MCP connection manager (M13a): owns one client per catalogued
+ * MCP connection manager (M13a/d): owns one client per catalogued
  * server, connects fail-soft at boot (a dead server disables
  * itself loudly, never the boot), and answers discovery + calls
- * for the bridging slice. Reconnect is lazy — a failed server
- * retries on next explicit `reconnect()`, never on a hot turn
- * path. Tool-set listeners (the M13b bridge) fire after boot
- * init and after every reconnect; the future M13d reload trigger
- * notifies through the same seam.
+ * for the bridging slice. Failed servers retry in the background
+ * at the configured backoff (unref'd — never blocks shutdown).
+ * Tool-set listeners (the M13b bridge) fire after boot init, every
+ * reconnect, and every reload.
  */
 @Injectable()
 export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(McpConnectionService.name);
   private readonly servers = new Map<string, ManagedServer>();
   private readonly toolListeners = new Set<() => void>();
+  private watcher: FSWatcher | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -56,6 +76,7 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   /** Boot wiring: load catalog, connect enabled servers fail-soft. */
   async onModuleInit(): Promise<void> {
     await this.initialize();
+    this.startWatching();
   }
 
   async initialize(): Promise<void> {
@@ -81,11 +102,94 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.watcher?.close();
+    this.watcher = null;
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    this.watchTimer = null;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     for (const server of this.servers.values()) {
       await server.client?.disconnect().catch(() => {});
       server.client = null;
     }
     this.servers.clear();
+  }
+
+  /**
+   * Re-read the catalog and reconcile it with live connections
+   * (M13d): connect new servers, disconnect removed ones, leave
+   * healthy unchanged connections alone, re-connect changed ones.
+   * Never throws on a bad server — each fails soft and reports its
+   * own state. Off by default: returns a disabled report untouched
+   * when MCP_ENABLED is false.
+   */
+  async reload(): Promise<McpReloadReport> {
+    if (!this.config.mcpEnabled) {
+      return { enabled: false, path: '', servers: [], errors: [] };
+    }
+    const catalog = loadCatalogFile(this.config.mcpServersPath);
+    for (const error of catalog.errors) {
+      this.logger.warn(`MCP catalog: ${error}`);
+    }
+    const wanted = new Set(catalog.entries.map((entry) => entry.name));
+    for (const name of [...this.servers.keys()]) {
+      if (!wanted.has(name)) await this.disconnectOne(name);
+    }
+    for (const entry of catalog.entries) {
+      const current = this.servers.get(entry.name);
+      if (entry.enabled === false) {
+        await this.disableOne(entry, current);
+        continue;
+      }
+      // Leave a healthy, unchanged connection alone; anything else
+      // (new, changed, failed, disabled→enabled) re-connects.
+      if (
+        current &&
+        current.state === 'connected' &&
+        isDeepStrictEqual(current.entry, entry)
+      ) {
+        continue;
+      }
+      await current?.client?.disconnect().catch(() => {});
+      await this.connectOne(entry);
+    }
+    this.notifyToolsChanged();
+    return {
+      enabled: true,
+      path: catalog.path,
+      servers: this.statusAll(),
+      errors: catalog.errors,
+    };
+  }
+
+  private async disableOne(
+    entry: McpServerEntry,
+    current: ManagedServer | undefined,
+  ): Promise<void> {
+    if (current) {
+      await current.client?.disconnect().catch(() => {});
+      current.entry = entry;
+      current.client = null;
+      current.state = 'disabled';
+      current.reason = 'disabled in catalog';
+      current.tools = [];
+      return;
+    }
+    this.servers.set(entry.name, {
+      entry,
+      client: null,
+      state: 'disabled',
+      reason: 'disabled in catalog',
+      tools: [],
+    });
+  }
+
+  private async disconnectOne(name: string): Promise<void> {
+    const server = this.servers.get(name);
+    if (!server) return;
+    await server.client?.disconnect().catch(() => {});
+    server.client = null;
+    this.servers.delete(name);
   }
 
   private async connectOne(entry: McpServerEntry): Promise<void> {
@@ -111,6 +215,91 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `MCP server "${entry.name}" disabled: ${managed.reason}`,
       );
+      this.scheduleRetry();
+    }
+  }
+
+  /**
+   * Background reconnect for failed servers, at the configured
+   * backoff. Unref'd so it never keeps the process alive; a no-op
+   * when MCP is disabled or backoff is 0. Lists are re-read at fire
+   * time, so a server that recovered (or was reloaded away) is
+   * never reconnected blindly.
+   */
+  private scheduleRetry(): void {
+    if (this.retryTimer) return;
+    if (!this.config.mcpEnabled) return;
+    const delay = this.config.mcpReconnectBackoffMs;
+    if (!Number.isInteger(delay) || delay <= 0) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.retryFailed();
+    }, delay);
+    this.retryTimer.unref?.();
+  }
+
+  private async retryFailed(): Promise<void> {
+    let retried = false;
+    for (const server of [...this.servers.values()]) {
+      if (server.state !== 'failed' || server.entry.enabled === false) continue;
+      retried = true;
+      await this.connectOne(server.entry);
+    }
+    if (retried) this.notifyToolsChanged();
+  }
+
+  /** Watch the catalog's directory, reloading (debounced) on change. */
+  private startWatching(): void {
+    if (!this.config.mcpEnabled) return;
+    const catalogPath = resolveCatalogPath(this.config.mcpServersPath);
+    const dir = dirname(catalogPath);
+    const file = basename(catalogPath);
+    try {
+      this.watcher = watch(dir, (_event, changed) => {
+        // Some platforms report null/partial names; only filter when
+        // a name is known and clearly a different file.
+        if (changed && changed.toString() !== file) return;
+        this.scheduleReload();
+      });
+      this.watcher.on('error', (err) => {
+        this.logger.warn(
+          `MCP catalog watch error: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+      });
+    } catch (err) {
+      // Directory may not exist yet; explicit reload still works.
+      this.logger.warn(
+        `MCP catalog not watched (${
+          err instanceof Error ? err.message : 'unknown'
+        }); use POST /core/mcp/reload`,
+      );
+    }
+  }
+
+  private scheduleReload(): void {
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    this.watchTimer = setTimeout(() => {
+      this.watchTimer = null;
+      void this.reloadTolerant();
+    }, CATALOG_WATCH_DEBOUNCE_MS);
+    this.watchTimer.unref?.();
+  }
+
+  /** Reload from the watcher; a failure is logged, never thrown. */
+  private async reloadTolerant(): Promise<void> {
+    try {
+      const report = await this.reload();
+      this.logger.log(
+        `MCP catalog reloaded: ${report.servers
+          .map((s) => `${s.name}=${s.state}`)
+          .join(', ')}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `MCP catalog reload failed: ${
+          err instanceof Error ? err.message : 'unknown'
+        }`,
+      );
     }
   }
 
@@ -126,10 +315,10 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Subscribe to tool-set changes (boot init, reconnect, future
-   * reload). Listeners are sync snapshot rebuilds — never socket
-   * work — and never break the subject (throws are logged and
-   * swallowed). Returns an unsubscribe.
+   * Subscribe to tool-set changes (boot init, reconnect, reload).
+   * Listeners are sync snapshot rebuilds — never socket work — and
+   * never break the subject (throws are logged and swallowed).
+   * Returns an unsubscribe.
    */
   onToolsChanged(listener: () => void): () => void {
     this.toolListeners.add(listener);

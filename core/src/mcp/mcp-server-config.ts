@@ -227,6 +227,19 @@ export function defaultCatalogPath(): string {
   return join(homedir(), '.icos', 'mcp-servers.json');
 }
 
+/**
+ * Resolve the configured catalog path to an absolute path (expanding
+ * a leading `~/`). Empty/unset falls back to the default location.
+ * Used by the watcher, which needs the path even before the file
+ * exists.
+ */
+export function resolveCatalogPath(rawPath: string | undefined): string {
+  const path = (rawPath ?? '').trim() || defaultCatalogPath();
+  return path.startsWith('~/')
+    ? join(homedir(), path.slice(2))
+    : resolve(process.cwd(), path);
+}
+
 export interface LoadedCatalog extends McpCatalog {
   /** Resolved file path (empty when the file is absent). */
   path: string;
@@ -239,10 +252,7 @@ export interface LoadedCatalog extends McpCatalog {
  * never a boot failure).
  */
 export function loadCatalogFile(rawPath: string | undefined): LoadedCatalog {
-  const path = (rawPath ?? '').trim() || defaultCatalogPath();
-  const resolved = path.startsWith('~/')
-    ? join(homedir(), path.slice(2))
-    : resolve(process.cwd(), path);
+  const resolved = resolveCatalogPath(rawPath);
   if (!existsSync(resolved)) return { entries: [], errors: [], path: '' };
   let parsed: unknown;
   try {

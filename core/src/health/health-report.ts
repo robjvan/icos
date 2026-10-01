@@ -15,6 +15,28 @@ export interface LlmHealthCheck extends HealthCheck {
   model: string;
 }
 
+/** Per-server MCP state as surfaced by health (never secrets). */
+export interface McpServerHealth {
+  name: string;
+  transport: string;
+  state: string;
+  reason?: string;
+  toolCount: number;
+}
+
+/** MCP roll-up in the health surface (M13d). */
+export interface McpHealth {
+  status: HealthCheckStatus;
+  detail: string;
+  enabled: boolean;
+  servers: McpServerHealth[];
+}
+
+/** What health needs from the MCP manager (structural, no coupling). */
+export interface McpHealthSource {
+  statusAll(): readonly McpServerHealth[];
+}
+
 /**
  * Pollable health payload. Same shape as the `/health` slash-command
  * `data` — one model serves both the conversation API and `GET /core/health`.
@@ -27,6 +49,8 @@ export interface HealthReport {
     memory: HealthCheck;
     llm: LlmHealthCheck;
   };
+  /** Present only when the MCP manager is wired into the health surface. */
+  mcp?: McpHealth;
   host: HostHealth;
 }
 
@@ -35,6 +59,8 @@ export interface HealthReportDeps {
   candidates: MemoryCandidateRepository;
   config: CoreConfig;
   host: HostHealthProvider;
+  /** Optional: absent for callers without the MCP manager (slash command). */
+  mcp?: McpHealthSource;
 }
 
 /**
@@ -103,6 +129,58 @@ export async function buildHealthReport(
       memory,
       llm,
     },
+    ...(deps.mcp
+      ? { mcp: buildMcpHealth(config.mcpEnabled, deps.mcp.statusAll()) }
+      : {}),
     host: hostHealth,
+  };
+}
+
+/**
+ * MCP roll-up (M13d): per-server state plus a summary. Disabled or
+ * unconfigured reads `unknown` (never claim what was not checked); a
+ * failed server is `degraded` for the section. Deliberately does NOT
+ * drag the overall report status down — MCP is an additive subsystem,
+ * and a missing optional server must not read as a broken platform.
+ */
+function buildMcpHealth(
+  enabled: boolean,
+  servers: readonly McpServerHealth[],
+): McpHealth {
+  const rows = servers.map((server) => ({ ...server }));
+  if (!enabled) {
+    return {
+      status: 'unknown',
+      detail: 'MCP disabled (MCP_ENABLED=false)',
+      enabled: false,
+      servers: rows,
+    };
+  }
+  if (rows.length === 0) {
+    return {
+      status: 'unknown',
+      detail: 'no MCP servers configured',
+      enabled: true,
+      servers: rows,
+    };
+  }
+  const failed = rows.filter((server) => server.state === 'failed');
+  const connected = rows.filter((server) => server.state === 'connected');
+  const disabled = rows.filter((server) => server.state === 'disabled');
+  if (failed.length > 0) {
+    return {
+      status: 'degraded',
+      detail: `${failed.length} of ${rows.length} MCP servers failed: ${failed
+        .map((server) => `${server.name} (${server.reason ?? 'unknown'})`)
+        .join(', ')}`,
+      enabled: true,
+      servers: rows,
+    };
+  }
+  return {
+    status: 'healthy',
+    detail: `${connected.length} connected, ${disabled.length} disabled`,
+    enabled: true,
+    servers: rows,
   };
 }

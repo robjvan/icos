@@ -217,4 +217,36 @@ describe('loadConfig', () => {
       loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'maybe' }),
     ).toThrow(/Expected a boolean/);
   });
+
+  it('parses MCP switches, timeout, and reconnect backoff', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults).toMatchObject({
+      mcpEnabled: false,
+      mcpServersPath: '',
+      mcpTimeoutMs: 30000,
+      mcpReconnectBackoffMs: 10000,
+    });
+
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      MCP_ENABLED: 'true',
+      MCP_SERVERS_PATH: '/etc/icos/mcp.json',
+      MCP_TIMEOUT_MS: '5000',
+      MCP_RECONNECT_BACKOFF_MS: '0',
+    });
+    expect(configured).toMatchObject({
+      mcpEnabled: true,
+      mcpServersPath: '/etc/icos/mcp.json',
+      mcpTimeoutMs: 5000,
+      // 0 is a valid opt-out (auto-retry off), not an error.
+      mcpReconnectBackoffMs: 0,
+    });
+
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', MCP_RECONNECT_BACKOFF_MS: '-1' }),
+    ).toThrow(/MCP_RECONNECT_BACKOFF_MS/);
+    expect(() => loadConfig({ LLM_MODEL: 'm', MCP_TIMEOUT_MS: '0' })).toThrow(
+      /MCP_TIMEOUT_MS/,
+    );
+  });
 });

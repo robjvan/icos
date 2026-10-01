@@ -43,6 +43,7 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     mcpEnabled: false,
     mcpServersPath: '',
     mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,

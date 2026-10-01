@@ -31,6 +31,7 @@ import { ProspectiveItemRepository } from '../memory/prospective-item.repository
 import { MaintenanceService } from '../memory/maintenance.service';
 import { McpClientFactory } from '../mcp/mcp-client';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { McpController } from '../mcp/mcp.controller';
 import { McpToolBridge } from '../mcp/mcp-tool-bridge.service';
 import { SdkMcpClientFactory } from '../mcp/sdk-mcp-client';
 import { FOREIGN_TOOL_SOURCE } from '../tools/tool-registry';
@@ -117,6 +118,7 @@ const toolExecutionServiceProvider = {
     ClarificationsController,
     SkillsController,
     HealthController,
+    McpController,
   ],
   providers: [
     coreConfigProvider,

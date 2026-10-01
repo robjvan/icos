@@ -35,6 +35,7 @@ function makeStore(maxHistory = 50): {
     mcpEnabled: false,
     mcpServersPath: '',
     mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,

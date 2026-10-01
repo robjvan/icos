@@ -37,6 +37,7 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     mcpEnabled: true,
     mcpServersPath: '',
     mcpTimeoutMs: 1000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
