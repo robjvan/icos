@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  buildChildEnv,
   defaultCatalogPath,
   loadCatalogFile,
   parseCatalog,
@@ -169,6 +170,42 @@ describe('resolveServerEnv', () => {
       expect((err as Error).message).toContain('MISSING_VAR_XYZ');
       expect((err as Error).message).not.toContain('s3cret');
     }
+  });
+});
+
+describe('buildChildEnv', () => {
+  it('passes a small baseline allowlist and nothing else', () => {
+    const env = buildChildEnv(undefined, 'srv', {
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      LLM_API_KEY: 'must-not-leak',
+      SOME_OTHER_SECRET: 'nope',
+      AWS_SECRET_ACCESS_KEY: 'nada',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u' });
+  });
+
+  it('adds only the variables the catalog references', () => {
+    const env = buildChildEnv({ API_KEY: '$BYTESTASH_AUTH' }, 'srv', {
+      PATH: '/bin',
+      BYTESTASH_AUTH: 'Bearer tok',
+      LLM_API_KEY: 'must-not-leak',
+    });
+    expect(env).toEqual({ PATH: '/bin', API_KEY: 'Bearer tok' });
+    expect(env).not.toHaveProperty('LLM_API_KEY');
+    expect(JSON.stringify(env)).not.toContain('must-not-leak');
+  });
+
+  it('lets a referenced var override the baseline and fails closed on missing', () => {
+    const env = buildChildEnv({ PATH: '$CUSTOM_PATH' }, 'srv', {
+      PATH: '/bin',
+      CUSTOM_PATH: '/opt/bin',
+    });
+    expect(env['PATH']).toBe('/opt/bin');
+
+    expect(() =>
+      buildChildEnv({ KEY: '$NOPE_MISSING' }, 'srv', { PATH: '/bin' }),
+    ).toThrow('NOPE_MISSING');
   });
 });
 

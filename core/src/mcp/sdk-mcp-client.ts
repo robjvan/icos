@@ -11,7 +11,7 @@ import type {
   McpResourceRead,
   McpTool,
 } from './mcp-client';
-import { resolveServerEnv } from './mcp-server-config';
+import { buildChildEnv, resolveServerEnv } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
 
 interface ToolContent {
@@ -152,12 +152,13 @@ export class SdkMcpClient extends McpClient {
 
   protected buildTransport(): Transport {
     if (this.entry.transport === 'stdio') {
-      // Secrets resolve here, at spawn — the catalog carries
-      // references, the process carries values. Missing vars throw
-      // before spawning (fail closed, names only, never values).
-      let extra: Record<string, string>;
+      // The child env is a baseline allowlist plus only the vars this
+      // server's catalog entry references (resolved at spawn). The
+      // core process's other secrets never reach untrusted server
+      // code. Missing referenced vars throw before spawning.
+      let env: Record<string, string>;
       try {
-        extra = resolveServerEnv(this.entry.env, this.entry.name);
+        env = buildChildEnv(this.entry.env, this.entry.name);
       } catch (err) {
         throw new McpError(
           err instanceof Error ? err.message : 'invalid server env',
@@ -167,7 +168,7 @@ export class SdkMcpClient extends McpClient {
       return new StdioClientTransport({
         command: this.entry.command ?? '',
         args: this.entry.args ?? [],
-        env: { ...process.env, ...extra } as Record<string, string>,
+        env,
         stderr: 'ignore',
       });
     }

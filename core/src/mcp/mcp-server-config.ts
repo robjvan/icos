@@ -83,7 +83,7 @@ export function parseEnvReference(value: string): { name: string } | null {
 }
 
 /**
- * Resolve a validated `env` map against the process environment
+ * Resolve a validated `env` map against a process environment
  * (at spawn time, never earlier — the operator may rotate vars
  * between boot and reconnect). Missing or empty vars throw naming
  * only the variable, never any value. There is no fallback and
@@ -93,6 +93,7 @@ export function parseEnvReference(value: string): { name: string } | null {
 export function resolveServerEnv(
   env: Record<string, string> | undefined,
   serverName: string,
+  source: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const resolved: Record<string, string> = {};
   for (const [key, reference] of Object.entries(env ?? {})) {
@@ -102,7 +103,7 @@ export function resolveServerEnv(
         `MCP server "${serverName}": env "${key}" is not a $VAR reference`,
       );
     }
-    const value = process.env[parsed.name];
+    const value = source[parsed.name];
     if (!value) {
       throw new Error(
         `MCP server "${serverName}": env "${key}" needs $${parsed.name} in the process environment`,
@@ -111,6 +112,64 @@ export function resolveServerEnv(
     resolved[key] = value;
   }
   return resolved;
+}
+
+/**
+ * Environment inherited by every spawned stdio server. Deliberately
+ * a small allowlist: a third-party MCP server is untrusted code, and
+ * handing it the core process's full environment would leak every
+ * secret the operator has set (LLM keys, tokens) to it. Servers that
+ * need more must declare each variable in the catalog (`env`),
+ * which resolves it explicitly. Nothing else crosses.
+ */
+export const CHILD_ENV_ALLOWLIST: readonly string[] = [
+  // Process basics a server needs to run at all.
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TERM',
+  'TMPDIR',
+  // Locale/time.
+  'LANG',
+  'LANGUAGE',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  // TLS trust stores (corporate/self-signed setups).
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  // Proxied networks.
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  // npx/node package cache locations (not credentials).
+  'npm_config_cache',
+  'npm_config_prefix',
+];
+
+/**
+ * Build the spawn environment for one stdio server: the baseline
+ * allowlist (present vars only) plus the catalog's explicitly
+ * referenced variables. Everything else in the core process env is
+ * withheld, so a server can only ever see what it was granted.
+ */
+export function buildChildEnv(
+  env: Record<string, string> | undefined,
+  serverName: string,
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const child: Record<string, string> = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    const value = source[key];
+    if (typeof value === 'string' && value !== '') child[key] = value;
+  }
+  return { ...child, ...resolveServerEnv(env, serverName, source) };
 }
 
 function validateOne(
