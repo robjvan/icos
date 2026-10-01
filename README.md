@@ -99,7 +99,8 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M13 are complete.**
+**M1–M13 are complete, and the security-hardening milestone (S1–S6) is
+complete.**
 
 The current system provides:
 

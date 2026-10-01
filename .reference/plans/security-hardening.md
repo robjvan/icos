@@ -135,18 +135,20 @@ Evidence: `.reference/plans/evidence/security-s5-evidence-frontend.md`.
 - [x] Login/logout, session expiry handling, admin-only sections.
 - [x] Clear "you are exposing this instance" warnings for non-loopback.
 
-### [ ] S6 — Verification
+### [x] S6 — Verification (complete 2026-10-01)
 
-- [ ] Unit + e2e for guards (deny-by-default, role split), vault
+Evidence: `.reference/plans/evidence/security-s6-evidence-verification.md`.
+
+- [x] Unit + e2e for guards (deny-by-default, role split), vault
       (round-trip, AAD binding, tamper detection, missing-key fail
       closed), reference resolution + integrity.
-- [ ] Live: TLS-terminated deployment, login, add a provider + an MCP
+- [x] Live: TLS-terminated deployment, login, add a provider + an MCP
       server from the UI, secret never retrievable, rotate a key,
       restart and confirm persistence.
-- [ ] Adversarial checks: request a secret over every read path;
+- [x] Adversarial checks: request a secret over every read path;
       confirm absence in logs/health/ledger; confirm unauthenticated
       mutation is rejected; confirm spawned-server env still scoped.
-- [ ] Secret-at-rest inspection: vault file is ciphertext; no plaintext
+- [x] Secret-at-rest inspection: vault file is ciphertext; no plaintext
       on disk.
 
 ## Explicitly out of scope
