@@ -106,7 +106,8 @@ least-effort safe option for personal access.
 
 - Secrets can live in **process environment variables** *or* the
   **encrypted vault**; catalogs hold only references (`$VAR` for the
-  environment, `secret:NAME` for the vault), never values.
+  environment, `secret:NAME` for the vault), never values. This applies
+  to MCP `env`/`headers` and to LLM provider `apiKeyRef`/`headers`.
 - The vault (`VAULT_PATH`, default `<AUTH_DIR_PATH>/secrets.vault`) is
   AES-256-GCM encrypted at rest, `0600`, one nonce per secret with the
   secret name bound in. Values are decrypted in memory on demand.
