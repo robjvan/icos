@@ -7,6 +7,9 @@ import { MemoryCandidateRepository } from './memory-candidate.repository';
 import { reliabilityFactor } from './maintenance';
 import type { RecallHit, RecallSurfaceName } from './recall.service';
 import { SourceReliabilityRepository } from './source-reliability.repository';
+
+/** M12d activation re-score weight (multiplicative lift, never a gate). */
+export const ACTIVATION_RANK_WEIGHT = 0.2;
 import {
   CONTRADICTED_DEMOTE,
   DEFAULT_FAMILIAR_LIMIT,
@@ -149,6 +152,16 @@ export class RankService {
       if (reliability !== null && reliability < 1) {
         fused *= reliability;
         reasons.push(`source reliability ${reliability.toFixed(2)}`);
+      }
+      // M12d activation re-scores, never decides: salience bends
+      // order among gated rows but admits nothing (gates run on
+      // confidence regardless) and creates no hits.
+      if (claim.activation !== null && claim.activation > 0) {
+        const lift = 1 + ACTIVATION_RANK_WEIGHT * claim.activation;
+        fused *= lift;
+        reasons.push(
+          `activation ${claim.activation.toFixed(2)} x${lift.toFixed(2)}`,
+        );
       }
       rows.push({
         claim,

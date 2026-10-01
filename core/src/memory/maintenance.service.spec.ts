@@ -7,6 +7,11 @@ import type { Claim } from './claim';
 import type { NewClaim } from './claim';
 import { compoundConfidence, MaintenanceService } from './maintenance.service';
 import {
+  activationBoost,
+  activationDecayStep,
+  spreadShare,
+} from './maintenance';
+import {
   decayStep,
   pickRevisionWinner,
   retireEligibility,
@@ -14,10 +19,12 @@ import {
 } from './maintenance.service';
 import { MemoryDatabaseService } from './memory-database.service';
 import { PromotionJournalRepository } from './promotion-journal.repository';
+import { RecallTraceStore } from './recall-trace.store';
 import { SqliteClaimHistoryRepository } from './sqlite-claim-history.repository';
 import { SqliteClaimRepository } from './sqlite-claim.repository';
 import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repository';
 import { SqlitePromotionJournalRepository } from './sqlite-promotion-journal.repository';
+import { SqliteProspectiveItemRepository } from './sqlite-prospective-item.repository';
 import { SqliteSourceReliabilityRepository } from './sqlite-source-reliability.repository';
 
 function testConfig(
@@ -121,6 +128,8 @@ describe('MaintenanceService', () => {
     const journal = new SqlitePromotionJournalRepository(service);
     const candidates = new SqliteMemoryCandidateRepository(service);
     const reliability = new SqliteSourceReliabilityRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
+    const traces = new RecallTraceStore();
     const maintenance = new MaintenanceService(
       config,
       claims,
@@ -128,6 +137,8 @@ describe('MaintenanceService', () => {
       journal,
       candidates,
       reliability,
+      prospective,
+      traces,
     );
     return {
       maintenance,
@@ -136,6 +147,9 @@ describe('MaintenanceService', () => {
       journal,
       candidates,
       reliability,
+      prospective,
+      traces,
+      db: service,
       config,
     };
   };
@@ -327,6 +341,8 @@ describe('MaintenanceService', () => {
       failingJournal,
       s.candidates,
       s.reliability,
+      new SqliteProspectiveItemRepository(s.db),
+      new RecallTraceStore(),
     );
 
     // First claim compounds (before the journal is ever touched);
@@ -348,6 +364,8 @@ describe('MaintenanceService', () => {
         revised: 0,
         locked: 0,
         classified: 0,
+        activated: 0,
+        suppressed: 0,
         gistProposed: 0,
         skipped: 0,
         failed: 0,
@@ -368,6 +386,8 @@ describe('MaintenanceService', () => {
         revised: 0,
         locked: 0,
         classified: 0,
+        activated: 0,
+        suppressed: 0,
         gistProposed: 0,
         skipped: 0,
         failed: 0,
@@ -516,6 +536,8 @@ describe('MaintenanceService decay and retirement', () => {
     const journal = new SqlitePromotionJournalRepository(service);
     const candidates = new SqliteMemoryCandidateRepository(service);
     const reliability = new SqliteSourceReliabilityRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
+    const traces = new RecallTraceStore();
     const maintenance = new MaintenanceService(
       config,
       claims,
@@ -523,8 +545,10 @@ describe('MaintenanceService decay and retirement', () => {
       journal,
       candidates,
       reliability,
+      prospective,
+      traces,
     );
-    return { maintenance, claims, history };
+    return { maintenance, claims, history, db: service };
   };
 
   beforeEach(() => {
@@ -717,6 +741,8 @@ describe('MaintenanceService revision, lock, and classification', () => {
     const journal = new SqlitePromotionJournalRepository(service);
     const candidates = new SqliteMemoryCandidateRepository(service);
     const reliability = new SqliteSourceReliabilityRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
+    const traces = new RecallTraceStore();
     const maintenance = new MaintenanceService(
       config,
       claims,
@@ -724,6 +750,8 @@ describe('MaintenanceService revision, lock, and classification', () => {
       journal,
       candidates,
       reliability,
+      prospective,
+      traces,
     );
     return {
       maintenance,
@@ -905,5 +933,211 @@ describe('MaintenanceService revision, lock, and classification', () => {
       dampened: true,
       factor: 0.5,
     });
+  });
+});
+
+describe('activation math', () => {
+  it('boosts, decays, and fan-caps shares in closed bounds', () => {
+    expect(activationBoost(null)).toBe(0.3);
+    expect(activationBoost(0.8)).toBe(1);
+    expect(activationDecayStep(0.04)).toBe(0);
+    expect(activationDecayStep(0.5)).toBeCloseTo(0.45, 6);
+    expect(spreadShare(0)).toBe(0.3);
+    expect(spreadShare(2)).toBeCloseTo(0.15, 6);
+    expect(spreadShare(99)).toBeCloseTo(0.06, 6);
+  });
+});
+
+describe('MaintenanceService activation', () => {
+  let dir = '';
+  const services: DatabaseService[] = [];
+
+  const setupActive = (overrides: Partial<CoreConfig> = {}) => {
+    const config = testConfig(join(dir, 'active.sqlite'), dir, overrides);
+    const service = new MemoryDatabaseService(config);
+    service.onModuleInit();
+    services.push(service);
+    const claims = new SqliteClaimRepository(service);
+    const history = new SqliteClaimHistoryRepository(service);
+    const journal = new SqlitePromotionJournalRepository(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const reliability = new SqliteSourceReliabilityRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
+    const traces = new RecallTraceStore();
+    const maintenance = new MaintenanceService(
+      config,
+      claims,
+      history,
+      journal,
+      candidates,
+      reliability,
+      prospective,
+      traces,
+    );
+    return {
+      maintenance,
+      claims,
+      history,
+      prospective,
+      traces,
+      config,
+    };
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-active-'));
+    counter = 0;
+  });
+
+  afterEach(() => {
+    for (const service of services.splice(0)) {
+      service.onModuleDestroy();
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('boosts accessed claims and spreads fan-capped shares', async () => {
+    const s = setupActive();
+    const hub = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript'),
+    );
+    // Distinct predicates: no gist family, no revision pair — the
+    // test isolates activation, not conflict.
+    const n1 = await s.claims.createClaim(claim('user', 'likes', 'tea'));
+    const n2 = await s.claims.createClaim(claim('user', 'uses', 'vim'));
+    // Related fan: hub touches both neighbors.
+    await s.claims.addRelated(hub.id, [n1.id, n2.id]);
+    await s.claims.recordAccessed([hub.id]);
+
+    expect(await s.maintenance.runPass()).toMatchObject({ activated: 1 });
+    expect((await s.claims.getClaim(hub.id))?.activation).toBeCloseTo(0.3, 6);
+    // 0.3 / 2 neighbors each.
+    expect((await s.claims.getClaim(n1.id))?.activation).toBeCloseTo(0.15, 6);
+    expect((await s.claims.getClaim(n2.id))?.activation).toBeCloseTo(0.15, 6);
+    const rows = await s.history.listByClaimId(hub.id);
+    expect(rows.map((row) => row.transition)).toContain('activate');
+  });
+
+  it('leaves untouched null activation alone (no rows, no history)', async () => {
+    const s = setupActive();
+    const saved = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript'),
+    );
+
+    // Classification still fires (metadata rung); activation is
+    // untouched: null stays null with no activate row.
+    expect(await s.maintenance.runPass()).toMatchObject({
+      activated: 0,
+      classified: 1,
+    });
+    expect((await s.claims.getClaim(saved.id))?.activation).toBeNull();
+    expect(
+      (await s.history.listByClaimId(saved.id)).map((row) => row.transition),
+    ).toEqual(['classify']);
+  });
+
+  it('decays stale activation once per interval window', async () => {
+    const s = setupActive();
+    const saved = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript'),
+    );
+    await s.claims.recordAccessed([saved.id]);
+    await s.maintenance.runPass();
+    expect((await s.claims.getClaim(saved.id))?.activation).toBeCloseTo(0.3, 6);
+
+    // Immediate re-pass: interval gate holds (no ratchet, no spam).
+    // Classification fires instead (first stamp wins) — activation
+    // itself is untouched.
+    expect(await s.maintenance.runPass()).toMatchObject({
+      activated: 0,
+      classified: 1,
+    });
+    expect((await s.claims.getClaim(saved.id))?.activation).toBeCloseTo(0.3, 6);
+  });
+
+  it('parks loud-but-wrong divergence for review, once per pair', async () => {
+    const s = setupActive();
+    const loud = await s.claims.createClaim(
+      claim('user', 'prefers', 'phlogiston', { confidence: 0.3 }),
+    );
+    // Each access must be unanswered: access, pass ×3.
+    // (Boosts 0.3 → 0.6 → 0.9; the third crosses the divergence bar.)
+    // Sleeps separate the access timestamps: same-millisecond
+    // touches are one touch (production turns take seconds; tests
+    // do not).
+    for (let i = 0; i < 3; i++) {
+      await s.claims.recordAccessed([loud.id]);
+      await s.maintenance.runPass();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect((await s.claims.getClaim(loud.id))?.activation).toBeCloseTo(0.9, 6);
+    const items = await s.prospective.listItems({ status: 'open' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      trigger: 'confidence_drop',
+      status: 'open',
+    });
+
+    // Next pass with no new access: interval gate holds, and no
+    // duplicate question parks.
+    const summary = await s.maintenance.runPass();
+    expect(summary.activated).toBe(0);
+    expect((await s.prospective.listItems({ status: 'open' })).length).toBe(1);
+  });
+
+  it('suppresses familiar competitors from stored traces, once per trace', async () => {
+    const s = setupActive();
+    const target = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript'),
+    );
+    // Distinct predicate: a near-miss, not a revision pair.
+    const rival = await s.claims.createClaim(claim('user', 'likes', 'tea'));
+    await s.claims.setActivation(rival.id, 0.5);
+    s.traces.save({
+      sessionId: 's1',
+      query: { text: 'language?', tokens: ['language'] },
+      surfaces: {},
+      ranked: [
+        {
+          claimId: target.id,
+          disposition: 'recalled',
+          demoted: false,
+          fusedScore: 0.9,
+          surfaces: ['lexical'],
+          reasons: [],
+        },
+        {
+          claimId: rival.id,
+          disposition: 'familiar',
+          demoted: false,
+          fusedScore: 0.2,
+          surfaces: ['lexical'],
+          reasons: [],
+        },
+      ],
+      notes: [],
+      proposedQuestions: [],
+      lens: { exclude: [] },
+      gate: 0.3,
+      bands: { memory: true, kb: false },
+      kbAvailable: false,
+      degraded: [],
+    });
+
+    // Rival also activates this pass (fresh access below) — order:
+    // suppression prologue runs before the ladder touches it.
+    await s.claims.recordAccessed([rival.id]);
+    const summary = await s.maintenance.runPass();
+    expect(summary.suppressed).toBe(1);
+    // 0.5 suppressed, then the ladder boosts the fresh access.
+    const rivalNow = await s.claims.getClaim(rival.id);
+    expect(rivalNow?.activation ?? 0).toBeGreaterThan(0.4);
+    expect(
+      (await s.history.listByClaimId(rival.id)).map((row) => row.transition),
+    ).toContain('suppress');
+
+    // Second pass: same trace, already suppressed — silent.
+    expect(await s.maintenance.runPass()).toMatchObject({ suppressed: 0 });
   });
 });

@@ -466,7 +466,8 @@ CREATE TABLE IF NOT EXISTS claim_history (
     transition TEXT NOT NULL
         CHECK (transition IN (
             'compound', 'decay', 'revise', 'retire', 'link',
-            'gist_proposed', 'classify', 'lock', 'unlock', 'suppress'
+            'gist_proposed', 'classify', 'lock', 'unlock', 'suppress',
+            'activate'
         )),
     detail_json TEXT NOT NULL DEFAULT '{}',
     confidence_before REAL,
@@ -774,7 +775,11 @@ function migrateClaimHistoryTransitions(db: Database.Database): void {
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'claim_history'`,
     )
     .get() as { sql: string } | undefined;
-  if (!table || table.sql.includes(`'classify'`)) return;
+  if (
+    !table ||
+    (table.sql.includes(`'classify'`) && table.sql.includes(`'activate'`))
+  )
+    return;
   db.transaction(() => {
     db.exec(`ALTER TABLE claim_history RENAME TO claim_history_legacy;`);
     db.exec(`
@@ -784,7 +789,8 @@ function migrateClaimHistoryTransitions(db: Database.Database): void {
           transition TEXT NOT NULL
               CHECK (transition IN (
                   'compound', 'decay', 'revise', 'retire', 'link',
-                  'gist_proposed', 'classify', 'lock', 'unlock', 'suppress'
+                  'gist_proposed', 'classify', 'lock', 'unlock', 'suppress',
+                  'activate'
               )),
           detail_json TEXT NOT NULL DEFAULT '{}',
           confidence_before REAL,

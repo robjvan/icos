@@ -13,6 +13,8 @@ import { ClaimRepository } from './claim.repository';
 import { normalizeTripleField } from './claim-identity';
 import {
   ACCESS_SHIELD_DAYS,
+  ACTIVATION_FAN_CAP,
+  ACTIVATION_MIN_INTERVAL_MS,
   COMPOUND_BOOST,
   COMPOUND_CEILING,
   COMPOUND_LEVEL_CAP,
@@ -21,6 +23,8 @@ import {
   DECAY_GRACE_DAYS,
   DECAY_HALF_LIFE_DAYS,
   DECAY_HALF_LIFE_MULTIPLIER,
+  DIVERGENCE_ACTIVATION_MIN,
+  DIVERGENCE_CONFIDENCE_MAX,
   EMPTY_PASS,
   GIST_FAMILY_SIZE,
   LOCK_CONFIDENCE_MIN,
@@ -28,10 +32,20 @@ import {
   MAINTENANCE_PASS_LIMIT,
   RETIRE_AFTER_DAYS,
   RETIRE_CONFIDENCE_MAX,
+  SUPPRESS_STEP,
+  activationBoost,
+  activationDecayStep,
+  spreadShare,
 } from './maintenance';
 import type { MaintenanceOutcome, PassSummary } from './maintenance';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
 import { PromotionJournalRepository } from './promotion-journal.repository';
+import { ProspectiveItemRepository } from './prospective-item.repository';
+import {
+  prospectiveOptionFromClaim,
+  suggestProspectiveQuestion,
+} from './prospective-item';
+import { RecallTraceStore } from './recall-trace.store';
 import { SourceReliabilityRepository } from './source-reliability.repository';
 
 /** Thrown when a record fails the retirement eligibility rule. */
@@ -201,6 +215,8 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     private readonly journal: PromotionJournalRepository,
     private readonly candidates: MemoryCandidateRepository,
     private readonly reliability: SourceReliabilityRepository,
+    private readonly prospective: ProspectiveItemRepository,
+    private readonly traces: RecallTraceStore,
   ) {}
 
   onModuleInit(): void {
@@ -230,6 +246,7 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
   async runPass(nowMs: number = Date.now()): Promise<PassSummary> {
     const started = Date.now();
     const summary: PassSummary = { ...EMPTY_PASS };
+    summary.suppressed = await this.suppressFromTraces();
     const claims = await this.claims.listClaims({
       limit: MAINTENANCE_PASS_LIMIT,
     });
@@ -253,6 +270,44 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     }
     summary.durationMs = Date.now() - started;
     return summary;
+  }
+
+  /**
+   * Retrieval-shaped suppression (M12d, gentle default): near-miss
+   * competitors from stored recall traces lose activation, not
+   * confidence — recalling sharpens the target without punishing
+   * neighbors' truth. Trace-driven (no M11 path changes): every
+   * familiar-ranked claim in every stored trace is suppressed once
+   * per trace — a newer `suppress` row than the trace means done.
+   * Returns the suppressed count for the summary.
+   */
+  private async suppressFromTraces(): Promise<number> {
+    let suppressed = 0;
+    for (const trace of this.traces.listAll()) {
+      for (const row of trace.ranked) {
+        if (row.disposition !== 'familiar') continue;
+        const claim = await this.claims.getClaim(row.claimId);
+        if (!claim || claim.activation === null) continue;
+        const latest = await this.history.latestByClaimAndTransition(
+          claim.id,
+          'suppress',
+        );
+        if (latest && latest.createdAt >= trace.at) continue;
+        const next = Math.max(0, claim.activation - SUPPRESS_STEP);
+        if (next >= claim.activation) continue;
+        const updated = await this.claims.setActivation(claim.id, next);
+        if (!updated) continue;
+        await this.history.record({
+          claimId: claim.id,
+          transition: 'suppress',
+          detail: { traceAt: trace.at },
+          confidenceBefore: null,
+          confidenceAfter: null,
+        });
+        suppressed += 1;
+      }
+    }
+    return suppressed;
   }
 
   /**
@@ -292,9 +347,10 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
    * Exactly one transition per record per pass, fixed priority:
    * compound corroboration, decay neglect, link counterparts,
    * propose gist families, resolve standing rival pairs, lock or
-   * unlock certainty, stamp source type. Rungs append at the end —
-   * detection (gist) precedes resolution (revise), and metadata
-   * (classify) never outranks substance.
+   * unlock certainty, touch activation, stamp source type. Rungs
+   * append at the end — detection (gist) precedes resolution
+   * (revise), salience (activate) precedes metadata (classify),
+   * and nothing outranks substance.
    */
   private async maintainOne(
     claim: Claim,
@@ -307,6 +363,7 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     if (await this.proposeGist(claim, families)) return 'gist_proposed';
     if (await this.revise(claim)) return 'revised';
     if (await this.maintainLock(claim)) return 'locked';
+    if (await this.activate(claim, nowMs)) return 'activated';
     if (await this.classify(claim)) return 'classified';
     return 'skipped';
   }
@@ -596,6 +653,145 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
+  /**
+   * Activation touch (M12d): salience orthogonal to truth. A claim
+   * retrieved since its last touch is boosted and spreads a
+   * fan-capped share along `related[]` links (insertion-ordered
+   * first N); an untouched claim with set activation decays one
+   * step per interval window. Null stays null until first touch —
+   * salience exists only for lived claims. Every write gets its
+   * `activate` history row. Afterwards the divergence check may
+   * park a review item (no claim write — the item is the audit).
+   */
+  private async activate(claim: Claim, nowMs: number): Promise<boolean> {
+    const latest = await this.history.latestByClaimAndTransition(
+      claim.id,
+      'activate',
+    );
+    // Freshness compares access identity, not clocks: the last
+    // self-boost records the access string it answered, so a repeat
+    // pass with no new access converges at any timestamp
+    // resolution (millisecond collisions can't ratchet).
+    const touched =
+      claim.lastAccessedAt !== null &&
+      claim.lastAccessedAt !== (await this.lastBoostAccess(claim.id));
+    let changed = false;
+    if (touched && claim.lastAccessedAt !== null) {
+      changed =
+        (await this.applyActivation(claim, activationBoost(claim.activation), {
+          spread: true,
+          accessedAt: claim.lastAccessedAt,
+        })) || changed;
+    } else if (
+      claim.activation !== null &&
+      (latest === null ||
+        nowMs - Date.parse(latest.createdAt) >= ACTIVATION_MIN_INTERVAL_MS)
+    ) {
+      const next = activationDecayStep(claim.activation);
+      if (next < claim.activation) {
+        changed =
+          (await this.applyActivation(claim, next, { spread: false })) ||
+          changed;
+      }
+    }
+    if (!changed) return false;
+    await this.checkDivergence(claim.id);
+    return true;
+  }
+
+  /** Access string of the latest self-boost, if any. */
+  private async lastBoostAccess(claimId: string): Promise<string | null> {
+    const rows = await this.history.listByClaimId(claimId);
+    let best: string | null = null;
+    for (const row of rows) {
+      if (row.transition !== 'activate') continue;
+      const at = row.detail['accessedAt'];
+      if (typeof at === 'string' && (best === null || at > best)) best = at;
+    }
+    return best;
+  }
+
+  private async applyActivation(
+    claim: Claim,
+    value: number,
+    options: { spread: boolean; accessedAt?: string },
+  ): Promise<boolean> {
+    const updated = await this.claims.setActivation(claim.id, value);
+    if (!updated) return false;
+    await this.history.record({
+      claimId: claim.id,
+      transition: 'activate',
+      detail: {
+        activation: value,
+        ...(options.accessedAt !== undefined
+          ? { accessedAt: options.accessedAt }
+          : {}),
+      },
+      confidenceBefore: null,
+      confidenceAfter: null,
+    });
+    if (options.spread) {
+      const neighbors = claim.related.slice(
+        0,
+        Math.min(claim.related.length, ACTIVATION_FAN_CAP),
+      );
+      const share = spreadShare(claim.related.length);
+      for (const neighborId of neighbors) {
+        const neighbor = await this.claims.getClaim(neighborId);
+        if (!neighbor) continue;
+        const boosted = Math.min(1, (neighbor.activation ?? 0) + share);
+        const written = await this.claims.setActivation(neighborId, boosted);
+        if (!written) continue;
+        await this.history.record({
+          claimId: neighborId,
+          transition: 'activate',
+          detail: { activation: boosted, spreadFrom: claim.id },
+          confidenceBefore: null,
+          confidenceAfter: null,
+        });
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Divergence review (M12d): persistently loud but wrong —
+   * activation at/above threshold against confidence at/below
+   * threshold on an active claim — parks a clarification question
+   * (trigger `confidence_drop`: the confidence did drop). Skips
+   * when a question is already parked for the pair. The
+   * self-correction mechanism dynamics builds toward.
+   */
+  private async checkDivergence(claimId: string): Promise<void> {
+    const claim = await this.claims.getClaim(claimId);
+    if (
+      !claim ||
+      claim.status !== 'active' ||
+      claim.activation === null ||
+      claim.activation < DIVERGENCE_ACTIVATION_MIN ||
+      claim.confidence > DIVERGENCE_CONFIDENCE_MAX
+    ) {
+      return;
+    }
+    const open = await this.prospective.findOpenBySubjectPredicate(
+      claim.subject,
+      claim.predicate,
+    );
+    if (open) return;
+    const option = prospectiveOptionFromClaim(claim);
+    await this.prospective.create({
+      subject: claim.subject,
+      predicate: claim.predicate,
+      options: [option],
+      contestCount: 1,
+      trigger: 'confidence_drop',
+      suggestedQuestion: suggestProspectiveQuestion(
+        claim.subject,
+        claim.predicate,
+        [option],
+      ),
+    });
+  }
   /**
    * Source classification (M12c): stamp the reserved `sourceType`
    * once by fixed rule — user testimony at high extractor

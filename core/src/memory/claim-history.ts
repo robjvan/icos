@@ -9,7 +9,8 @@ export type ClaimTransition =
   | 'classify'
   | 'lock'
   | 'unlock'
-  | 'suppress';
+  | 'suppress'
+  | 'activate';
 
 export const CLAIM_TRANSITIONS: readonly ClaimTransition[] = [
   'compound',
@@ -22,6 +23,7 @@ export const CLAIM_TRANSITIONS: readonly ClaimTransition[] = [
   'lock',
   'unlock',
   'suppress',
+  'activate',
 ];
 
 export interface NewClaimHistory {

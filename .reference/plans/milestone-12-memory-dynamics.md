@@ -139,7 +139,9 @@ reversibly:
 
 ---
 
-# [ ] M12d — Activation (Salience ≠ Truth)
+# [x] M12d — Activation (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12d-evidence-activation.md`. (Salience ≠ Truth)
 
 The v2 idea with no other home: a per-claim `activation` dimension,
 orthogonal to `confidence`, so the system can hold "I keep hearing

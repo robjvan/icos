@@ -394,4 +394,26 @@ describe('RankService', () => {
     });
     expect(ranked[0]?.reasons.join(' ')).not.toContain('reliability');
   });
+
+  it('re-scores salience without gating or admitting', async () => {
+    const loud = mkClaim({ object: 'loud', activation: 1 });
+    const quiet = mkClaim({ object: 'quiet', activation: null });
+    const fresh: Record<string, string> = {
+      [loud.lastSurfacedAt]: '2026-09-29T00:00:00.000Z',
+      [quiet.lastSurfacedAt]: '2026-09-29T00:00:00.000Z',
+    };
+    const service = ranker([loud, quiet], fresh);
+
+    const { ranked } = await service.rank(
+      [hit(quiet.id, 'lexical'), hit(loud.id, 'lexical')],
+      { nowMs: NOW },
+    );
+    // Input order favors quiet; salience overturns it — both stay
+    // recalled (re-score, never gate).
+    expect(ranked.map((row) => row.claim.id)).toEqual([loud.id, quiet.id]);
+    expect(ranked.every((row) => row.disposition === 'recalled')).toBe(true);
+    expect(
+      (ranked.find((row) => row.claim.id === loud.id)?.reasons ?? []).join(' '),
+    ).toContain('activation 1.00');
+  });
 });

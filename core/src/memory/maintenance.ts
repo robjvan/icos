@@ -78,6 +78,8 @@ export type MaintenanceOutcome =
   | 'revised'
   | 'locked'
   | 'classified'
+  | 'activated'
+  | 'suppressed'
   | 'skipped'
   | 'failed';
 
@@ -89,6 +91,8 @@ export interface PassSummary {
   revised: number;
   locked: number;
   classified: number;
+  activated: number;
+  suppressed: number;
   skipped: number;
   failed: number;
   /** Wall-clock ms for the M12f latency evidence. */
@@ -103,6 +107,8 @@ export const EMPTY_PASS: PassSummary = {
   revised: 0,
   locked: 0,
   classified: 0,
+  activated: 0,
+  suppressed: 0,
   skipped: 0,
   failed: 0,
   durationMs: 0,
@@ -117,6 +123,31 @@ export const LOCK_CORROBORATION_BAR = 5;
 export const LOCK_CONFIDENCE_MIN = 0.9;
 
 /**
+ * Activation policy (M12d): salience orthogonal to truth
+ * (ACT-R lineage — "I keep hearing this, but it's wrong" is a
+ * representable state). Retrieval boosts the touched claim and
+ * spreads a fan-capped share along `related[]` links; disuse
+ * decays in fixed steps on a fast schedule. Bounds are closed
+ * [0, 1]; null means never-salienced (no row, no history).
+ */
+export const ACTIVATION_SELF_BOOST = 0.3;
+export const ACTIVATION_FAN_CAP = 5;
+export const ACTIVATION_DECAY_STEP = 0.05;
+/** Minimum ms between activation decays of one claim. */
+export const ACTIVATION_MIN_INTERVAL_MS = 3_600_000;
+
+/**
+ * Divergence review (M12d): persistently loud but wrong — high
+ * activation against decayed confidence — parks a clarification
+ * question. The self-correction mechanism dynamics builds toward.
+ */
+export const DIVERGENCE_ACTIVATION_MIN = 0.7;
+export const DIVERGENCE_CONFIDENCE_MAX = 0.4;
+
+/** Retrieval-shaped suppression step for near-miss competitors. */
+export const SUPPRESS_STEP = 0.1;
+
+/**
  * Source-influence factor from a win/loss record (M12c reliability).
  * Laplace-smoothed, punishment-only: neutral and winning records
  * map to 1.0 (no boost, never rewards), losing records decay
@@ -125,4 +156,21 @@ export const LOCK_CONFIDENCE_MIN = 0.9;
 export function reliabilityFactor(wins: number, losses: number): number {
   const estimate = (wins + 1) / (wins + losses + 2);
   return Math.min(1, 0.5 + estimate);
+}
+
+/** Activation after a retrieval touch (null baseline reads as 0). */
+export function activationBoost(current: number | null): number {
+  return Math.min(1, (current ?? 0) + ACTIVATION_SELF_BOOST);
+}
+
+/** One disuse step toward silence. */
+export function activationDecayStep(current: number): number {
+  return Math.max(0, current - ACTIVATION_DECAY_STEP);
+}
+
+/** Fan-capped neighbor share of a boost (insertion-ordered first N). */
+export function spreadShare(fanout: number): number {
+  return (
+    ACTIVATION_SELF_BOOST / Math.max(1, Math.min(fanout, ACTIVATION_FAN_CAP))
+  );
 }

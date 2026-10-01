@@ -813,6 +813,20 @@ describe('Conversation (e2e)', () => {
       maintenance: [{ transition: 'classify' }],
     });
 
+    // A recall turn observes access; the next pass saliences it.
+    await request(http())
+      .post('/core/conversation')
+      .send({ message: 'tell me about oak', sessionId })
+      .expect(200);
+    await request(http()).post('/core/maintenance/run').expect(200);
+    const accessed = await request(http())
+      .get(`/core/claims/${claims[0]?.id}`)
+      .expect(200);
+    expect(
+      (accessed.body as { claim: { activation: number | null } }).claim
+        .activation,
+    ).toBeCloseTo(0.3, 6);
+
     // Fresh confident beliefs refuse retirement; force retires with
     // history; the row stays queryable; re-retire is a no-op.
     const claimId = claims[0]?.id ?? '';
@@ -832,7 +846,11 @@ describe('Conversation (e2e)', () => {
       .expect(200);
     expect(after.body as object).toMatchObject({
       claim: { status: 'retired' },
-      maintenance: [{ transition: 'classify' }, { transition: 'retire' }],
+      maintenance: [
+        { transition: 'classify' },
+        { transition: 'activate' },
+        { transition: 'retire' },
+      ],
     });
     await request(http())
       .post(`/core/claims/${claimId}/retire`)

@@ -332,6 +332,17 @@ export class SqliteClaimRepository extends ClaimRepository {
     return toClaim(updated);
   }
 
+  async setActivation(id: string, activation: number): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET activation = ?, updated_at = ? WHERE id = ?')
+      .run(activation, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
   async addRelated(id: string, relatedIds: string[]): Promise<Claim | null> {
     const row = this.rowById(id);
     if (!row) return null;

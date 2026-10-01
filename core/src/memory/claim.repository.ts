@@ -93,6 +93,14 @@ export abstract class ClaimRepository {
   abstract setSourceType(id: string, sourceType: string): Promise<Claim | null>;
 
   /**
+   * M12d activation write: set salience directly (clamped [0, 1]
+   * by the caller). Activation is orthogonal to confidence — this
+   * never gates recall, never promotes. The caller records the
+   * activate history row. Returns null when the claim is missing.
+   */
+  abstract setActivation(id: string, activation: number): Promise<Claim | null>;
+
+  /**
    * M12 cross-link maintenance: append claim ids to `related[]`
    * (deduped, order-stable). Reserved refs become traversal
    * substrate here — M11 promised to read, never to write.
