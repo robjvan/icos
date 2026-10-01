@@ -7,7 +7,12 @@ import {
   loadCatalogFile,
   parseCatalog,
   parseEnvReference,
+  readCatalogEntries,
+  removeCatalogEntry,
   resolveServerEnv,
+  upsertCatalogEntry,
+  validateServerEntry,
+  writeCatalogEntries,
 } from './mcp-server-config';
 import { parseSecretReference } from '../secrets/reference';
 
@@ -269,6 +274,59 @@ describe('buildChildEnv', () => {
         },
       ),
     ).toThrow('NOPE_MISSING');
+  });
+});
+
+describe('catalog write helpers (S5)', () => {
+  let dir = '';
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-mcp-write-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('validates an entry and round-trips it through the file', () => {
+    const good = validateServerEntry({
+      name: 'files',
+      transport: 'stdio',
+      command: 'npx',
+      env: { KEY: 'secret:files' },
+    });
+    expect('entry' in good).toBe(true);
+    const invalid = validateServerEntry({ name: 'x', transport: 'stdio' });
+    expect('error' in invalid && invalid.error).toContain('command');
+
+    const path = join(dir, 'mcp-servers.json');
+    expect(readCatalogEntries(path)).toEqual([]);
+    let entries = readCatalogEntries(path);
+    if (!('entry' in good)) throw new Error('unreachable');
+    entries = upsertCatalogEntry(entries, good.entry);
+    entries = upsertCatalogEntry(entries, {
+      name: 'web',
+      transport: 'http',
+      url: 'http://x/mcp',
+      approval: 'none',
+    });
+    writeCatalogEntries(path, entries);
+
+    const reloaded = readCatalogEntries(path);
+    expect(parseCatalog(reloaded).entries.map((e) => e.name)).toEqual([
+      'files',
+      'web',
+    ]);
+
+    // Upsert replaces by name; remove deletes.
+    const replaced = upsertCatalogEntry(reloaded, {
+      name: 'files',
+      transport: 'stdio',
+      command: 'other',
+    });
+    expect(replaced).toHaveLength(2);
+    expect((replaced[0] as { command: string }).command).toBe('other');
+    expect(removeCatalogEntry(reloaded, 'web')).toHaveLength(1);
   });
 });
 

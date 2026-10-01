@@ -1,4 +1,3 @@
-import { writeFileSync } from 'node:fs';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { OnModuleInit } from '@nestjs/common';
 import { CORE_CONFIG } from '../config';
@@ -7,7 +6,15 @@ import { buildRequestHeaders } from '../llm/llm-provider';
 import type { LlmEndpointConfig } from '../llm/llm.client';
 import { SecretResolver } from '../secrets/secret-resolver';
 import { parseSecretReference } from '../secrets/reference';
-import { loadProviderCatalog, resolveProvidersPath } from './provider-catalog';
+import {
+  loadProviderCatalog,
+  readProviderRaw,
+  removeProviderEntry,
+  resolveProvidersPath,
+  upsertProviderEntry,
+  validateProviderEntry,
+  writeProviderFile,
+} from './provider-catalog';
 import type {
   LoadedProviderCatalog,
   ProviderEntry,
@@ -143,14 +150,40 @@ export class ProviderRegistryService implements OnModuleInit {
     if (!entry) {
       throw new Error(`unknown or disabled provider "${id}"`);
     }
-    const next = {
-      active: { ...this.catalog.active, [role]: id },
-      providers: this.catalog.providers,
-    };
-    writeFileSync(
-      resolveProvidersPath(this.config.providersPath),
-      `${JSON.stringify(next, null, 2)}\n`,
+    const path = resolveProvidersPath(this.config.providersPath);
+    const raw = readProviderRaw(path);
+    writeProviderFile(path, { ...raw.active, [role]: id }, raw.providers);
+    return this.reload();
+  }
+
+  /** Catalog entries for the editor (references only, never values). */
+  catalogEntries(): ProviderEntry[] {
+    return this.catalog.providers;
+  }
+
+  /** Add or replace a provider, then reload (S5). Validated first. */
+  upsertProvider(raw: unknown): ProviderReport {
+    const result = validateProviderEntry(raw);
+    if ('error' in result) throw new Error(result.error);
+    const path = resolveProvidersPath(this.config.providersPath);
+    const file = readProviderRaw(path);
+    writeProviderFile(
+      path,
+      file.active,
+      upsertProviderEntry(file.providers, result.entry),
     );
+    return this.reload();
+  }
+
+  /** Remove a provider by id and drop it from `active` (S5). */
+  removeProvider(id: string): ProviderReport {
+    const path = resolveProvidersPath(this.config.providersPath);
+    const file = readProviderRaw(path);
+    const active = { ...file.active };
+    for (const role of ['conversation', 'memory'] as const) {
+      if (active[role] === id) delete active[role];
+    }
+    writeProviderFile(path, active, removeProviderEntry(file.providers, id));
     return this.reload();
   }
 

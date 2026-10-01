@@ -7,10 +7,12 @@ import { ConversationModule } from './conversation/conversation.module';
 import { ProvidersModule } from './providers/providers.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SecretsModule } from './secrets/secrets.module';
+import { SecurityModule } from './security/security.module';
 
 @Module({
   imports: [
     AuthModule,
+    SecurityModule,
     SecretsModule,
     ProvidersModule,
     ConversationModule,

@@ -1,6 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseSecretReference } from '../secrets/reference';
 
 /** One LLM provider in the catalog (S4). */
@@ -176,6 +182,91 @@ export function parseProviderCatalog(raw: unknown): ProviderCatalog {
 /** Default catalog location inside the shared instance data root. */
 export function defaultProvidersPath(): string {
   return join(homedir(), '.icos', 'providers.json');
+}
+
+/** Validate one entry as the catalog file would (S5 write path). */
+export function validateProviderEntry(
+  raw: unknown,
+): { entry: ProviderEntry } | { error: string } {
+  return validateEntry(raw);
+}
+
+interface RawProviderFile {
+  active: { conversation?: string; memory?: string };
+  providers: unknown[];
+}
+
+/** Raw file contents (never throws; absent/corrupt = empty). */
+export function readProviderRaw(path: string): RawProviderFile {
+  const empty: RawProviderFile = { active: {}, providers: [] };
+  if (!existsSync(path)) return empty;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    if (!isRecord(parsed)) return empty;
+    const active: { conversation?: string; memory?: string } = {};
+    if (isRecord(parsed['active'])) {
+      for (const role of ['conversation', 'memory'] as const) {
+        const value = parsed['active'][role];
+        if (typeof value === 'string') active[role] = value;
+      }
+    }
+    return {
+      active,
+      providers: Array.isArray(parsed['providers']) ? parsed['providers'] : [],
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/** Atomically write the provider catalog (temp + rename). */
+export function writeProviderFile(
+  path: string,
+  active: { conversation?: string; memory?: string },
+  providers: unknown[],
+): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ active, providers }, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  renameSync(tmp, path);
+}
+
+function toRawProvider(entry: ProviderEntry): Record<string, unknown> {
+  return {
+    id: entry.id,
+    baseUrl: entry.baseUrl,
+    model: entry.model,
+    ...(entry.apiKeyRef !== undefined ? { apiKeyRef: entry.apiKeyRef } : {}),
+    ...(entry.headers !== undefined ? { headers: entry.headers } : {}),
+    ...(entry.userAgent !== undefined ? { userAgent: entry.userAgent } : {}),
+    ...(entry.timeoutMs !== undefined ? { timeoutMs: entry.timeoutMs } : {}),
+    ...(entry.enabled !== undefined ? { enabled: entry.enabled } : {}),
+  };
+}
+
+/** Insert or replace a provider by id, preserving order. */
+export function upsertProviderEntry(
+  providers: unknown[],
+  entry: ProviderEntry,
+): unknown[] {
+  const raw = toRawProvider(entry);
+  const index = providers.findIndex(
+    (item) => isRecord(item) && item['id'] === entry.id,
+  );
+  const next = [...providers];
+  if (index >= 0) next[index] = raw;
+  else next.push(raw);
+  return next;
+}
+
+/** Remove a provider by id (no-op when absent). */
+export function removeProviderEntry(
+  providers: unknown[],
+  id: string,
+): unknown[] {
+  return providers.filter((item) => !(isRecord(item) && item['id'] === id));
 }
 
 /** Resolve the configured providers path (empty → default). */

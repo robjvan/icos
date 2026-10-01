@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   NotFoundException,
   Param,
   Post,
+  Put,
   UseFilters,
 } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
@@ -14,6 +16,7 @@ import { McpExceptionFilter } from '../mcp/mcp-exception.filter';
 import { ProviderRegistryService } from './provider-registry.service';
 import type { ProviderReport } from './provider-registry.service';
 import { SetActiveProviderDto } from './dto/provider.dto';
+import { ProviderDto } from './dto/provider.dto';
 import type { ProviderRole } from './provider-catalog';
 
 /**
@@ -31,6 +34,37 @@ export class ProvidersController {
   @Get()
   list(): ProviderReport {
     return this.registry.report();
+  }
+
+  /** Catalog entries for the editor (references only, never values). */
+  @RequireRole('admin')
+  @Get('catalog')
+  catalog(): {
+    providers: ReturnType<ProviderRegistryService['catalogEntries']>;
+  } {
+    return { providers: this.registry.catalogEntries() };
+  }
+
+  /** Add or replace a provider, then reload without a restart. */
+  @RequireRole('admin')
+  @Put(':id')
+  @HttpCode(200)
+  upsert(@Param('id') id: string, @Body() dto: ProviderDto): ProviderReport {
+    try {
+      return this.registry.upsertProvider({ id, ...dto });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'invalid provider entry',
+      );
+    }
+  }
+
+  /** Remove a provider by id, then reload. */
+  @RequireRole('admin')
+  @Delete(':id')
+  @HttpCode(200)
+  remove(@Param('id') id: string): ProviderReport {
+    return this.registry.removeProvider(id);
   }
 
   @RequireRole('admin')

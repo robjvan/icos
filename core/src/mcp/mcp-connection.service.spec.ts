@@ -369,6 +369,59 @@ describe('McpConnectionService', () => {
     });
   });
 
+  describe('catalog CRUD (S5)', () => {
+    it('adds, reads, edits, and removes entries with a live reconcile', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      fs.writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(
+          () => new FakeClient([{ name: 'ping', inputSchema: {} }]),
+        ),
+      );
+      await service.initialize();
+      expect(service.catalogEntries().map((e) => e.name)).toEqual(['a']);
+
+      const added = await service.upsertServerEntry({
+        name: 'b',
+        transport: 'stdio',
+        command: 'y',
+      });
+      expect(added.servers.map((s) => s.name).sort()).toEqual(['a', 'b']);
+      expect(service.catalogEntries().map((e) => e.name)).toEqual(['a', 'b']);
+
+      await service.upsertServerEntry({
+        name: 'a',
+        transport: 'stdio',
+        command: 'x2',
+      });
+      expect(service.catalogEntries()).toHaveLength(2);
+
+      const removed = await service.removeServerEntry('b');
+      expect(removed.servers.map((s) => s.name)).toEqual(['a']);
+      expect(service.catalogEntries().map((e) => e.name)).toEqual(['a']);
+      await service.onModuleDestroy();
+    });
+
+    it('rejects an invalid entry without touching the file', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      fs.writeFileSync(path, JSON.stringify([]));
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(),
+      );
+      await service.initialize();
+      await expect(
+        service.upsertServerEntry({ name: 'bad', transport: 'stdio' }),
+      ).rejects.toThrow(/command/);
+      expect(fs.readFileSync(path, 'utf8').trim()).toBe('[]');
+      await service.onModuleDestroy();
+    });
+  });
+
   describe('secret changes (S3)', () => {
     const writeCatalog = (path: string): void =>
       fs.writeFileSync(

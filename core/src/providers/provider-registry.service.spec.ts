@@ -166,6 +166,36 @@ describe('ProviderRegistryService', () => {
     );
   });
 
+  it('adds and removes providers, keeping active consistent', () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'a' },
+        providers: [{ id: 'a', baseUrl: 'http://a/v1', model: 'ma' }],
+      }),
+    );
+    const service = registry();
+
+    const added = service.upsertProvider({
+      id: 'b',
+      baseUrl: 'http://b/v1',
+      model: 'mb',
+    });
+    expect(added.providers.map((p) => p.id)).toEqual(['a', 'b']);
+    expect(service.catalogEntries().map((p) => p.id)).toEqual(['a', 'b']);
+
+    // Editing replaces in place.
+    service.upsertProvider({ id: 'b', baseUrl: 'http://b/v2', model: 'mb2' });
+    expect(service.catalogEntries()).toHaveLength(2);
+
+    // Removing the active provider clears the active selection.
+    const removed = service.removeProvider('a');
+    expect(removed.providers.map((p) => p.id)).toEqual(['b']);
+    expect(removed.active.conversation).toBe('ollama'); // env fallback
+
+    expect(() => service.upsertProvider({ id: 'bad' })).toThrow(/baseUrl/);
+  });
+
   it('tests a provider connection using the resolved key', async () => {
     writeFileSync(
       providersPath,

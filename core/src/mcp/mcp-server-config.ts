@@ -1,6 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseSecretReference } from '../secrets/reference';
 
 export type McpTransport = 'stdio' | 'http';
@@ -284,6 +290,70 @@ export function parseCatalog(raw: unknown): McpCatalog {
 /** Default catalog location inside the shared instance data root. */
 export function defaultCatalogPath(): string {
   return join(homedir(), '.icos', 'mcp-servers.json');
+}
+
+/** Validate one entry as the catalog file would (S5 write path). */
+export function validateServerEntry(
+  raw: unknown,
+): { entry: McpServerEntry } | { error: string } {
+  return validateOne(raw);
+}
+
+/** Raw catalog entries (never throws; absent/corrupt = empty). */
+export function readCatalogEntries(path: string): unknown[] {
+  if (!existsSync(path)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Atomically write catalog entries (temp + rename). */
+export function writeCatalogEntries(path: string, entries: unknown[]): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(entries, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, path);
+}
+
+/** Rebuild the raw object for a validated entry. */
+function toRawEntry(entry: McpServerEntry): Record<string, unknown> {
+  return {
+    name: entry.name,
+    transport: entry.transport,
+    ...(entry.command !== undefined ? { command: entry.command } : {}),
+    ...(entry.args !== undefined ? { args: entry.args } : {}),
+    ...(entry.url !== undefined ? { url: entry.url } : {}),
+    ...(entry.env !== undefined ? { env: entry.env } : {}),
+    ...(entry.headers !== undefined ? { headers: entry.headers } : {}),
+    ...(entry.enabled !== undefined ? { enabled: entry.enabled } : {}),
+    ...(entry.approval !== undefined ? { approval: entry.approval } : {}),
+  };
+}
+
+/** Insert or replace an entry by name, preserving order. */
+export function upsertCatalogEntry(
+  entries: unknown[],
+  entry: McpServerEntry,
+): unknown[] {
+  const raw = toRawEntry(entry);
+  const index = entries.findIndex(
+    (item) => isRecord(item) && item['name'] === entry.name,
+  );
+  const next = [...entries];
+  if (index >= 0) next[index] = raw;
+  else next.push(raw);
+  return next;
+}
+
+/** Remove an entry by name (no-op when absent). */
+export function removeCatalogEntry(
+  entries: unknown[],
+  name: string,
+): unknown[] {
+  return entries.filter((item) => !(isRecord(item) && item['name'] === name));
 }
 
 /**

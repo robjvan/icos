@@ -208,7 +208,7 @@ describe('Conversation (e2e)', () => {
         memoryMaintenanceIntervalMs: 3600000,
         memoryAgentDampening: 0.5,
         mcpEnabled: false,
-        mcpServersPath: '',
+        mcpServersPath: join(auth.dir, 'mcp-servers.json'),
         mcpTimeoutMs: 30000,
         mcpReconnectBackoffMs: 60000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
@@ -2449,6 +2449,86 @@ describe('Conversation (e2e)', () => {
         .set('Cookie', cookie)
         .set('x-icos-csrf', csrf)
         .expect(404);
+    });
+
+    it('manages the MCP and provider catalogs (S5)', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const put = (path: string, body: object) =>
+        agent()
+          .put(path)
+          .set('Cookie', cookie)
+          .set('x-icos-csrf', csrf)
+          .send(body);
+      const del = (path: string) =>
+        agent().delete(path).set('Cookie', cookie).set('x-icos-csrf', csrf);
+
+      // MCP catalog: add, read, remove.
+      await put('/core/mcp/servers/newsrv', {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'thing'],
+        env: { KEY: 'secret:files' },
+      }).expect(200);
+      const mcpCatalog = await agent()
+        .get('/core/mcp/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (mcpCatalog.body as { servers: { name: string }[] }).servers.map(
+          (s) => s.name,
+        ),
+      ).toContain('newsrv');
+      await put('/core/mcp/servers/bad', { transport: 'stdio' }).expect(400);
+      await del('/core/mcp/servers/newsrv').expect(200);
+      const after = await agent()
+        .get('/core/mcp/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (after.body as { servers: { name: string }[] }).servers.map(
+          (s) => s.name,
+        ),
+      ).not.toContain('newsrv');
+
+      // Provider catalog: add (referenced key), read, remove.
+      const added = await put('/core/providers/third', {
+        baseUrl: 'https://third.example/v1',
+        model: 'third-model',
+        apiKeyRef: 'secret:third',
+      }).expect(200);
+      expect(
+        (added.body as { providers: { id: string }[] }).providers.map(
+          (p) => p.id,
+        ),
+      ).toContain('third');
+      await put('/core/providers/literal', {
+        baseUrl: 'https://x/v1',
+        model: 'm',
+        apiKeyRef: 'sk-plaintext',
+      }).expect(400);
+      const providerCatalog = await agent()
+        .get('/core/providers/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (providerCatalog.body as { providers: { id: string }[] }).providers.map(
+          (p) => p.id,
+        ),
+      ).toContain('third');
+      await del('/core/providers/third').expect(200);
+    });
+
+    it('reports the exposure posture (S5)', async () => {
+      const { cookie } = await loginCookies();
+      const status = await agent()
+        .get('/core/security/status')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(status.body).toMatchObject({
+        loopback: true,
+        authEnabled: true,
+        exposeAcknowledged: false,
+      });
     });
 
     describe('with the vault disabled (no master key)', () => {

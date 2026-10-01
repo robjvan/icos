@@ -21,6 +21,14 @@ import type {
 } from './mcp-client';
 import { MCP_READ_MAX_CHARS } from './mcp-client';
 import { loadCatalogFile, resolveCatalogPath } from './mcp-server-config';
+import {
+  parseCatalog,
+  readCatalogEntries,
+  removeCatalogEntry,
+  upsertCatalogEntry,
+  validateServerEntry,
+  writeCatalogEntries,
+} from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
 import { SecretChangeNotifier } from '../secrets/secret-change.notifier';
 
@@ -357,6 +365,38 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
         }`,
       );
     }
+  }
+
+  /**
+   * Every validated catalog entry (S5 editor view). References are
+   * shown as-is; values never appear here.
+   */
+  catalogEntries(): McpServerEntry[] {
+    return parseCatalog(
+      readCatalogEntries(resolveCatalogPath(this.config.mcpServersPath)),
+    ).entries;
+  }
+
+  /**
+   * Insert or replace one catalog entry, then reconcile live servers
+   * (S5). The entry is validated first; an invalid entry throws with a
+   * reason and the file is left untouched.
+   */
+  async upsertServerEntry(raw: unknown): Promise<McpReloadReport> {
+    const result = validateServerEntry(raw);
+    if ('error' in result) throw new Error(result.error);
+    const path = resolveCatalogPath(this.config.mcpServersPath);
+    const entries = readCatalogEntries(path);
+    writeCatalogEntries(path, upsertCatalogEntry(entries, result.entry));
+    return this.reload();
+  }
+
+  /** Remove one catalog entry by name, then reconcile (S5). */
+  async removeServerEntry(name: string): Promise<McpReloadReport> {
+    const path = resolveCatalogPath(this.config.mcpServersPath);
+    const entries = readCatalogEntries(path);
+    writeCatalogEntries(path, removeCatalogEntry(entries, name));
+    return this.reload();
   }
 
   /** Explicit reconnect (manual trigger, reload path, tests). */

@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   UseFilters,
 } from '@nestjs/common';
@@ -23,16 +25,16 @@ import type {
 } from './mcp-client';
 import { McpExceptionFilter } from './mcp-exception.filter';
 import { RequireRole } from '../auth/decorators';
+import type { McpServerEntry } from './mcp-server-config';
+import { McpServerDto } from './dto/mcp-server.dto';
 import { GetPromptDto } from './dto/mcp.dto';
 
 /**
- * MCP operator surface (M13d/e). Read-only status, catalog reload,
- * and lazy read-only fetches of server resources and prompt
- * templates — no CRUD, no secret input, no auto-injection into
- * context (that is a future polish slice). Reads are
- * operator-initiated, so they carry no approval; tool execution
- * (writes) stays approval-gated (M13b). Every response is
- * name/state/reason/content only; secrets never cross this edge.
+ * MCP operator surface (M13d/e, M13f security S5). Read-only status,
+ * lazy resource/prompt fetches, and admin catalog CRUD. Entries hold
+ * references (`$VAR`/`secret:NAME`), never values — no secret crosses
+ * this edge. Config mutation is admin-only and CSRF-gated by the global
+ * guard.
  *
  * Error contract: unknown server → 404; down server / missing
  * capability / timeout (`McpError`) → 502 via the filter; bad input
@@ -47,6 +49,38 @@ export class McpController {
   @Get('servers')
   servers(): { servers: McpServerStatus[] } {
     return { servers: this.connections.statusAll() };
+  }
+
+  /** Catalog entries for the editor (references only, never values). */
+  @RequireRole('admin')
+  @Get('catalog')
+  catalog(): { servers: McpServerEntry[] } {
+    return { servers: this.connections.catalogEntries() };
+  }
+
+  /** Add or replace a server, then reconcile without a restart. */
+  @RequireRole('admin')
+  @Put('servers/:name')
+  @HttpCode(200)
+  async upsert(
+    @Param('name') name: string,
+    @Body() dto: McpServerDto,
+  ): Promise<McpReloadReport> {
+    try {
+      return await this.connections.upsertServerEntry({ name, ...dto });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'invalid server entry',
+      );
+    }
+  }
+
+  /** Remove a server by name, then reconcile. */
+  @RequireRole('admin')
+  @Delete('servers/:name')
+  @HttpCode(200)
+  remove(@Param('name') name: string): Promise<McpReloadReport> {
+    return this.connections.removeServerEntry(name);
   }
 
   /** Re-read the catalog without a restart; reports per-server results. */

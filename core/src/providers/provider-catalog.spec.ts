@@ -5,7 +5,12 @@ import {
   defaultProvidersPath,
   loadProviderCatalog,
   parseProviderCatalog,
+  readProviderRaw,
+  removeProviderEntry,
   resolveProvidersPath,
+  upsertProviderEntry,
+  validateProviderEntry,
+  writeProviderFile,
 } from './provider-catalog';
 
 describe('parseProviderCatalog', () => {
@@ -126,5 +131,56 @@ describe('loadProviderCatalog', () => {
   it('resolves a default location under the data root', () => {
     expect(defaultProvidersPath()).toContain('.icos');
     expect(resolveProvidersPath('')).toBe(defaultProvidersPath());
+  });
+});
+
+describe('provider catalog write helpers (S5)', () => {
+  let dir = '';
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-prov-write-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('validates, upserts, removes, and round-trips the file', () => {
+    expect(
+      validateProviderEntry({ id: 'a', baseUrl: 'http://x/v1', model: 'm' }),
+    ).toMatchObject({ entry: { id: 'a' } });
+    const invalid = validateProviderEntry({
+      id: 'a',
+      baseUrl: 'nope',
+      model: 'm',
+    });
+    expect('error' in invalid && invalid.error).toContain('baseUrl');
+
+    const path = join(dir, 'providers.json');
+    writeProviderFile(path, { conversation: 'a' }, [
+      { id: 'a', baseUrl: 'http://a/v1', model: 'ma' },
+    ]);
+    let raw = readProviderRaw(path);
+    expect(raw.active).toEqual({ conversation: 'a' });
+
+    raw = {
+      active: raw.active,
+      providers: upsertProviderEntry(raw.providers, {
+        id: 'b',
+        baseUrl: 'http://b/v1',
+        model: 'mb',
+        apiKeyRef: 'secret:b',
+      }),
+    };
+    writeProviderFile(path, raw.active, raw.providers);
+    const loaded = loadProviderCatalog(path);
+    expect(loaded.providers.map((p) => p.id)).toEqual(['a', 'b']);
+
+    const removed = removeProviderEntry(raw.providers, 'a');
+    expect(removed).toHaveLength(1);
+    expect(readProviderRaw(join(dir, 'missing.json'))).toEqual({
+      active: {},
+      providers: [],
+    });
   });
 });
