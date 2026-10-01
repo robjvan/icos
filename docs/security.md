@@ -112,8 +112,9 @@ least-effort safe option for personal access.
   secret name bound in. Values are decrypted in memory on demand.
 - The vault API is **admin-only and write-only**: reads expose presence
   and metadata, never a value; every response is `Cache-Control:
-  no-store`. Rotate by writing again; deleting a secret makes any
-  server/provider that references it fail closed.
+  no-store`. Rotate a secret by writing it again; deleting a secret
+  makes any server/provider that references it fail closed (a live
+  rotate/delete re-resolves dependents — never a stale value).
 - The **master key** is 32 bytes (hex/base64), supplied via
   `VAULT_KEY_FILE` (preferred — e.g. a Docker secret) or `VAULT_KEY`.
   With no key the vault is disabled (env references still work); a

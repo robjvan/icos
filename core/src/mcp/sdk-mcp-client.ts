@@ -2,7 +2,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { Injectable } from '@nestjs/common';
 import { McpClient, McpClientFactory, McpError } from './mcp-client';
+import { SecretResolver } from '../secrets/secret-resolver';
 import type {
   McpCallResult,
   McpPrompt,
@@ -12,6 +14,7 @@ import type {
   McpTool,
 } from './mcp-client';
 import { buildChildEnv, resolveServerEnv } from './mcp-server-config';
+import type { SecretLookup } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
 
 interface ToolContent {
@@ -146,7 +149,10 @@ export class SdkMcpClient extends McpClient {
   /** True during an intentional close, so onclose is not a "drop". */
   private closing = false;
 
-  constructor(private readonly entry: McpServerEntry) {
+  constructor(
+    private readonly entry: McpServerEntry,
+    private readonly secrets: SecretLookup,
+  ) {
     super();
   }
 
@@ -158,7 +164,7 @@ export class SdkMcpClient extends McpClient {
       // code. Missing referenced vars throw before spawning.
       let env: Record<string, string>;
       try {
-        env = buildChildEnv(this.entry.env, this.entry.name);
+        env = buildChildEnv(this.entry.env, this.entry.name, this.secrets);
       } catch (err) {
         throw new McpError(
           err instanceof Error ? err.message : 'invalid server env',
@@ -185,7 +191,11 @@ export class SdkMcpClient extends McpClient {
    */
   private resolveHeaders(): Record<string, string> {
     try {
-      return resolveServerEnv(this.entry.headers, this.entry.name);
+      return resolveServerEnv(
+        this.entry.headers,
+        this.entry.name,
+        this.secrets,
+      );
     } catch (err) {
       throw new McpError(
         err instanceof Error ? err.message : 'invalid server headers',
@@ -417,8 +427,15 @@ export class SdkMcpClient extends McpClient {
   }
 }
 
+@Injectable()
 export class SdkMcpClientFactory extends McpClientFactory {
+  constructor(private readonly secrets: SecretResolver) {
+    super();
+  }
+
   create(entry: McpServerEntry): McpClient {
-    return new SdkMcpClient(entry);
+    return new SdkMcpClient(entry, (reference) =>
+      this.secrets.resolve(reference),
+    );
   }
 }

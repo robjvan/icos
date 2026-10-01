@@ -12,7 +12,8 @@ import {
   Put,
 } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
-import { isValidSecretName } from './reference';
+import { isValidSecretName, vaultReference } from './reference';
+import { SecretChangeNotifier } from './secret-change.notifier';
 import { SecretResolver } from './secret-resolver';
 import type { SecretMetadata } from './secret-store';
 import { PutSecretDto } from './dto/secret.dto';
@@ -25,7 +26,10 @@ import { PutSecretDto } from './dto/secret.dto';
  */
 @Controller('core/secrets')
 export class SecretsController {
-  constructor(private readonly secrets: SecretResolver) {}
+  constructor(
+    private readonly secrets: SecretResolver,
+    private readonly changes: SecretChangeNotifier,
+  ) {}
 
   /** Metadata for every stored secret (never values). */
   @RequireRole('admin')
@@ -56,7 +60,11 @@ export class SecretsController {
   put(@Param('name') name: string, @Body() dto: PutSecretDto): SecretMetadata {
     this.requireName(name);
     try {
-      return this.secrets.store.put(name, dto.value);
+      const metadata = this.secrets.store.put(name, dto.value);
+      // Dependents must re-resolve (spawn-time resolution): a rotated
+      // value is picked up, never served from the previous spawn.
+      this.changes.notify(vaultReference(name));
+      return metadata;
     } catch (err) {
       throw this.mapStoreError(err, 'write failed');
     }
@@ -75,6 +83,9 @@ export class SecretsController {
       throw this.mapStoreError(err, 'delete failed');
     }
     if (!deleted) throw new NotFoundException(`Unknown secret "${name}"`);
+    // Dependents fail closed on the next spawn/reconnect — never a
+    // stale, cached value.
+    this.changes.notify(vaultReference(name));
     return { deleted: true };
   }
 

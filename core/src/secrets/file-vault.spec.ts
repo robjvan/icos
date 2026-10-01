@@ -12,6 +12,7 @@ import {
   generateMasterKey,
   loadMasterKey,
   parseMasterKey,
+  rotateMasterKey,
   vaultHasEntries,
 } from './file-vault';
 
@@ -125,6 +126,26 @@ describe('FileVaultSecretStore', () => {
     expect(() => new FileVaultSecretStore(path, KEY)).toThrow(/version/);
     writeFileSync(path, '{ not json');
     expect(() => new FileVaultSecretStore(path, KEY)).toThrow(/valid JSON/);
+  });
+  it('re-encrypts every entry under a new master key', () => {
+    const store = new FileVaultSecretStore(path, KEY);
+    store.put('a', 'value-a');
+    store.put('b', 'value-b');
+
+    const newKey = parseMasterKey(generateMasterKey()) as Buffer;
+    expect(rotateMasterKey(path, KEY, newKey)).toBe(2);
+
+    // Old key can no longer read; new key can.
+    expect(new FileVaultSecretStore(path, KEY).get('a')).toBeNull();
+    const rotated = new FileVaultSecretStore(path, newKey);
+    expect(rotated.get('a')).toBe('value-a');
+    expect(rotated.get('b')).toBe('value-b');
+
+    // A wrong old key fails loudly rather than corrupting the vault.
+    const otherKey = parseMasterKey(generateMasterKey()) as Buffer;
+    expect(() => rotateMasterKey(path, otherKey, newKey)).toThrow(
+      /cannot decrypt/,
+    );
   });
 });
 

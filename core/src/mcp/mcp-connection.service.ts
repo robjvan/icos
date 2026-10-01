@@ -22,6 +22,7 @@ import type {
 import { MCP_READ_MAX_CHARS } from './mcp-client';
 import { loadCatalogFile, resolveCatalogPath } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
+import { SecretChangeNotifier } from '../secrets/secret-change.notifier';
 
 export type McpServerState = 'connected' | 'disabled' | 'failed';
 
@@ -102,12 +103,19 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly factory: McpClientFactory,
+    private readonly secretChanges?: SecretChangeNotifier,
   ) {}
 
   /** Boot wiring: load catalog, connect enabled servers fail-soft. */
   async onModuleInit(): Promise<void> {
     await this.initialize();
     this.startWatching();
+    // A rotated or deleted vault secret (S3) must be re-resolved: servers
+    // that reference it reconnect, so they pick up the new value or fail
+    // closed — never keep a stale, cached value.
+    this.secretChanges?.onChange((reference) => {
+      void this.reconnectReferencing(reference);
+    });
   }
 
   async initialize(): Promise<void> {
@@ -360,6 +368,26 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
     await this.connectOne(server.entry);
     this.notifyToolsChanged();
     return this.statusOf(serverName);
+  }
+
+  /**
+   * Reconnect every server whose catalog entry references `reference`
+   * (S3). Called when a vault secret changes: a rotated value is
+   * re-resolved at spawn, a deleted one fails the server closed. Servers
+   * that do not reference it are left untouched.
+   */
+  async reconnectReferencing(reference: string): Promise<string[]> {
+    const names: string[] = [];
+    for (const [name, server] of this.servers) {
+      if (server.entry.enabled === false) continue;
+      const values = [
+        ...Object.values(server.entry.env ?? {}),
+        ...Object.values(server.entry.headers ?? {}),
+      ];
+      if (values.includes(reference)) names.push(name);
+    }
+    for (const name of names) await this.reconnect(name);
+    return names;
   }
 
   /**

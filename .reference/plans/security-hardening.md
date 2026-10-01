@@ -85,24 +85,28 @@ and scriptable.)
 - [x] Document the TLS requirement (Secure cookies need HTTPS; a
       documented loopback/LAN dev exception via `AUTH_COOKIE_SECURE`).
 
-### [ ] S3 — SecretStore + encrypted file vault
+### [x] S3 — SecretStore + encrypted file vault
 
-- [ ] `SecretStore` boundary: `put` / `get` / `delete` / `list`
+Evidence: `.reference/plans/evidence/security-s3-evidence-vault.md`.
+
+- [x] `SecretStore` boundary: `put` / `get` / `delete` / `list`
       (metadata only) / `has`. Values resolved on demand at
       spawn/request time.
-- [ ] Adapters: `EnvSecretStore` (status quo, read-only) and
+- [x] Adapters: `EnvSecretStore` (status quo, read-only) and
       `FileVaultSecretStore` (default for UI-managed secrets):
       AES-256-GCM, per-secret random nonce, secret name bound as AAD,
       versioned entries, file `0600` in the data dir.
-- [ ] Master key from `ICOS_VAULT_KEY_FILE` (preferred) or
-      `ICOS_VAULT_KEY` env; empty vault + no key = UI-managed secrets
-      disabled (fail closed); non-empty vault + no key = boot fails
-      loudly. Key backup documented (vault is useless without it).
-- [ ] Write-only secret endpoints (`PUT/DELETE`), presence-only reads,
+- [x] Master key from `VAULT_KEY_FILE` (preferred) or `VAULT_KEY` env;
+      empty vault + no key = UI-managed secrets disabled (fail closed);
+      non-empty vault + no key = boot fails loudly. Key backup
+      documented (vault is useless without it).
+- [x] Write-only secret endpoints (`PUT/DELETE`), presence-only reads,
       `Cache-Control: no-store`, redaction in every error path.
-- [ ] Rotation: re-enter a secret; vault master-key rotation (re-encrypt).
-- [ ] Deleting a referenced secret fails the dependent server/provider
-      loudly — never a cached value.
+- [x] Rotation: re-enter a secret; vault master-key rotation
+      (re-encrypt) — `rotateMasterKey` primitive + test (CLI wrapper is
+      a small follow-up).
+- [x] Deleting a referenced secret fails the dependent server/provider
+      loudly — never a cached value (live-verified).
 
 ### [ ] S4 — Provider registry (LLM providers as data)
 

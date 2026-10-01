@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { join } from 'node:path';
 import { CORE_CONFIG, coreConfigProvider } from '../config';
 import type { CoreConfig } from '../config';
@@ -9,6 +9,7 @@ import {
 } from './file-vault';
 import { DisabledSecretStore, EnvSecretStore } from './secret-store';
 import type { SecretStore } from './secret-store';
+import { SecretChangeNotifier } from './secret-change.notifier';
 import { SecretResolver, VAULT_STORE } from './secret-resolver';
 import { SecretsController } from './secrets.controller';
 
@@ -43,6 +44,7 @@ export function createVaultStore(config: CoreConfig): SecretStore {
  * (MCP now, providers next) can resolve references at spawn/request
  * time. The vault is writable via the admin-only, write-only API.
  */
+@Global()
 @Module({
   controllers: [SecretsController],
   providers: [
@@ -54,7 +56,8 @@ export function createVaultStore(config: CoreConfig): SecretStore {
     },
     { provide: EnvSecretStore, useFactory: () => new EnvSecretStore() },
     SecretResolver,
+    SecretChangeNotifier,
   ],
-  exports: [SecretResolver, VAULT_STORE],
+  exports: [SecretResolver, VAULT_STORE, SecretChangeNotifier],
 })
 export class SecretsModule {}

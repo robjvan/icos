@@ -61,3 +61,41 @@ secret API. Consumer wiring (MCP `secret:` references) is part 2.
 - Vault at rest is only as safe as the master key: the key must be
   backed up out of band (documented), and it is never written to the
   vault file or logged.
+- **Per-secret rotation** is a `PUT`. **Master-key rotation** is a
+  `rotateMasterKey(path, oldKey, newKey)` primitive (re-encrypts every
+  entry; wrong old key fails loudly) — unit-tested; a CLI wrapper for
+  operators is a small follow-up.
+
+## Part 2 — consumer wiring + dependency failure
+
+- **References**: MCP catalog `env`/`headers` now accept `secret:NAME`
+  (vault) in addition to `$VAR` (env). Validation rejects literals;
+  resolution happens at spawn/request time via `SecretResolver`.
+- **Spawn-time resolution**: `resolveServerEnv`/`buildChildEnv` take a
+  lookup function; `SdkMcpClient` resolves stdio env and HTTP headers
+  through the resolver. `SdkMcpClientFactory` injects `SecretResolver`.
+- **Change notification**: a small `SecretChangeNotifier` decouples the
+  secrets layer from consumers. `McpConnectionService` subscribes and
+  reconnects only the servers whose entry references the changed vault
+  value (`reconnectReferencing`), so a rotated value is re-resolved and
+  a deleted one fails closed — never a cached value.
+- **Determinism fix**: the M13d catalog-watch test was OS-poll-timing
+  dependent and flaked under the full parallel suite; it now stubs
+  `fs.watchFile` and drives the callback directly (deterministic).
+
+### Part 2 verification
+
+- **844 unit** (part 2 adds: vault-reference resolution, literal
+  rejection, `secret:` in child env, `SecretChangeNotifier`, and MCP
+  `reconnectReferencing` + notifier-driven reconnect) **+ 55 e2e**;
+  full suite green across repeated runs; `tsc`/`eslint` clean.
+- **Live (scratch core :3103, real `server-everything` over stdio)**:
+  with the secret absent, the server **failed closed** —
+  `env "DEMO_SECRET" (secret:demo) is not set` and the child never
+  spawned (`child-env.txt` absent). `PUT /core/secrets/demo` →
+  notifier-driven reconnect → **connected (13 tools)** with
+  `DEMO_SECRET=TOP-SECRET-123` in the spawned child env. Rotating to
+  `ROTATED-456` produced a **fresh child with the new value** (not the
+  old). `DELETE` → **failed closed** with the same clear reason. The
+  vault file is `0600` and contains **no plaintext**; the secret
+  **values never appear in the logs**; the API returned metadata only.

@@ -142,7 +142,7 @@ const ENTRY: McpServerEntry = {
 
 class TestClient extends SdkMcpClient {
   constructor(private readonly fake: FakeTransport) {
-    super(ENTRY);
+    super(ENTRY, () => null);
   }
 
   protected override buildTransport(): Transport {

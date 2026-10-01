@@ -83,8 +83,7 @@ export function loadMasterKey(options: {
   return null;
 }
 
-/** True when the vault file exists and holds at least one entry. */
-export function vaultHasEntries(
+/** True when the vault file exists and holds at least one entry. */ export function vaultHasEntries(
   path: string,
   readFile: (path: string) => string = (p) => readFileSync(p, 'utf8'),
 ): boolean {
@@ -97,6 +96,32 @@ export function vaultHasEntries(
     // silently treat a corrupt vault as empty and overwrite it.
     return true;
   }
+}
+
+/**
+ * Re-encrypt every entry under a new master key (S3 rotation). Reads
+ * all values with the old key (failing if any cannot be decrypted),
+ * then rewrites them with the new key. Returns the number of secrets
+ * re-encrypted. Names are preserved; timestamps are refreshed.
+ */
+export function rotateMasterKey(
+  path: string,
+  oldKey: Buffer,
+  newKey: Buffer,
+): number {
+  const before = new FileVaultSecretStore(path, oldKey);
+  const names = before.list().map((entry) => entry.name);
+  const values = names.map((name) => ({ name, value: before.get(name) }));
+  for (const { name, value } of values) {
+    if (value === null) {
+      throw new Error(`cannot decrypt "${name}" with the provided old key`);
+    }
+  }
+  const after = new FileVaultSecretStore(path, newKey);
+  for (const { name, value } of values) {
+    after.put(name, value as string);
+  }
+  return names.length;
 }
 
 /**

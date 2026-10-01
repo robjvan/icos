@@ -9,6 +9,7 @@ import {
   parseEnvReference,
   resolveServerEnv,
 } from './mcp-server-config';
+import { parseSecretReference } from '../secrets/reference';
 
 describe('parseCatalog', () => {
   it('accepts stdio and http entries', () => {
@@ -144,6 +145,17 @@ describe('parseEnvReference', () => {
   });
 });
 
+function envLookup(
+  source: NodeJS.ProcessEnv,
+): (reference: string) => string | null {
+  return (reference: string) => {
+    const parsed = parseSecretReference(reference);
+    if (!parsed || parsed.kind !== 'env') return null;
+    const value = source[parsed.name];
+    return typeof value === 'string' && value !== '' ? value : null;
+  };
+}
+
 describe('resolveServerEnv', () => {
   const VAR = 'ICOS_TEST_RESOLVE_ME';
 
@@ -152,30 +164,56 @@ describe('resolveServerEnv', () => {
   });
 
   it('resolves references at spawn time, failing closed on missing', () => {
+    const lookup = envLookup(process.env);
     process.env[VAR] = 's3cret';
-    expect(resolveServerEnv({ KEY: `$${VAR}` }, 'srv')).toEqual({
+    expect(resolveServerEnv({ KEY: `$${VAR}` }, 'srv', lookup)).toEqual({
       KEY: 's3cret',
     });
     // Empty counts as missing: no empty-string secrets.
     process.env[VAR] = '';
-    expect(() => resolveServerEnv({ KEY: `$${VAR}` }, 'srv')).toThrow(VAR);
+    expect(() => resolveServerEnv({ KEY: `$${VAR}` }, 'srv', lookup)).toThrow(
+      VAR,
+    );
     delete process.env[VAR];
-    expect(() => resolveServerEnv({ KEY: `$${VAR}` }, 'srv')).toThrow(VAR);
+    expect(() => resolveServerEnv({ KEY: `$${VAR}` }, 'srv', lookup)).toThrow(
+      VAR,
+    );
     // The throw names the variable, never any value.
     process.env[VAR] = 's3cret';
     try {
-      resolveServerEnv({ KEY: '$MISSING_VAR_XYZ', EXTRA: `$${VAR}` }, 'srv');
+      resolveServerEnv(
+        { KEY: '$MISSING_VAR_XYZ', EXTRA: `$${VAR}` },
+        'srv',
+        lookup,
+      );
       throw new Error('should have thrown');
     } catch (err) {
       expect((err as Error).message).toContain('MISSING_VAR_XYZ');
       expect((err as Error).message).not.toContain('s3cret');
     }
   });
+
+  it('resolves vault references through the lookup', () => {
+    const lookup = (reference: string): string | null =>
+      reference === 'secret:bytestash' ? 'Bearer tok' : null;
+    expect(
+      resolveServerEnv({ API_KEY: 'secret:bytestash' }, 'srv', lookup),
+    ).toEqual({ API_KEY: 'Bearer tok' });
+    expect(() =>
+      resolveServerEnv({ API_KEY: 'secret:missing' }, 'srv', lookup),
+    ).toThrow(/secret:missing/);
+  });
+
+  it('rejects literal values', () => {
+    expect(() =>
+      resolveServerEnv({ KEY: 'plaintext' }, 'srv', () => 'x'),
+    ).toThrow(/not a \$VAR or secret:/);
+  });
 });
 
 describe('buildChildEnv', () => {
   it('passes a small baseline allowlist and nothing else', () => {
-    const env = buildChildEnv(undefined, 'srv', {
+    const env = buildChildEnv(undefined, 'srv', () => null, {
       PATH: '/usr/bin',
       HOME: '/home/u',
       LLM_API_KEY: 'must-not-leak',
@@ -186,25 +224,50 @@ describe('buildChildEnv', () => {
   });
 
   it('adds only the variables the catalog references', () => {
-    const env = buildChildEnv({ API_KEY: '$BYTESTASH_AUTH' }, 'srv', {
+    const source = {
       PATH: '/bin',
       BYTESTASH_AUTH: 'Bearer tok',
       LLM_API_KEY: 'must-not-leak',
-    });
+    };
+    const env = buildChildEnv(
+      { API_KEY: '$BYTESTASH_AUTH' },
+      'srv',
+      envLookup(source),
+      source,
+    );
     expect(env).toEqual({ PATH: '/bin', API_KEY: 'Bearer tok' });
     expect(env).not.toHaveProperty('LLM_API_KEY');
     expect(JSON.stringify(env)).not.toContain('must-not-leak');
   });
 
-  it('lets a referenced var override the baseline and fails closed on missing', () => {
-    const env = buildChildEnv({ PATH: '$CUSTOM_PATH' }, 'srv', {
+  it('resolves a vault secret into the child env', () => {
+    const lookup = (reference: string): string | null =>
+      reference === 'secret:bytestash' ? 'Bearer tok' : null;
+    const env = buildChildEnv({ API_KEY: 'secret:bytestash' }, 'srv', lookup, {
       PATH: '/bin',
-      CUSTOM_PATH: '/opt/bin',
     });
+    expect(env).toEqual({ PATH: '/bin', API_KEY: 'Bearer tok' });
+  });
+
+  it('lets a referenced var override the baseline and fails closed on missing', () => {
+    const source = { PATH: '/bin', CUSTOM_PATH: '/opt/bin' };
+    const env = buildChildEnv(
+      { PATH: '$CUSTOM_PATH' },
+      'srv',
+      envLookup(source),
+      source,
+    );
     expect(env['PATH']).toBe('/opt/bin');
 
     expect(() =>
-      buildChildEnv({ KEY: '$NOPE_MISSING' }, 'srv', { PATH: '/bin' }),
+      buildChildEnv(
+        { KEY: '$NOPE_MISSING' },
+        'srv',
+        envLookup({ PATH: '/bin' }),
+        {
+          PATH: '/bin',
+        },
+      ),
     ).toThrow('NOPE_MISSING');
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CoreConfig } from '../config';
@@ -13,7 +13,16 @@ import type {
 } from './mcp-client';
 import { McpConnectionService } from './mcp-connection.service';
 import { sanitizeReason } from './mcp-connection.service';
+import { SecretChangeNotifier } from '../secrets/secret-change.notifier';
 import type { McpServerEntry } from './mcp-server-config';
+
+// The catalog watcher is exercised deterministically: the real fs
+// functions stay (temp dirs, file writes), only the watcher is stubbed
+// so the test drives its callback instead of waiting on OS polling.
+jest.mock('node:fs', () => {
+  const actual = jest.requireActual<Record<string, unknown>>('node:fs');
+  return { ...actual, watchFile: jest.fn(), unwatchFile: jest.fn() };
+});
 
 function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
   return {
@@ -172,11 +181,11 @@ describe('McpConnectionService', () => {
   let dir = '';
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'icos-mcp-conn-'));
+    dir = fs.mkdtempSync(join(tmpdir(), 'icos-mcp-conn-'));
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('stays dark when disabled, loading nothing', async () => {
@@ -194,7 +203,7 @@ describe('McpConnectionService', () => {
 
   it('connects catalogued servers fail-soft, one failure never blocks others', async () => {
     const path = join(dir, 'mcp-servers.json');
-    writeFileSync(
+    fs.writeFileSync(
       path,
       JSON.stringify([
         { name: 'good', transport: 'stdio', command: 'x' },
@@ -242,7 +251,7 @@ describe('McpConnectionService', () => {
 
   it('surfaces call failures without taking the manager down', async () => {
     const path = join(dir, 'mcp-servers.json');
-    writeFileSync(
+    fs.writeFileSync(
       path,
       JSON.stringify([{ name: 'flaky', transport: 'stdio', command: 'x' }]),
     );
@@ -263,7 +272,7 @@ describe('McpConnectionService', () => {
 
   it('notifies tool-set listeners after init and reconnect', async () => {
     const path = join(dir, 'mcp-servers.json');
-    writeFileSync(
+    fs.writeFileSync(
       path,
       JSON.stringify([{ name: 'good', transport: 'stdio', command: 'x' }]),
     );
@@ -295,7 +304,7 @@ describe('McpConnectionService', () => {
       behavior: ConstructorParameters<typeof FakeClient>[1] = {},
     ) => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'srv', transport: 'stdio', command: 'x' }]),
       );
@@ -338,7 +347,7 @@ describe('McpConnectionService', () => {
 
     it('refuses reads through a server that is not connected', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(path, JSON.stringify([]));
+      fs.writeFileSync(path, JSON.stringify([]));
       const service = new McpConnectionService(
         testConfig({ mcpServersPath: path }),
         new FakeFactory(),
@@ -360,10 +369,77 @@ describe('McpConnectionService', () => {
     });
   });
 
+  describe('secret changes (S3)', () => {
+    const writeCatalog = (path: string): void =>
+      fs.writeFileSync(
+        path,
+        JSON.stringify([
+          {
+            name: 'a',
+            transport: 'stdio',
+            command: 'x',
+            env: { API_KEY: 'secret:shared' },
+          },
+          {
+            name: 'b',
+            transport: 'stdio',
+            command: 'y',
+            env: { OTHER: 'secret:other' },
+          },
+        ]),
+      );
+
+    it('reconnects only servers that reference the changed secret', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeCatalog(path);
+      const created: string[] = [];
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory((entry) => {
+          created.push(entry.name);
+          return new FakeClient([{ name: 'ping', inputSchema: {} }]);
+        }),
+      );
+      await service.initialize();
+      expect(created).toEqual(['a', 'b']);
+
+      const reconnected = await service.reconnectReferencing('secret:shared');
+      expect(reconnected).toEqual(['a']);
+      expect(created).toEqual(['a', 'b', 'a']);
+      await service.onModuleDestroy();
+    });
+
+    it('reconnects dependents when a secret change is announced', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeCatalog(path);
+      const created: string[] = [];
+      const notifier = new SecretChangeNotifier();
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory((entry) => {
+          created.push(entry.name);
+          return new FakeClient([{ name: 'ping', inputSchema: {} }]);
+        }),
+        notifier,
+      );
+      await service.onModuleInit();
+      expect(created).toEqual(['a', 'b']);
+
+      notifier.notify('secret:other');
+      // reconnect is fire-and-forget from the notifier; let it settle.
+      const deadline = Date.now() + 2000;
+      while (created.length < 3 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(created).toEqual(['a', 'b', 'b']);
+      await service.onModuleDestroy();
+    });
+  });
+
   describe('drop detection (M13f)', () => {
     it('marks a lost connection failed, drops tools, then retries', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
       );
@@ -410,7 +486,7 @@ describe('McpConnectionService', () => {
 
     it('ignores a drop from a client the manager already replaced', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
       );
@@ -435,7 +511,7 @@ describe('McpConnectionService', () => {
   describe('reload (M13d)', () => {
     it('is a no-op report when MCP is disabled', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
       );
@@ -459,7 +535,7 @@ describe('McpConnectionService', () => {
     it('diffs the set: connects new, drops removed, leaves healthy alone', async () => {
       const path = join(dir, 'mcp-servers.json');
       const write = (entries: unknown[]): void =>
-        writeFileSync(path, JSON.stringify(entries));
+        fs.writeFileSync(path, JSON.stringify(entries));
       const created: string[] = [];
       const factory = new FakeFactory((entry) => {
         created.push(entry.name);
@@ -497,7 +573,7 @@ describe('McpConnectionService', () => {
     it('reconnects changed entries and honors disabled flips', async () => {
       const path = join(dir, 'mcp-servers.json');
       const write = (entries: unknown[]): void =>
-        writeFileSync(path, JSON.stringify(entries));
+        fs.writeFileSync(path, JSON.stringify(entries));
       const created: string[] = [];
       const factory = new FakeFactory((entry) => {
         created.push(`${entry.name}:${entry.command ?? entry.url ?? ''}`);
@@ -529,7 +605,7 @@ describe('McpConnectionService', () => {
 
     it('reports catalog parse errors without throwing', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(path, '{ not json');
+      fs.writeFileSync(path, '{ not json');
       const service = new McpConnectionService(
         testConfig({ mcpServersPath: path }),
         new FakeFactory(),
@@ -543,7 +619,7 @@ describe('McpConnectionService', () => {
 
     it('debounces catalog changes into a single reload', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
       );
@@ -557,7 +633,7 @@ describe('McpConnectionService', () => {
       expect(service.statusOf('a')?.state).toBe('connected');
 
       // Deterministic watch entry point — no OS-event dependency.
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([
           { name: 'a', transport: 'stdio', command: 'x' },
@@ -577,46 +653,61 @@ describe('McpConnectionService', () => {
       await service.onModuleDestroy();
     });
 
-    it('poll-watches the catalog file (no restart needed)', async () => {
+    it('registers a catalog file watch on boot', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
       );
+      const watchMock = fs.watchFile as unknown as jest.Mock;
+      const unwatchMock = fs.unwatchFile as unknown as jest.Mock;
+      watchMock.mockClear();
+      unwatchMock.mockClear();
+
       const service = new McpConnectionService(
         testConfig({ mcpServersPath: path }),
         new FakeFactory(
           () => new FakeClient([{ name: 'ping', inputSchema: {} }]),
         ),
       );
-      try {
-        await service.onModuleInit();
-        expect(service.statusOf('a')?.state).toBe('connected');
+      await service.onModuleInit();
+      expect(service.statusOf('a')?.state).toBe('connected');
 
-        // Add 'b' on disk; polling must pick it up without a restart.
-        writeFileSync(
-          path,
-          JSON.stringify([
-            { name: 'a', transport: 'stdio', command: 'x' },
-            { name: 'b', transport: 'stdio', command: 'y' },
-          ]),
-        );
-        const deadline = Date.now() + 15000;
-        while (
-          service.statusOf('b')?.state !== 'connected' &&
-          Date.now() < deadline
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        expect(service.statusOf('b')?.state).toBe('connected');
-      } finally {
-        await service.onModuleDestroy();
+      // The watcher is registered on the resolved catalog path; its
+      // callback drives the already-tested debounced reload.
+      expect(watchMock).toHaveBeenCalledTimes(1);
+      const call = watchMock.mock.calls[0] as [
+        string,
+        { interval: number },
+        () => void,
+      ];
+      expect(call[0]).toBe(path);
+      expect(typeof call[1].interval).toBe('number');
+
+      fs.writeFileSync(
+        path,
+        JSON.stringify([
+          { name: 'a', transport: 'stdio', command: 'x' },
+          { name: 'b', transport: 'stdio', command: 'y' },
+        ]),
+      );
+      call[2]();
+      const deadline = Date.now() + 3000;
+      while (
+        service.statusOf('b')?.state !== 'connected' &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
       }
-    }, 20000);
+      expect(service.statusOf('b')?.state).toBe('connected');
+
+      await service.onModuleDestroy();
+      expect(unwatchMock).toHaveBeenCalledWith(path);
+    });
 
     it('retries a failed server in the background at the backoff', async () => {
       const path = join(dir, 'mcp-servers.json');
-      writeFileSync(
+      fs.writeFileSync(
         path,
         JSON.stringify([{ name: 'flaky', transport: 'stdio', command: 'x' }]),
       );

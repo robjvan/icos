@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { parseSecretReference } from '../secrets/reference';
 
 export type McpTransport = 'stdio' | 'http';
 
@@ -62,51 +63,49 @@ function cleanReferenceMap(value: unknown): Record<string, string> | null {
   const env: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (!key.trim() || typeof entry !== 'string') return null;
-    if (!parseEnvReference(entry)) return null;
+    if (!parseSecretReference(entry)) return null;
     env[key] = entry;
   }
   return env;
 }
 
 /**
- * A process-env reference: `$NAME` or `${NAME}` (shell-shaped,
- * nothing fancier). Anything else — including a literal secret —
- * is rejected: secrets live in the operator's environment, never
- * in the catalog file.
+ * A secret reference in a catalog value: `$NAME`/`${NAME}` (process
+ * environment) or `secret:NAME` (the encrypted vault). Anything else —
+ * including a literal secret — is rejected: the catalog holds
+ * references, never values. Resolution happens at spawn/request time.
  */
 export function parseEnvReference(value: string): { name: string } | null {
-  const bare = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(value.trim());
-  if (bare?.[1]) return { name: bare[1] };
-  const braced = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value.trim());
-  if (braced?.[1]) return { name: braced[1] };
-  return null;
+  const reference = parseSecretReference(value);
+  return reference ? { name: reference.name } : null;
 }
 
+/** Look up a reference's value; null when missing (fail closed upstream). */
+export type SecretLookup = (reference: string) => string | null;
+
 /**
- * Resolve a validated `env` map against a process environment
- * (at spawn time, never earlier — the operator may rotate vars
- * between boot and reconnect). Missing or empty vars throw naming
- * only the variable, never any value. There is no fallback and
- * no empty-string default: a server that needs a secret it
- * cannot have fails closed before spawning.
+ * Resolve a validated `env` map at spawn time (never earlier — the
+ * operator may rotate a value between boot and reconnect). Missing or
+ * empty values throw naming the reference only, never any value. There
+ * is no fallback: a server that needs a secret it cannot have fails
+ * closed before spawning.
  */
 export function resolveServerEnv(
   env: Record<string, string> | undefined,
   serverName: string,
-  source: NodeJS.ProcessEnv = process.env,
+  lookup: SecretLookup,
 ): Record<string, string> {
   const resolved: Record<string, string> = {};
   for (const [key, reference] of Object.entries(env ?? {})) {
-    const parsed = parseEnvReference(reference);
-    if (!parsed) {
+    if (!parseSecretReference(reference)) {
       throw new Error(
-        `MCP server "${serverName}": env "${key}" is not a $VAR reference`,
+        `MCP server "${serverName}": env "${key}" is not a $VAR or secret: reference`,
       );
     }
-    const value = source[parsed.name];
+    const value = lookup(reference);
     if (!value) {
       throw new Error(
-        `MCP server "${serverName}": env "${key}" needs $${parsed.name} in the process environment`,
+        `MCP server "${serverName}": env "${key}" (${reference}) is not set`,
       );
     }
     resolved[key] = value;
@@ -162,6 +161,7 @@ export const CHILD_ENV_ALLOWLIST: readonly string[] = [
 export function buildChildEnv(
   env: Record<string, string> | undefined,
   serverName: string,
+  lookup: SecretLookup,
   source: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const child: Record<string, string> = {};
@@ -169,7 +169,7 @@ export function buildChildEnv(
     const value = source[key];
     if (typeof value === 'string' && value !== '') child[key] = value;
   }
-  return { ...child, ...resolveServerEnv(env, serverName, source) };
+  return { ...child, ...resolveServerEnv(env, serverName, lookup) };
 }
 
 function validateOne(
