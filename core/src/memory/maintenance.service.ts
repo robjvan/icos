@@ -523,9 +523,10 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
    * The loser goes contradicted with history intact (M10e behavior
    * kept); both sides link and record `revise` rows, and their
    * sources accrue win/loss. One active head per triple after.
-   * Comparison runs over ranked shells (comparison speaks only for
-   * recalled rows — here every member is ranked); proposals are
-   * ignored (no auto-parking: recall recommends, promotion parks).
+   * Time-anchored cross-links (M12e): the winner also links
+   * session-mate claims (shared evidence sessions, capped) —
+   * one-way, covered by the winner's revise row, so "I remember
+   * this because it was the X conversation" stays walkable.
    */
   private async revise(claim: Claim): Promise<boolean> {
     // Re-read: an earlier record in this same pass may have resolved
@@ -537,6 +538,8 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     if (rivals.length === 0) return false;
     const contenders = [fresh, ...rivals];
     const winner = pickRevisionWinner(contenders);
+    const pairIds = new Set(contenders.map((contender) => contender.id));
+    const mates = await this.sessionMates(winner, pairIds);
     let changed = false;
     for (const contender of contenders) {
       const won = contender.id === winner.id;
@@ -548,6 +551,8 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
           detail: {
             outcome: 'affirmed',
             policy: 'authority>corroboration>recency',
+            anchoredSessions: [...mates.sessions],
+            anchoredClaims: mates.claims.map((mate) => mate.id),
           },
           confidenceBefore: contender.confidence,
           confidenceAfter: contender.confidence,
@@ -571,7 +576,66 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
       await this.claims.addRelated(contender.id, [winner.id]);
       await this.claims.addRelated(winner.id, [contender.id]);
     }
+    if (changed && mates.claims.length > 0) {
+      await this.claims.addRelated(
+        winner.id,
+        mates.claims.map((mate) => mate.id),
+      );
+    }
     return changed;
+  }
+
+  /** Cap on time-anchored session mates per revision. */
+  private static readonly ANCHOR_MATES = 5;
+
+  /**
+   * Session mates for time-anchored cross-links: claims sharing an
+   * evidence session with the revision pair, excluding the pair
+   * itself. Bounded scan (pass limit), capped count, insertion
+   * order. Read-only — the caller links one way from the winner.
+   */
+  private async sessionMates(
+    winner: Claim,
+    pairIds: Set<string>,
+  ): Promise<{ sessions: string[]; claims: Claim[] }> {
+    const sessions = new Set<string>();
+    const pairClaims: Claim[] = [winner];
+    for (const rivalId of pairIds) {
+      if (rivalId === winner.id) continue;
+      const rival = await this.claims.getClaim(rivalId);
+      if (rival) pairClaims.push(rival);
+    }
+    for (const claim of pairClaims) {
+      for (const item of claim.evidence) {
+        const candidate = await this.candidates.getCandidate(item.candidateId);
+        if (candidate) sessions.add(candidate.source.sessionId);
+      }
+    }
+    if (sessions.size === 0) {
+      return { sessions: [], claims: [] };
+    }
+    const sessionCandidates = new Set<string>();
+    for (const sessionId of sessions) {
+      for (const candidate of await this.candidates.listCandidates(sessionId)) {
+        sessionCandidates.add(candidate.id);
+      }
+    }
+    const mates: Claim[] = [];
+    const all = await this.claims.listClaims({
+      limit: MAINTENANCE_PASS_LIMIT,
+    });
+    for (const candidate of all) {
+      if (mates.length >= MaintenanceService.ANCHOR_MATES) break;
+      if (pairIds.has(candidate.id)) continue;
+      if (
+        candidate.evidence.some((item) =>
+          sessionCandidates.has(item.candidateId),
+        )
+      ) {
+        mates.push(candidate);
+      }
+    }
+    return { sessions: [...sessions], claims: mates };
   }
 
   /**

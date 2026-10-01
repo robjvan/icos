@@ -394,6 +394,43 @@ export class SqliteClaimRepository extends ClaimRepository {
     return rows.map(toClaim);
   }
 
+  async listClaimsByTime(options?: {
+    from?: string;
+    to?: string;
+    sessionId?: string;
+    limit?: number;
+  }): Promise<Claim[]> {
+    const limit = Math.min(options?.limit ?? 50, MAX_LIST_LIMIT);
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (options?.from !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(options.from);
+    }
+    if (options?.to !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.to);
+    }
+    if (options?.sessionId !== undefined) {
+      // Claims store no session of their own: scope through ledger
+      // references (evidence candidate ids → sessions). JSON1
+      // unpacking; the ledger is read, never touched.
+      clauses.push(`EXISTS (
+        SELECT 1 FROM memory_candidates AS mc, json_each(claims.evidence_json) AS je
+         WHERE mc.id = je.value ->> 'candidateId'
+           AND mc.session_id = ?
+      )`);
+      params.push(options.sessionId);
+    }
+    params.push(limit);
+    const sql =
+      `SELECT * FROM claims` +
+      (clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '') +
+      ` ORDER BY created_at DESC, rowid DESC LIMIT ?`;
+    const rows = this.database.prepare(sql).all(...params) as ClaimRow[];
+    return rows.map(toClaim);
+  }
+
   async ping(): Promise<void> {
     this.database.prepare('SELECT 1').get();
   }

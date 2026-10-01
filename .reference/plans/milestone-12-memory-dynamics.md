@@ -164,7 +164,9 @@ this, but it's wrong" (ACT-R lineage):
 
 ---
 
-# [ ] M12e — Temporal Reasoning
+# [x] M12e — Temporal Reasoning (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12e-evidence-temporal.md`.
 
 Claims have timestamps (M10); M12 navigates them:
 
@@ -189,7 +191,9 @@ Claims have timestamps (M10); M12 navigates them:
 
 ---
 
-# [ ] M12f — Verification
+# [x] M12f — Verification (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12f-evidence-verification.md`.
 
 Dynamics are slow and easy to fake — verification is longitudinal:
 

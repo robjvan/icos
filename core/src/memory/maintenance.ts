@@ -174,3 +174,17 @@ export function spreadShare(fanout: number): number {
     ACTIVATION_SELF_BOOST / Math.max(1, Math.min(fanout, ACTIVATION_FAN_CAP))
   );
 }
+
+/**
+ * Temporal proximity weight (M12e): 1 for co-temporal beliefs,
+ * decaying with separation (week-scale gradient). Owned here as
+ * data for future rank integration — M11 ranking consumes weights,
+ * never raw timestamps. Pure, symmetric, unitless.
+ */
+export function temporalProximity(aIso: string, bIso: string): number {
+  const a = Date.parse(aIso);
+  const b = Date.parse(bIso);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  const days = Math.abs(a - b) / 86_400_000;
+  return 1 / (1 + days / 7);
+}

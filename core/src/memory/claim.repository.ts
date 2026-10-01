@@ -59,6 +59,19 @@ export abstract class ClaimRepository {
   }): Promise<Claim[]>;
 
   /**
+   * M12e timeline axis: claims by creation window, optionally
+   * scoped to one conversation (evidence session, resolved through
+   * the ledger by reference — claims store no session of their
+   * own). ISO strings compare lexicographically; newest first.
+   */
+  abstract listClaimsByTime(options?: {
+    from?: string;
+    to?: string;
+    sessionId?: string;
+    limit?: number;
+  }): Promise<Claim[]>;
+
+  /**
    * M12 access observation: bump `accessCount` and touch
    * `lastAccessedAt` for claims surfaced in a turn. The single
    * mutation M11 is allowed — M12 owns its meaning, and nothing

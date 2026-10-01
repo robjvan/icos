@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -73,6 +74,34 @@ export class SearchClaimsQueryDto {
   @Min(1)
   @Max(50)
   k?: number;
+}
+
+export class TimelineClaimsQueryDto {
+  /** ISO lower bound on claim creation (inclusive). */
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  /** ISO upper bound on claim creation (inclusive). */
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  /** Scope to one conversation (resolved via evidence references). */
+  @IsOptional()
+  @IsUUID()
+  sessionId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+export class TimelineClaimsResponseDto {
+  claims!: Claim[];
 }
 
 export class SearchClaimsResponseDto {

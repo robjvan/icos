@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CoreConfig } from '../config';
@@ -6,6 +7,7 @@ import { DatabaseService } from '../session/database.service';
 import type { Claim } from './claim';
 import type { NewClaim } from './claim';
 import { compoundConfidence, MaintenanceService } from './maintenance.service';
+import { temporalProximity } from './maintenance';
 import {
   activationBoost,
   activationDecayStep,
@@ -111,6 +113,21 @@ describe('compoundConfidence', () => {
     expect(compoundConfidence(0.9, 99)).toBeCloseTo(0.99, 6);
     expect(compoundConfidence(0.985, 5)).toBe(0.99);
     expect(compoundConfidence(0.99, 5)).toBe(0.99);
+  });
+});
+
+describe('temporalProximity', () => {
+  it('scores co-temporal beliefs near one, distant near zero', () => {
+    expect(
+      temporalProximity('2026-09-30T00:00:00.000Z', '2026-09-30T12:00:00.000Z'),
+    ).toBeCloseTo(0.93, 2);
+    expect(
+      temporalProximity('2026-09-30T00:00:00.000Z', '2020-01-01T00:00:00.000Z'),
+    ).toBeLessThan(0.01);
+    expect(
+      temporalProximity('2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z'),
+    ).toBe(1);
+    expect(temporalProximity('nope', '2026-09-30T00:00:00.000Z')).toBe(0);
   });
 });
 
@@ -817,19 +834,49 @@ describe('MaintenanceService revision, lock, and classification', () => {
         evidence: [{ candidateId: coffee.id, role: 'user' }],
       }),
     );
+    // Same-session bystander (different pair): time-anchored context.
+    const [water] = await s.candidates.saveCandidates([
+      {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'drinks',
+        object: 'water',
+        confidence: 0.9,
+        importance: 0.5,
+        stability: 0.5,
+        sourceRole: 'user',
+        negated: false,
+        source: { sessionId: 's1', messageId: 2, role: 'user' },
+        extractorModel: 'test-model',
+        extractorVersion: 'v1',
+      },
+    ]);
+    if (!water) throw new Error('candidate seeding failed');
+    const bystander = await s.claims.createClaim(
+      claim('user', 'drinks', 'water', {
+        evidence: [{ candidateId: water.id, role: 'user' }],
+      }),
+    );
 
     expect(await s.maintenance.runPass()).toMatchObject({ revised: 1 });
     expect((await s.claims.getClaim(approved.id))?.status).toBe('active');
     expect((await s.claims.getClaim(auto.id))?.status).toBe('contradicted');
     // Both sides linked, both sides historied.
     expect((await s.claims.getClaim(auto.id))?.related).toEqual([approved.id]);
-    expect((await s.claims.getClaim(approved.id))?.related).toEqual([auto.id]);
+    // Winner additionally anchors the session context (one-way).
+    expect((await s.claims.getClaim(approved.id))?.related).toEqual([
+      auto.id,
+      bystander.id,
+    ]);
     expect(
       (await s.history.listByClaimId(auto.id)).map((row) => row.transition),
     ).toEqual(['revise', 'classify']);
-    expect(await s.history.listByClaimId(approved.id)).toMatchObject([
-      { transition: 'revise' },
-    ]);
+    const winnerHistory = await s.history.listByClaimId(approved.id);
+    expect(winnerHistory).toMatchObject([{ transition: 'revise' }]);
+    expect(winnerHistory[0]?.detail).toMatchObject({
+      anchoredSessions: ['s1'],
+      anchoredClaims: [bystander.id],
+    });
     // Winner source wins, loser source loses.
     expect(await s.reliability.get('user/test-model')).toMatchObject({
       wins: 1,
@@ -1139,5 +1186,267 @@ describe('MaintenanceService activation', () => {
 
     // Second pass: same trace, already suppressed — silent.
     expect(await s.maintenance.runPass()).toMatchObject({ suppressed: 0 });
+  });
+});
+
+describe('MaintenanceService longitudinal invariants (M12f)', () => {
+  let dir = '';
+  const services: DatabaseService[] = [];
+
+  const setupLong = (overrides: Partial<CoreConfig> = {}) => {
+    const config = testConfig(join(dir, 'long.sqlite'), dir, overrides);
+    const service = new MemoryDatabaseService(config);
+    service.onModuleInit();
+    services.push(service);
+    const claims = new SqliteClaimRepository(service);
+    const history = new SqliteClaimHistoryRepository(service);
+    const journal = new SqlitePromotionJournalRepository(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const reliability = new SqliteSourceReliabilityRepository(service);
+    const prospective = new SqliteProspectiveItemRepository(service);
+    const traces = new RecallTraceStore();
+    const maintenance = new MaintenanceService(
+      config,
+      claims,
+      history,
+      journal,
+      candidates,
+      reliability,
+      prospective,
+      traces,
+    );
+    return {
+      maintenance,
+      claims,
+      history,
+      journal,
+      candidates,
+      db: service,
+      config,
+    };
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-long-'));
+    counter = 0;
+  });
+
+  afterEach(() => {
+    for (const service of services.splice(0)) {
+      service.onModuleDestroy();
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const ledgerChecksum = async (
+    setupResult: ReturnType<typeof setupLong>,
+  ): Promise<string> => {
+    const rows = await setupResult.candidates.listCandidates(undefined, {
+      limit: 10000,
+    });
+    return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+  };
+
+  it('approaches the ceiling asymptotically, never jumping', async () => {
+    const s = setupLong();
+    const saved = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript', { confidence: 0.5 }),
+    );
+    let previous = 0.5;
+    // Twelve corroborations: compounding per level, bounded. Each
+    // append carries the current estimate forward (appendEvidence
+    // sets what it is told — the pass is what compounds).
+    for (let i = 0; i < 12; i++) {
+      const base = (await s.claims.getClaim(saved.id))?.confidence ?? 0.5;
+      await s.claims.appendEvidence(
+        saved.id,
+        [{ candidateId: `cx-${i}`, role: 'user' }],
+        base,
+      );
+      await s.maintenance.runPass();
+      const current = (await s.claims.getClaim(saved.id))?.confidence ?? 0;
+      expect(current).toBeGreaterThanOrEqual(previous);
+      expect(current).toBeLessThanOrEqual(0.99);
+      // Single observations never jump: bounded step per pass.
+      expect(current - previous).toBeLessThan(0.11);
+      previous = current;
+    }
+    expect(previous).toBe(0.99);
+  });
+
+  it('pairs every history row with matching state, ledger stable', async () => {
+    const s = setupLong();
+    // A real ledger row: the checksum below must prove the pass
+    // never touches candidates, not merely preserve emptiness.
+    await s.candidates.saveCandidates([
+      {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+        object: 'seed',
+        confidence: 0.9,
+        importance: 0.5,
+        stability: 0.5,
+        sourceRole: 'user',
+        negated: false,
+        source: { sessionId: 's1', messageId: 1, role: 'user' },
+        extractorModel: 'mem',
+        extractorVersion: 'v1',
+      },
+    ]);
+    const before = await ledgerChecksum(s);
+    // Compoundable (timesObserved moves only through REINFORCE).
+    const reinforced = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript', {
+        evidence: [
+          { candidateId: 'c1', role: 'user' },
+          { candidateId: 'c2', role: 'user' },
+        ],
+      }),
+    );
+    await s.claims.appendEvidence(
+      reinforced.id,
+      [{ candidateId: 'c3', role: 'user' }],
+      0.9,
+    );
+    // Decaying (backdated touch).
+    const stale = await s.claims.createClaim(claim('user', 'likes', 'rain'));
+    s.db.connection
+      .prepare('UPDATE claims SET updated_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', stale.id);
+    // Linkable contradict pair (journal-committed).
+    const oldie = await s.claims.createClaim(claim('user', 'uses', 'vim'));
+    const newie = await s.claims.createClaim(claim('user', 'uses', 'emacs'));
+    await s.claims.setStatus(oldie.id, 'contradicted');
+    const proposed = await s.journal.recordProposal({
+      candidateId: 'cand-x',
+      operation: 'CONTRADICT',
+    });
+    await s.journal.setState(proposed.id, 'committed', {
+      claimId: newie.id,
+      detail: `contradicts:${oldie.id}`,
+    });
+    // Gist trio (distinct evidence, same pair).
+    for (const object of ['coffee', 'tea', 'water']) {
+      await s.claims.createClaim(
+        claim('user', 'drinks', object, {
+          evidence: [{ candidateId: `e-${object}`, role: 'user' }],
+        }),
+      );
+    }
+    // Revision pair (approved beats auto).
+    await s.claims.createClaim(
+      claim('user', 'edits', 'nano', { promotion: 'auto' }),
+    );
+    await s.claims.createClaim(claim('user', 'edits', 'helix'));
+    // Classifiable loner.
+    await s.claims.createClaim(claim('user', 'naps', 'daily'));
+
+    const summary = await s.maintenance.runPass();
+    expect(summary).toMatchObject({
+      compounded: 1,
+      decayed: 1,
+      linked: 2,
+      gistProposed: 3,
+      revised: 1,
+    });
+
+    // Audit pairing: every history row matches current state.
+    const all = await s.claims.listClaims({ limit: 500 });
+    for (const row of all) {
+      const live = (await s.claims.getClaim(row.id)) ?? row;
+      for (const entry of await s.history.listByClaimId(row.id)) {
+        switch (entry.transition) {
+          case 'compound':
+          case 'decay':
+            expect(live.confidence).toBeLessThanOrEqual(
+              entry.confidenceAfter ?? 1,
+            );
+            break;
+          case 'revise':
+            if ((entry.detail['outcome'] as string) === 'superseded') {
+              expect(live.status).toBe('contradicted');
+            } else {
+              expect(live.status).toBe('active');
+            }
+            break;
+          case 'link':
+            for (const id of (entry.detail['related'] as string[]) ?? []) {
+              expect(live.related).toContain(id);
+            }
+            break;
+          case 'gist_proposed':
+            expect((entry.detail['family'] as string[]).length).toBeGreaterThan(
+              0,
+            );
+            break;
+          case 'classify':
+            expect(live.sourceType).toBe(entry.detail['sourceType'] as string);
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    // One active head per triple.
+    const heads = all.filter((c) => c.status === 'active');
+    const triples = heads.map(
+      (c) =>
+        `${c.subject}|${c.predicate}|${c.object}|${c.negated ? 'neg' : 'aff'}`,
+    );
+    expect(new Set(triples).size).toBe(triples.length);
+
+    // The ledger never moves, no matter how many passes age beliefs.
+    expect(await ledgerChecksum(s)).toBe(before);
+    await s.maintenance.runPass();
+    expect(await ledgerChecksum(s)).toBe(before);
+  });
+
+  it('leaves no history without a matching state on crash', async () => {
+    const s = setupLong();
+    const reinforced = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript', {
+        evidence: [
+          { candidateId: 'c1', role: 'user' },
+          { candidateId: 'c2', role: 'user' },
+        ],
+      }),
+    );
+    // timesObserved moves only through REINFORCE — without this the
+    // claim below would skip compounding and the test would prove
+    // nothing.
+    await s.claims.appendEvidence(
+      reinforced.id,
+      [{ candidateId: 'c3', role: 'user' }],
+      0.9,
+    );
+    await s.claims.createClaim(claim('user', 'likes', 'rain'));
+    const failingJournal = {
+      listByState: () => Promise.reject(new Error('journal down')),
+    } as unknown as PromotionJournalRepository;
+    const probing = new MaintenanceService(
+      s.config,
+      s.claims,
+      s.history,
+      failingJournal,
+      s.candidates,
+      new SqliteSourceReliabilityRepository(s.db),
+      new SqliteProspectiveItemRepository(s.db),
+      new RecallTraceStore(),
+    );
+
+    expect(await probing.runPass()).toMatchObject({
+      compounded: 1,
+      failed: 1,
+    });
+    // The failed record carries no history at all: nothing
+    // half-applied, nothing to recover.
+    const failed = await s.claims.findByTriple({
+      subject: 'user',
+      predicate: 'likes',
+      object: 'rain',
+    });
+    expect(failed).toBeDefined();
+    expect(await s.history.listByClaimId(failed?.id ?? '')).toEqual([]);
   });
 });

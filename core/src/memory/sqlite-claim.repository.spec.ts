@@ -6,6 +6,7 @@ import { DatabaseService } from '../session/database.service';
 import { MemoryDatabaseService } from './memory-database.service';
 import type { NewClaim } from './claim';
 import { SqliteClaimRepository } from './sqlite-claim.repository';
+import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repository';
 
 function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   return {
@@ -432,5 +433,83 @@ describe('SqliteClaimRepository', () => {
         })
       )?.id,
     ).toBe(saved.id);
+  });
+
+  it('queries the timeline by window and conversation', async () => {
+    const service = new MemoryDatabaseService(
+      testConfig(join(dir, 'timeline.sqlite'), dir),
+    );
+    service.onModuleInit();
+    services.push(service);
+    const repository = new SqliteClaimRepository(service);
+    const old = await repository.createClaim(claim('Old'));
+    await repository.createClaim(claim('Young'));
+    // Backdate through the table: creation time is stamped at write.
+    service.connection
+      .prepare('UPDATE claims SET created_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', old.id);
+
+    expect(
+      (await repository.listClaimsByTime({})).map((c) => c.object),
+    ).toEqual(['Young', 'Old']);
+    expect(
+      (
+        await repository.listClaimsByTime({
+          from: '2025-01-01T00:00:00.000Z',
+        })
+      ).map((c) => c.object),
+    ).toEqual(['Young']);
+    expect(
+      await repository.listClaimsByTime({
+        from: '2021-01-01T00:00:00.000Z',
+        to: '2022-01-01T00:00:00.000Z',
+      }),
+    ).toHaveLength(0);
+    expect(await repository.listClaimsByTime({ limit: 1 })).toHaveLength(1);
+  });
+
+  it('scopes the timeline to one conversation via evidence', async () => {
+    const service = new MemoryDatabaseService(
+      testConfig(join(dir, 'timeline-sess.sqlite'), dir),
+    );
+    service.onModuleInit();
+    services.push(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const repository = new SqliteClaimRepository(service);
+    const save = async (sessionId: string, object: string): Promise<string> => {
+      const [saved] = await candidates.saveCandidates([
+        {
+          kind: 'fact',
+          subject: 'user',
+          predicate: 'likes',
+          object,
+          confidence: 0.9,
+          importance: 0.5,
+          stability: 0.5,
+          sourceRole: 'user',
+          source: { sessionId, messageId: 1, role: 'user' },
+          extractorModel: 'mem',
+          extractorVersion: 'v1',
+          negated: false,
+        },
+      ]);
+      if (!saved) throw new Error('seed failed');
+      const created = await repository.createClaim({
+        ...claim(object),
+        subject: 'user',
+        predicate: 'likes',
+        evidence: [{ candidateId: saved.id, role: 'user' }],
+      });
+      return created.id;
+    };
+    const inSession = await save('s1', 'tea');
+    await save('s2', 'coffee');
+
+    expect(
+      (await repository.listClaimsByTime({ sessionId: 's1' })).map((c) => c.id),
+    ).toEqual([inSession]);
+    expect(
+      await repository.listClaimsByTime({ sessionId: 'nope' }),
+    ).toHaveLength(0);
   });
 });

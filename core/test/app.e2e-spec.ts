@@ -860,6 +860,32 @@ describe('Conversation (e2e)', () => {
       .post('/core/claims/00000000-0000-0000-0000-000000000000/retire')
       .send({})
       .expect(404);
+
+    // Timeline axis: windowed recall with conversation scoping.
+    const wide = await request(http())
+      .get('/core/claims/timeline')
+      .query({ from: '2020-01-01T00:00:00.000Z' })
+      .expect(200);
+    expect(
+      (wide.body as { claims: { id: string }[] }).claims.map((c) => c.id),
+    ).toEqual([claimId]);
+    const future = await request(http())
+      .get('/core/claims/timeline')
+      .query({ from: '2030-01-01T00:00:00.000Z' })
+      .expect(200);
+    expect((future.body as { claims: unknown[] }).claims).toHaveLength(0);
+    const scoped = await request(http())
+      .get('/core/claims/timeline')
+      .query({ sessionId })
+      .expect(200);
+    expect(
+      (scoped.body as { claims: { id: string }[] }).claims.map((c) => c.id),
+    ).toEqual([claimId]);
+    const other = await request(http())
+      .get('/core/claims/timeline')
+      .query({ sessionId: '00000000-0000-0000-0000-000000000000' })
+      .expect(200);
+    expect((other.body as { claims: unknown[] }).claims).toHaveLength(0);
   });
 
   it('traces turn-time recall per session for inspection', async () => {

@@ -99,7 +99,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M11 are complete. M12 (memory dynamics) is the active milestone.**
+**M1–M12 are complete. M13 (MCP server support) is the active milestone.**
 
 The current system provides:
 
@@ -122,10 +122,14 @@ The current system provides:
 - Turn-time recall (lexical + semantic + associative surfaces, ranked
   with confidence gating and provenance lenses, band-separated context
   that never confuses memory with user speech)
+- Memory dynamics (bounded reinforcement, honest decay, revision with
+  walkable history, deliberate retirement, salience apart from truth,
+  temporal navigation)
+- Contradiction transparency in the web client (paired belief links,
+  negation markers, parked-question surfacing)
 
-The active milestone is **M12: Memory Dynamics** (consolidation, decay,
-supersession, belief revision — beliefs that evolve instead of only
-accumulating).
+The active milestone is **M13: MCP Server Support** (exposing ICOS
+capabilities to other systems).
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 

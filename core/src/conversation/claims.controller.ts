@@ -32,6 +32,8 @@ import {
   RetireClaimResponseDto,
   SearchClaimsQueryDto,
   SearchClaimsResponseDto,
+  TimelineClaimsQueryDto,
+  TimelineClaimsResponseDto,
 } from './dto/claims.dto';
 
 /**
@@ -64,7 +66,7 @@ export class ClaimsController {
     };
   }
 
-  // Registered before ':id' — otherwise 'search' parses as a claim id.
+  // Registered before ':id' — otherwise 'search'/'timeline' parse as ids.
   @Get('search')
   async search(
     @Query() query: SearchClaimsQueryDto,
@@ -84,6 +86,28 @@ export class ClaimsController {
       if (claim) results.push({ ...claim, score: hit.score });
     }
     return { results, degraded: false };
+  }
+
+  /**
+   * Timeline axis (M12e): recall along *when* — creation window,
+   * optionally scoped to one conversation (resolved through
+   * evidence references; claims store no session of their own).
+   * Newest first. No new write paths.
+   */
+  @Get('timeline')
+  async timeline(
+    @Query() query: TimelineClaimsQueryDto,
+  ): Promise<TimelineClaimsResponseDto> {
+    return {
+      claims: await this.claims.listClaimsByTime({
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        ...(query.sessionId !== undefined
+          ? { sessionId: query.sessionId }
+          : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      }),
+    };
   }
 
   @Get(':id')
