@@ -335,4 +335,28 @@ describe('loadConfig', () => {
       loadConfig({ LLM_MODEL: 'm', AUTH_ENABLED: 'sometimes' }),
     ).toThrow(/Expected a boolean/);
   });
+
+  it('parses secret vault settings (S3)', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults.vaultPath).toBe(
+      join(defaults.authDirPath, 'secrets.vault'),
+    );
+    expect(defaults.vaultKey).toBeUndefined();
+    expect(defaults.vaultKeyFile).toBeUndefined();
+
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      VAULT_PATH: '/etc/icos/v.vault',
+      VAULT_KEY: 'x'.repeat(32),
+    });
+    expect(configured.vaultPath).toBe('/etc/icos/v.vault');
+    expect(configured.vaultKey).toBe('x'.repeat(32));
+
+    // The plan's ICOS_-prefixed names are accepted too.
+    const viaFile = loadConfig({
+      LLM_MODEL: 'm',
+      ICOS_VAULT_KEY_FILE: '/run/secrets/vault',
+    });
+    expect(viaFile.vaultKeyFile).toBe('/run/secrets/vault');
+  });
 });

@@ -40,6 +40,22 @@ export interface CoreConfig {
    * exception); it downgrades transport protection.
    */
   authCookieSecure: boolean;
+  /**
+   * Encrypted secret vault path (S3). Defaults to
+   * `<authDirPath>/secrets.vault` so it sits with the other secret
+   * material and follows `AUTH_DIR_PATH` in Docker. Values written
+   * through the API are encrypted here; the catalog only ever holds
+   * references.
+   */
+  vaultPath?: string;
+  /**
+   * Master key for the vault: a 32-byte key as base64/base64url/hex,
+   * read from a file (preferred; e.g. a Docker secret) or the
+   * environment. Absent + empty vault = UI-managed secrets disabled;
+   * absent + non-empty vault = boot fails loudly.
+   */
+  vaultKeyFile?: string;
+  vaultKey?: string;
   provider: string;
   llmBaseUrl: string;
   llmModel: string;
@@ -224,6 +240,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     DEFAULT_ALLOWED_ORIGINS,
     'CORS_ALLOWED_ORIGINS',
   );
+  const authDirPath = resolvePath(env.AUTH_DIR_PATH, '~/.icos/auth');
 
   return {
     port: parsePositiveInt(env.PORT, 3000, 'PORT'),
@@ -231,13 +248,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     corsAllowedOrigins,
     exposeAcknowledged: parseBoolean(env.EXPOSE_ACKNOWLEDGED, false),
     authEnabled: parseBoolean(env.AUTH_ENABLED, true),
-    authDirPath: resolvePath(env.AUTH_DIR_PATH, '~/.icos/auth'),
+    authDirPath,
     authSessionTtlMs: parsePositiveInt(
       env.AUTH_SESSION_TTL_MS,
       30 * 24 * 60 * 60 * 1000,
       'AUTH_SESSION_TTL_MS',
     ),
     authCookieSecure: parseBoolean(env.AUTH_COOKIE_SECURE, true),
+    vaultPath:
+      (env.VAULT_PATH ?? '').trim() || join(authDirPath, 'secrets.vault'),
+    vaultKeyFile:
+      (env.ICOS_VAULT_KEY_FILE ?? env.VAULT_KEY_FILE ?? '').trim() || undefined,
+    vaultKey: (env.ICOS_VAULT_KEY ?? env.VAULT_KEY ?? '').trim() || undefined,
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,

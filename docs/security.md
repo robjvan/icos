@@ -104,17 +104,32 @@ least-effort safe option for personal access.
 
 ## Secrets
 
-- Provider and MCP keys live in **process environment variables**, never
-  in catalog files, never in logs, and are never returned by any API.
-- MCP catalog `env`/`headers` values must be `$VAR` references, resolved
-  at launch. Missing variables fail that server closed.
+- Secrets can live in **process environment variables** *or* the
+  **encrypted vault**; catalogs hold only references (`$VAR` for the
+  environment, `secret:NAME` for the vault), never values.
+- The vault (`VAULT_PATH`, default `<AUTH_DIR_PATH>/secrets.vault`) is
+  AES-256-GCM encrypted at rest, `0600`, one nonce per secret with the
+  secret name bound in. Values are decrypted in memory on demand.
+- The vault API is **admin-only and write-only**: reads expose presence
+  and metadata, never a value; every response is `Cache-Control:
+  no-store`. Rotate by writing again; deleting a secret makes any
+  server/provider that references it fail closed.
+- The **master key** is 32 bytes (hex/base64), supplied via
+  `VAULT_KEY_FILE` (preferred — e.g. a Docker secret) or `VAULT_KEY`.
+  With no key the vault is disabled (env references still work); a
+  non-empty vault with no key fails boot. **Back the key up
+  separately** — the vault is useless without it, and a lost key means
+  re-entering every secret.
 - Spawned MCP servers receive a **minimal environment** — a small
   baseline (PATH, HOME, locale, TLS/proxy) plus only the variables their
   catalog entry references. A third-party server cannot read your other
   keys.
-- Frontend key entry and an encrypted-at-rest vault are planned (see
-  `security-hardening.md`); until then, keys are set in `core/.env`
-  (which is git-ignored) and exported before launch.
+
+Generate a key (then store it where only you can read):
+
+```sh
+head -c 32 /dev/urandom | base64     # put this in VAULT_KEY_FILE
+```
 
 ## Before you expose ICOS
 

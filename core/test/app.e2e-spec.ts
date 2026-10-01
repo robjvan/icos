@@ -14,6 +14,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { CoreModule } from '../src/core.module';
 import { CORE_CONFIG } from '../src/config';
+import { generateMasterKey } from '../src/secrets/file-vault';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -153,7 +154,12 @@ describe('Conversation (e2e)', () => {
     sessionDbPath: string,
     memoryDbPath: string,
     legacyDbPath?: string,
-    auth: { dir: string; enabled: boolean } = {
+    auth: {
+      dir: string;
+      enabled: boolean;
+      vaultKey?: string;
+      vaultPath?: string;
+    } = {
       dir: join(dir, 'auth-unused'),
       enabled: false,
     },
@@ -171,6 +177,8 @@ describe('Conversation (e2e)', () => {
         authDirPath: auth.dir,
         authSessionTtlMs: 2592000000,
         authCookieSecure: false,
+        ...(auth.vaultKey !== undefined ? { vaultKey: auth.vaultKey } : {}),
+        ...(auth.vaultPath !== undefined ? { vaultPath: auth.vaultPath } : {}),
         provider: 'ollama',
         llmBaseUrl: 'http://localhost:11434/v1',
         llmModel: 'test-model',
@@ -2199,7 +2207,12 @@ describe('Conversation (e2e)', () => {
         join(authDir, 'sessions.sqlite'),
         join(authDir, 'memories.sqlite'),
         undefined,
-        { dir: authDir, enabled: true },
+        {
+          dir: authDir,
+          enabled: true,
+          vaultKey: generateMasterKey(),
+          vaultPath: join(authDir, 'secrets.vault'),
+        },
       );
       token = readFileSync(join(authDir, 'token'), 'utf8').trim();
     });
@@ -2208,6 +2221,18 @@ describe('Conversation (e2e)', () => {
       await authApp.close();
       rmSync(authDir, { recursive: true, force: true });
     });
+
+    async function loginCookies(): Promise<{ cookie: string; csrf: string }> {
+      const login = await agent()
+        .post('/core/auth/login')
+        .send({ token })
+        .expect(200);
+      const cookies =
+        (login.headers['set-cookie'] as unknown as string[]) ?? [];
+      const cookie = cookies.map((c) => c.split(';')[0]).join('; ');
+      const csrf = /icos_csrf=([^;]+)/.exec(cookie)?.[1] ?? '';
+      return { cookie, csrf };
+    }
 
     it('keeps liveness public and locks everything else', async () => {
       await agent().get('/core/health/live').expect(200);
@@ -2266,6 +2291,116 @@ describe('Conversation (e2e)', () => {
       expect(setCookie).toContain('icos_session=;');
       expect(setCookie).toContain('icos_csrf=;');
       expect(setCookie).toContain('Max-Age=0');
+    });
+
+    it('stores secrets write-only and never returns a value', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const put = await agent()
+        .put('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 's3cret-value' })
+        .expect(200);
+      expect(String(put.headers['cache-control'])).toContain('no-store');
+      expect(JSON.stringify(put.body)).not.toContain('s3cret-value');
+
+      const list = await agent()
+        .get('/core/secrets')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(list.body).toMatchObject({ writable: true });
+      expect(JSON.stringify(list.body)).not.toContain('s3cret-value');
+
+      const one = await agent()
+        .get('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(one.body).toMatchObject({ name: 'bytestash', present: true });
+      expect(JSON.stringify(one.body)).not.toContain('s3cret-value');
+
+      await agent()
+        .delete('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      await agent()
+        .get('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .expect(404);
+    });
+
+    it('requires the CSRF header and valid names', async () => {
+      const { cookie, csrf } = await loginCookies();
+      await agent()
+        .put('/core/secrets/x')
+        .set('Cookie', cookie)
+        .send({ value: 'v' })
+        .expect(403);
+      await agent()
+        .put('/core/secrets/-bad')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 'v' })
+        .expect(400);
+      await agent()
+        .put('/core/secrets/x')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: '' })
+        .expect(400);
+      await agent()
+        .delete('/core/secrets/nope')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(404);
+    });
+
+    describe('with the vault disabled (no master key)', () => {
+      let noVaultApp: INestApplication<App>;
+      let noVaultDir: string;
+
+      beforeAll(async () => {
+        noVaultDir = mkdtempSync(join(tmpdir(), 'icos-e2e-novault-'));
+        noVaultApp = await createApp(
+          join(noVaultDir, 'sessions.sqlite'),
+          join(noVaultDir, 'memories.sqlite'),
+          undefined,
+          { dir: noVaultDir, enabled: true },
+        );
+      });
+
+      afterAll(async () => {
+        await noVaultApp.close();
+        rmSync(noVaultDir, { recursive: true, force: true });
+      });
+
+      it('lists as not writable and refuses writes with 409', async () => {
+        const noVaultToken = readFileSync(
+          join(noVaultDir, 'token'),
+          'utf8',
+        ).trim();
+        const login = await request(noVaultApp.getHttpServer())
+          .post('/core/auth/login')
+          .send({ token: noVaultToken })
+          .expect(200);
+        const cookies =
+          (login.headers['set-cookie'] as unknown as string[]) ?? [];
+        const cookie = cookies.map((c) => c.split(';')[0]).join('; ');
+        const csrf = /icos_csrf=([^;]+)/.exec(cookie)?.[1] ?? '';
+
+        const list = await request(noVaultApp.getHttpServer())
+          .get('/core/secrets')
+          .set('Cookie', cookie)
+          .expect(200);
+        expect(list.body).toMatchObject({ writable: false, secrets: [] });
+
+        await request(noVaultApp.getHttpServer())
+          .put('/core/secrets/x')
+          .set('Cookie', cookie)
+          .set('x-icos-csrf', csrf)
+          .send({ value: 'v' })
+          .expect(409);
+      });
     });
   });
 });
