@@ -30,6 +30,7 @@ import { PromotionService } from '../memory/promotion.service';
 import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
 import { MaintenanceService } from '../memory/maintenance.service';
 import { RankService } from '../memory/rank.service';
+import { SourceReliabilityRepository } from '../memory/source-reliability.repository';
 import { RecallService } from '../memory/recall.service';
 import { RecallTraceStore } from '../memory/recall-trace.store';
 import { RuvectorClaimIndex } from '../memory/ruvector-claim-index';
@@ -37,6 +38,7 @@ import { SqliteClaimRepository } from '../memory/sqlite-claim.repository';
 import { SqliteClaimHistoryRepository } from '../memory/sqlite-claim-history.repository';
 import { SqliteLexicalClaimIndex } from '../memory/sqlite-lexical-claim-index';
 import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-item.repository';
+import { SqliteSourceReliabilityRepository } from '../memory/sqlite-source-reliability.repository';
 import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
 import { SessionDatabaseService } from '../session/session-database.service';
@@ -132,6 +134,10 @@ const toolExecutionServiceProvider = {
     {
       provide: ProspectiveItemRepository,
       useClass: SqliteProspectiveItemRepository,
+    },
+    {
+      provide: SourceReliabilityRepository,
+      useClass: SqliteSourceReliabilityRepository,
     },
     {
       provide: ClaimIndex,

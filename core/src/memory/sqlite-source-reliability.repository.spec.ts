@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { CoreConfig } from '../config';
 import { DatabaseService } from '../session/database.service';
 import { MemoryDatabaseService } from './memory-database.service';
-import { SqliteClaimHistoryRepository } from './sqlite-claim-history.repository';
+import { SqliteSourceReliabilityRepository } from './sqlite-source-reliability.repository';
 
 function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   return {
@@ -50,19 +50,21 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   };
 }
 
-describe('SqliteClaimHistoryRepository', () => {
+describe('SqliteSourceReliabilityRepository', () => {
   let dir = '';
   const services: DatabaseService[] = [];
 
-  const openRepo = (name = 'history.sqlite'): SqliteClaimHistoryRepository => {
+  const openRepo = (
+    name = 'reliability.sqlite',
+  ): SqliteSourceReliabilityRepository => {
     const service = new MemoryDatabaseService(testConfig(join(dir, name), dir));
     service.onModuleInit();
     services.push(service);
-    return new SqliteClaimHistoryRepository(service);
+    return new SqliteSourceReliabilityRepository(service);
   };
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'icos-hist-'));
+    dir = mkdtempSync(join(tmpdir(), 'icos-rel-'));
   });
 
   afterEach(() => {
@@ -72,58 +74,35 @@ describe('SqliteClaimHistoryRepository', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('records transitions with audit fields and lists oldest-first', async () => {
+  it('accrues wins and losses per source, null when unknown', async () => {
     const repository = openRepo();
 
-    const first = await repository.record({
-      claimId: 'claim-1',
-      transition: 'compound',
-      detail: { timesObserved: 3 },
-      confidenceBefore: 0.9,
-      confidenceAfter: 0.96,
+    expect(await repository.get('user/m')).toBeNull();
+    await repository.recordOutcome('user/m', true);
+    await repository.recordOutcome('user/m', false);
+    await repository.recordOutcome('user/m', false);
+    expect(await repository.get('user/m')).toMatchObject({
+      sourceKey: 'user/m',
+      wins: 1,
+      losses: 2,
     });
-    await repository.record({
-      claimId: 'claim-1',
-      transition: 'link',
-      detail: { related: ['claim-2'] },
-      confidenceBefore: null,
-      confidenceAfter: null,
-    });
-
-    expect(first.id).toBeDefined();
-    expect(first.createdAt).toBeDefined();
-    const listed = await repository.listByClaimId('claim-1');
-    expect(listed.map((row) => row.transition)).toEqual(['compound', 'link']);
-    expect(listed[0]).toMatchObject({
-      detail: { timesObserved: 3 },
-      confidenceBefore: 0.9,
-      confidenceAfter: 0.96,
-    });
-    expect(await repository.listByClaimId('missing')).toEqual([]);
   });
 
-  it('resolves the latest row per transition for level re-derivation', async () => {
-    const repository = openRepo();
-    await repository.record({
-      claimId: 'claim-1',
-      transition: 'compound',
-      detail: { timesObserved: 2 },
-      confidenceBefore: 0.9,
-      confidenceAfter: 0.94,
-    });
-    const latest = await repository.record({
-      claimId: 'claim-1',
-      transition: 'compound',
-      detail: { timesObserved: 3 },
-      confidenceBefore: 0.94,
-      confidenceAfter: 0.96,
-    });
+  it('persists across close and reopen', async () => {
+    const path = join(dir, 'persist.sqlite');
+    const first = new MemoryDatabaseService(testConfig(path, dir));
+    first.onModuleInit();
+    await new SqliteSourceReliabilityRepository(first).recordOutcome(
+      'agent/m',
+      false,
+    );
+    first.onModuleDestroy();
 
+    const second = new MemoryDatabaseService(testConfig(path, dir));
+    second.onModuleInit();
+    services.push(second);
     expect(
-      (await repository.latestByClaimAndTransition('claim-1', 'compound'))?.id,
-    ).toBe(latest.id);
-    expect(
-      await repository.latestByClaimAndTransition('claim-1', 'decay'),
-    ).toBeNull();
+      await new SqliteSourceReliabilityRepository(second).get('agent/m'),
+    ).toMatchObject({ wins: 0, losses: 1 });
   });
 });

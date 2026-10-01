@@ -27,6 +27,9 @@ export interface ProspectiveItem {
   readonly trigger: ProspectiveTrigger;
   readonly suggestedQuestion: string;
   readonly status: ProspectiveStatus;
+  /** M12c closing outcome; null while open. */
+  readonly resolution: string | null;
+  readonly resolvedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

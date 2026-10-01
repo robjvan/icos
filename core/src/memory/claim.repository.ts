@@ -78,6 +78,21 @@ export abstract class ClaimRepository {
   ): Promise<Claim | null>;
 
   /**
+   * M12 certainty lock: freeze (`true`) or release (`false`) the
+   * reserved `locked` flag. Lock guards decay, never revision —
+   * evidence still wins. The caller records lock/unlock history.
+   * Returns null when the claim is missing.
+   */
+  abstract setLocked(id: string, locked: boolean): Promise<Claim | null>;
+
+  /**
+   * M12 source classification: stamp the reserved `sourceType`
+   * once (direct_statement | inference | speculation). The caller
+   * records the classify history row. Returns null when missing.
+   */
+  abstract setSourceType(id: string, sourceType: string): Promise<Claim | null>;
+
+  /**
    * M12 cross-link maintenance: append claim ids to `related[]`
    * (deduped, order-stable). Reserved refs become traversal
    * substrate here — M11 promised to read, never to write.

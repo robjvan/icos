@@ -33,6 +33,7 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryRecallTimeoutMs: 5000,
     memoryMaintenanceEnabled: true,
     memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -333,6 +334,29 @@ describe('SqliteClaimRepository', () => {
     ]);
     expect(relinked?.related).toEqual(['b', 'c', 'd']);
     expect(await repository.addRelated('missing', ['b'])).toBeNull();
+  });
+
+  it('freezes and releases the certainty lock', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+    expect(saved.locked).toBe(false);
+
+    expect((await repository.setLocked(saved.id, true))?.locked).toBe(true);
+    expect((await repository.getClaim(saved.id))?.locked).toBe(true);
+    expect((await repository.setLocked(saved.id, false))?.locked).toBe(false);
+    expect(await repository.setLocked('missing', true)).toBeNull();
+  });
+
+  it('stamps the source type once read', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+    expect(saved.sourceType).toBeNull();
+
+    expect(
+      (await repository.setSourceType(saved.id, 'direct_statement'))
+        ?.sourceType,
+    ).toBe('direct_statement');
+    expect(await repository.setSourceType('missing', 'x')).toBeNull();
   });
 
   it('coexists affirmed and negated rivals under one triple', async () => {

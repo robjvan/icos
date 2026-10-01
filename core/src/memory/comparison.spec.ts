@@ -46,6 +46,7 @@ const ranked = (
     surfaces: ['lexical' as const],
     disposition,
     demoted: claim.status === 'contradicted',
+    reliability: null,
     reasons: [],
   }));
 

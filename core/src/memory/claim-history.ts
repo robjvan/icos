@@ -6,6 +6,7 @@ export type ClaimTransition =
   | 'retire'
   | 'link'
   | 'gist_proposed'
+  | 'classify'
   | 'lock'
   | 'unlock'
   | 'suppress';
@@ -17,6 +18,7 @@ export const CLAIM_TRANSITIONS: readonly ClaimTransition[] = [
   'retire',
   'link',
   'gist_proposed',
+  'classify',
   'lock',
   'unlock',
   'suppress',

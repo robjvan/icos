@@ -66,6 +66,12 @@ export interface CoreConfig {
   /** M12 maintenance cadence in ms (default: hourly). */
   memoryMaintenanceIntervalMs: number;
   /**
+   * M12c agent dampening: agent-origin claims compound at this
+   * fraction of the normal step (default conservative 0.5), so the
+   * agent's own statements never inflate by self-echo.
+   */
+  memoryAgentDampening: number;
+  /**
    * M10e clarification trigger: a contradiction parks a prospective
    * item when the contradicted claim's confidence sits below this
    * (default 0.5). Repeat contests park regardless of confidence.
@@ -219,6 +225,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.MEMORY_MAINTENANCE_INTERVAL_MS,
       3600000,
       'MEMORY_MAINTENANCE_INTERVAL_MS',
+    ),
+    memoryAgentDampening: parseScore(
+      env.MEMORY_AGENT_DAMPENING,
+      0.5,
+      'MEMORY_AGENT_DAMPENING',
     ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,

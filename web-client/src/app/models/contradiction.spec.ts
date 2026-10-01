@@ -78,6 +78,8 @@ describe('prospectiveFor', () => {
     trigger: 'repeated_contest',
     suggestedQuestion: 'Which should be kept?',
     status: 'open',
+    resolution: null,
+    resolvedAt: null,
     createdAt: 't',
     updatedAt: 't',
     ...overrides,

@@ -35,6 +35,7 @@ function testConfig(
     memoryRecallTimeoutMs: 5000,
     memoryMaintenanceEnabled: true,
     memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath,
     skillsEnabled: true,

@@ -438,6 +438,10 @@ CREATE TABLE IF NOT EXISTS prospective_items (
     suggested_question TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open', 'dismissed')),
+    -- M12c clarification completion: closing outcome + timestamp.
+    -- NULL while open; every terminal outcome records here.
+    resolution TEXT,
+    resolved_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -462,7 +466,7 @@ CREATE TABLE IF NOT EXISTS claim_history (
     transition TEXT NOT NULL
         CHECK (transition IN (
             'compound', 'decay', 'revise', 'retire', 'link',
-            'gist_proposed', 'lock', 'unlock', 'suppress'
+            'gist_proposed', 'classify', 'lock', 'unlock', 'suppress'
         )),
     detail_json TEXT NOT NULL DEFAULT '{}',
     confidence_before REAL,
@@ -472,6 +476,19 @@ CREATE TABLE IF NOT EXISTS claim_history (
 
 CREATE INDEX IF NOT EXISTS idx_claim_history_claim
 ON claim_history(claim_id);
+
+/**
+ * M12c source track record (appended by revision outcomes).
+ * One row per evidence source; wins/losses feed the influence
+ * factor M11 ranking consumes. A source with no row is neutral
+ * (factor 1.0) — silence, not suspicion.
+ */
+CREATE TABLE IF NOT EXISTS source_reliability (
+    source_key TEXT PRIMARY KEY,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
 
 /**
  * M11a lexical recall surface. External-content FTS5 over the
@@ -542,6 +559,7 @@ const SCHEMAS: Record<
       'promotion_journal',
       'prospective_items',
       'claim_history',
+      'source_reliability',
     ],
     triggers: ['claims_ai', 'claims_ad', 'claims_au'],
   },
@@ -613,6 +631,10 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
     addColumnIfMissing(db, 'claims', 'negated', `INTEGER NOT NULL DEFAULT 0`);
     migrateClaimIdentityIndex(db);
     migrateClaimsFts(db);
+    // M12c: live prospective rows predate the resolution columns.
+    addColumnIfMissing(db, 'prospective_items', 'resolution', `TEXT`);
+    addColumnIfMissing(db, 'prospective_items', 'resolved_at', `TEXT`);
+    migrateClaimHistoryTransitions(db);
     // M10c: live claim files predate conflict-lookup columns.
     addColumnIfMissing(
       db,
@@ -737,6 +759,51 @@ function migrateClaimsFts(db: Database.Database): void {
   ).n;
   if (claims === 0) return;
   db.exec(`INSERT INTO claims_fts(claims_fts) VALUES('rebuild')`);
+}
+
+/**
+ * M12c upgrade for the M12a-era history table: pre-M12c tables lack
+ * the `classify` transition, and CHECK constraints cannot be altered
+ * in place. Rebuilds the table preserving every row (same pattern as
+ * the M8d tool_requests migration). Idempotent: current tables are
+ * left alone.
+ */
+function migrateClaimHistoryTransitions(db: Database.Database): void {
+  const table = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'claim_history'`,
+    )
+    .get() as { sql: string } | undefined;
+  if (!table || table.sql.includes(`'classify'`)) return;
+  db.transaction(() => {
+    db.exec(`ALTER TABLE claim_history RENAME TO claim_history_legacy;`);
+    db.exec(`
+      CREATE TABLE claim_history (
+          id TEXT PRIMARY KEY,
+          claim_id TEXT NOT NULL,
+          transition TEXT NOT NULL
+              CHECK (transition IN (
+                  'compound', 'decay', 'revise', 'retire', 'link',
+                  'gist_proposed', 'classify', 'lock', 'unlock', 'suppress'
+              )),
+          detail_json TEXT NOT NULL DEFAULT '{}',
+          confidence_before REAL,
+          confidence_after REAL,
+          created_at TEXT NOT NULL
+      );`);
+    db.exec(
+      `INSERT INTO claim_history
+         (id, claim_id, transition, detail_json,
+          confidence_before, confidence_after, created_at)
+       SELECT id, claim_id, transition, detail_json,
+              confidence_before, confidence_after, created_at
+         FROM claim_history_legacy;`,
+    );
+    db.exec(`DROP TABLE claim_history_legacy;`);
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_claim_history_claim ON claim_history(claim_id);`,
+    );
+  }).immediate();
 }
 
 /**

@@ -8,6 +8,7 @@ import type { NewClaim } from './claim';
 import { compoundConfidence, MaintenanceService } from './maintenance.service';
 import {
   decayStep,
+  pickRevisionWinner,
   retireEligibility,
   RetirementIneligibleError,
 } from './maintenance.service';
@@ -15,7 +16,9 @@ import { MemoryDatabaseService } from './memory-database.service';
 import { PromotionJournalRepository } from './promotion-journal.repository';
 import { SqliteClaimHistoryRepository } from './sqlite-claim-history.repository';
 import { SqliteClaimRepository } from './sqlite-claim.repository';
+import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repository';
 import { SqlitePromotionJournalRepository } from './sqlite-promotion-journal.repository';
+import { SqliteSourceReliabilityRepository } from './sqlite-source-reliability.repository';
 
 function testConfig(
   memoryDbPath: string,
@@ -47,6 +50,7 @@ function testConfig(
     memoryRecallTimeoutMs: 5000,
     memoryMaintenanceEnabled: false,
     memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -115,13 +119,25 @@ describe('MaintenanceService', () => {
     const claims = new SqliteClaimRepository(service);
     const history = new SqliteClaimHistoryRepository(service);
     const journal = new SqlitePromotionJournalRepository(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const reliability = new SqliteSourceReliabilityRepository(service);
     const maintenance = new MaintenanceService(
       config,
       claims,
       history,
       journal,
+      candidates,
+      reliability,
     );
-    return { maintenance, claims, history, journal, config };
+    return {
+      maintenance,
+      claims,
+      history,
+      journal,
+      candidates,
+      reliability,
+      config,
+    };
   };
 
   beforeEach(() => {
@@ -174,10 +190,12 @@ describe('MaintenanceService', () => {
       { transition: 'compound' },
     ]);
 
-    // Second pass converges: nothing new to apply.
+    // Second pass converges: nothing new to apply — the claim moves
+    // down the ladder to classification (M12c rung, same pass shape).
     expect(await s.maintenance.runPass()).toMatchObject({
       compounded: 0,
-      skipped: 1,
+      classified: 1,
+      skipped: 0,
     });
     expect((await s.claims.getClaim(saved.id))?.confidence).toBeCloseTo(
       0.94,
@@ -204,7 +222,8 @@ describe('MaintenanceService', () => {
 
     expect(await s.maintenance.runPass()).toMatchObject({
       compounded: 1,
-      skipped: 1,
+      classified: 1,
+      skipped: 0,
     });
     expect((await s.claims.getClaim(high.id))?.confidence).toBe(0.99);
     // Single-observation claims never compound.
@@ -236,10 +255,12 @@ describe('MaintenanceService', () => {
       (await s.history.listByClaimId(old.id)).map((row) => row.transition),
     ).toEqual(['link']);
 
-    // Idempotent: linked pairs skip on re-pass.
+    // Idempotent: linked pairs skip linking — and move down the
+    // ladder to classification on re-pass (M12c rung).
     expect(await s.maintenance.runPass()).toMatchObject({
       linked: 0,
-      skipped: 2,
+      classified: 2,
+      skipped: 0,
     });
   });
 
@@ -304,6 +325,8 @@ describe('MaintenanceService', () => {
       s.claims,
       s.history,
       failingJournal,
+      s.candidates,
+      s.reliability,
     );
 
     // First claim compounds (before the journal is ever touched);
@@ -322,6 +345,9 @@ describe('MaintenanceService', () => {
         compounded: 0,
         decayed: 0,
         linked: 0,
+        revised: 0,
+        locked: 0,
+        classified: 0,
         gistProposed: 0,
         skipped: 0,
         failed: 0,
@@ -339,6 +365,9 @@ describe('MaintenanceService', () => {
         compounded: 0,
         decayed: 0,
         linked: 0,
+        revised: 0,
+        locked: 0,
+        classified: 0,
         gistProposed: 0,
         skipped: 0,
         failed: 0,
@@ -485,11 +514,15 @@ describe('MaintenanceService decay and retirement', () => {
     const claims = new SqliteClaimRepository(service);
     const history = new SqliteClaimHistoryRepository(service);
     const journal = new SqlitePromotionJournalRepository(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const reliability = new SqliteSourceReliabilityRepository(service);
     const maintenance = new MaintenanceService(
       config,
       claims,
       history,
       journal,
+      candidates,
+      reliability,
     );
     return { maintenance, claims, history };
   };
@@ -535,10 +568,11 @@ describe('MaintenanceService decay and retirement', () => {
     const conf2 = (await s.claims.getClaim(saved.id))?.confidence ?? 1;
     expect(conf2).toBeLessThan(0.9 * Math.pow(0.5, 170 / 90));
     expect(conf2).toBe(0.2);
-    // Far future: at floor, further passes skip (converged).
+    // Far future: at floor, decay converges — the claim moves down
+    // the ladder to classification (M12c rung).
     expect(
       await s.maintenance.runPass(Date.now() + 10_000 * 86_400_000),
-    ).toMatchObject({ decayed: 0, skipped: 1 });
+    ).toMatchObject({ decayed: 0, classified: 1, skipped: 0 });
     expect((await s.claims.getClaim(saved.id))?.confidence).toBe(0.2);
   });
 
@@ -602,5 +636,274 @@ describe('MaintenanceService decay and retirement', () => {
       (await s.maintenance.retireClaim(old.id, { nowMs: future }))?.status,
     ).toBe('retired');
     expect(await s.history.listByClaimId(old.id)).toHaveLength(before.length);
+  });
+});
+
+describe('pickRevisionWinner', () => {
+  const base: Claim = {
+    id: 'claim-0',
+    subject: 'user',
+    predicate: 'prefers',
+    object: 'X',
+    category: 'fact',
+    status: 'active',
+    extractorConfidence: 0.9,
+    confidence: 0.9,
+    firstAssertedAt: 'c1',
+    lastSurfacedAt: 'c1',
+    origin: 'user',
+    negated: false,
+    sourceType: null,
+    summary: null,
+    evidence: [{ candidateId: 'c1', role: 'user' }],
+    related: [],
+    entities: ['user'],
+    timesObserved: 1,
+    accessCount: 0,
+    lastAccessedAt: null,
+    activation: null,
+    locked: false,
+    emotional: null,
+    promotion: 'approved:a1',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('orders authority, then corroboration, then recency, then id', () => {
+    const auto = { ...base, id: 'auto', promotion: 'auto' };
+    const approved = { ...base, id: 'appr', promotion: 'approved:a9' };
+    // Authority beats everything, even fresher corroborated rivals.
+    expect(
+      pickRevisionWinner([
+        { ...auto, timesObserved: 9, updatedAt: '2026-09-30T00:00:00.000Z' },
+        approved,
+      ]).id,
+    ).toBe('appr');
+    // Corroboration beats recency among approved peers.
+    expect(
+      pickRevisionWinner([
+        { ...approved, id: 'new', updatedAt: '2026-09-30T00:00:00.000Z' },
+        { ...approved, id: 'old', timesObserved: 4 },
+      ]).id,
+    ).toBe('old');
+    // Recency breaks corroboration ties; id breaks the rest.
+    expect(
+      pickRevisionWinner([
+        { ...approved, id: 'zz', updatedAt: '2026-01-02T00:00:00.000Z' },
+        { ...approved, id: 'aa', updatedAt: '2026-01-01T00:00:00.000Z' },
+      ]).id,
+    ).toBe('zz');
+    expect(
+      pickRevisionWinner([
+        { ...approved, id: 'zz' },
+        { ...approved, id: 'aa' },
+      ]).id,
+    ).toBe('aa');
+    expect(() => pickRevisionWinner([])).toThrow('needs a rival');
+  });
+});
+
+describe('MaintenanceService revision, lock, and classification', () => {
+  let dir = '';
+  const services: DatabaseService[] = [];
+
+  const setupRungs = (overrides: Partial<CoreConfig> = {}) => {
+    const config = testConfig(join(dir, 'rungs.sqlite'), dir, overrides);
+    const service = new MemoryDatabaseService(config);
+    service.onModuleInit();
+    services.push(service);
+    const claims = new SqliteClaimRepository(service);
+    const history = new SqliteClaimHistoryRepository(service);
+    const journal = new SqlitePromotionJournalRepository(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const reliability = new SqliteSourceReliabilityRepository(service);
+    const maintenance = new MaintenanceService(
+      config,
+      claims,
+      history,
+      journal,
+      candidates,
+      reliability,
+    );
+    return {
+      maintenance,
+      claims,
+      history,
+      candidates,
+      reliability,
+      config,
+    };
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-rungs-'));
+    counter = 0;
+  });
+
+  afterEach(() => {
+    for (const service of services.splice(0)) {
+      service.onModuleDestroy();
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seedCandidate = async (
+    setupResult: ReturnType<typeof setupRungs>,
+    object: string,
+  ) => {
+    const [saved] = await setupResult.candidates.saveCandidates([
+      {
+        kind: 'fact',
+        subject: 'user',
+        predicate: 'likes',
+        object,
+        confidence: 0.9,
+        importance: 0.5,
+        stability: 0.5,
+        sourceRole: 'user',
+        negated: false,
+        source: { sessionId: 's1', messageId: 1, role: 'user' },
+        extractorModel: 'test-model',
+        extractorVersion: 'v1',
+      },
+    ]);
+    if (!saved) throw new Error('candidate seeding failed');
+    return saved;
+  };
+
+  it('resolves standing rival pairs by policy with full audit', async () => {
+    const s = setupRungs();
+    // Ledger rows first: reliability tracks real sources.
+    const tea = await seedCandidate(s, 'tea');
+    const coffee = await seedCandidate(s, 'coffee');
+    // Active-active pair the promotion path never converged (race).
+    // Auto promotion loses to approved regardless of timing.
+    const auto = await s.claims.createClaim(
+      claim('user', 'likes', 'tea', {
+        promotion: 'auto',
+        evidence: [{ candidateId: tea.id, role: 'user' }],
+      }),
+    );
+    const approved = await s.claims.createClaim(
+      claim('user', 'likes', 'coffee', {
+        evidence: [{ candidateId: coffee.id, role: 'user' }],
+      }),
+    );
+
+    expect(await s.maintenance.runPass()).toMatchObject({ revised: 1 });
+    expect((await s.claims.getClaim(approved.id))?.status).toBe('active');
+    expect((await s.claims.getClaim(auto.id))?.status).toBe('contradicted');
+    // Both sides linked, both sides historied.
+    expect((await s.claims.getClaim(auto.id))?.related).toEqual([approved.id]);
+    expect((await s.claims.getClaim(approved.id))?.related).toEqual([auto.id]);
+    expect(
+      (await s.history.listByClaimId(auto.id)).map((row) => row.transition),
+    ).toEqual(['revise', 'classify']);
+    expect(await s.history.listByClaimId(approved.id)).toMatchObject([
+      { transition: 'revise' },
+    ]);
+    // Winner source wins, loser source loses.
+    expect(await s.reliability.get('user/test-model')).toMatchObject({
+      wins: 1,
+      losses: 1,
+    });
+  });
+
+  it('locks high corroboration and unlocks losing evidence', async () => {
+    const s = setupRungs();
+    const saved = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript', {
+        evidence: [
+          { candidateId: 'c1', role: 'user' },
+          { candidateId: 'c2', role: 'user' },
+        ],
+      }),
+    );
+    for (const id of ['c3', 'c4', 'c5', 'c6']) {
+      await s.claims.appendEvidence(
+        saved.id,
+        [{ candidateId: id, role: 'user' }],
+        0.9,
+      );
+    }
+
+    // Pass 1 compounds (5 observations); pass 2 locks at 0.99.
+    expect(await s.maintenance.runPass()).toMatchObject({ compounded: 1 });
+    expect(await s.maintenance.runPass()).toMatchObject({ locked: 1 });
+    expect((await s.claims.getClaim(saved.id))?.locked).toBe(true);
+    expect(await s.history.listByClaimId(saved.id)).toMatchObject([
+      { transition: 'compound' },
+      { transition: 'lock' },
+    ]);
+
+    // Locked certainty guards decay but never revision's evidence:
+    // contradicted while locked unlocks with history.
+    await s.claims.setStatus(saved.id, 'contradicted');
+    expect(await s.maintenance.runPass()).toMatchObject({ locked: 1 });
+    expect((await s.claims.getClaim(saved.id))?.locked).toBe(false);
+    expect(
+      (await s.history.listByClaimId(saved.id)).map((row) => row.transition),
+    ).toEqual(['compound', 'lock', 'unlock']);
+  });
+
+  it('stamps source types once by fixed rule', async () => {
+    const s = setupRungs();
+    const direct = await s.claims.createClaim(
+      claim('user', 'prefers', 'a', { extractorConfidence: 0.9 }),
+    );
+    const agent = await s.claims.createClaim(
+      claim('system', 'runs_on', 'b', {
+        origin: 'agent',
+        evidence: [{ candidateId: 'cx', role: 'assistant' }],
+      }),
+    );
+    const vague = await s.claims.createClaim(
+      claim('user', 'likes', 'c', { extractorConfidence: 0.3 }),
+    );
+
+    expect(await s.maintenance.runPass()).toMatchObject({ classified: 3 });
+    expect((await s.claims.getClaim(direct.id))?.sourceType).toBe(
+      'direct_statement',
+    );
+    expect((await s.claims.getClaim(agent.id))?.sourceType).toBe('inference');
+    expect((await s.claims.getClaim(vague.id))?.sourceType).toBe('speculation');
+
+    // First stamp wins; re-passes skip.
+    expect(await s.maintenance.runPass()).toMatchObject({
+      classified: 0,
+      skipped: 3,
+    });
+  });
+
+  it('dampens agent self-echo at compounding time', async () => {
+    const s = setupRungs();
+    const saved = await s.claims.createClaim(
+      claim('user', 'prefers', 'TypeScript', {
+        origin: 'agent',
+        evidence: [
+          { candidateId: 'c1', role: 'assistant' },
+          { candidateId: 'c2', role: 'assistant' },
+        ],
+      }),
+    );
+    await s.claims.appendEvidence(
+      saved.id,
+      [{ candidateId: 'c3', role: 'assistant' }],
+      0.9,
+    );
+
+    expect(await s.maintenance.runPass()).toMatchObject({ compounded: 1 });
+    // 0.9 + 0.02 × 2 × 0.5 dampening (vs 0.94 undampened).
+    expect((await s.claims.getClaim(saved.id))?.confidence).toBeCloseTo(
+      0.92,
+      6,
+    );
+    expect(await s.history.listByClaimId(saved.id)).toMatchObject([
+      { transition: 'compound' },
+    ]);
+    expect((await s.history.listByClaimId(saved.id))[0]?.detail).toMatchObject({
+      dampened: true,
+      factor: 0.5,
+    });
   });
 });

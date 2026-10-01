@@ -4,7 +4,9 @@ import type { CoreConfig } from '../config';
 import type { Claim, ClaimOrigin } from './claim';
 import { ClaimRepository } from './claim.repository';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
+import { reliabilityFactor } from './maintenance';
 import type { RecallHit, RecallSurfaceName } from './recall.service';
+import { SourceReliabilityRepository } from './source-reliability.repository';
 import {
   CONTRADICTED_DEMOTE,
   DEFAULT_FAMILIAR_LIMIT,
@@ -43,6 +45,12 @@ export interface RankedClaim {
   disposition: RankDisposition;
   /** Contradicted: recallable but demoted and labeled, never dropped. */
   demoted: boolean;
+  /**
+   * M12c source influence (null = no track record, neutral).
+   * Losing records dampen the fused score; the factor rides in
+   * `reasons` per the M12f trace requirement.
+   */
+  reliability: number | null;
   excludeReason?: ExcludeReason;
   /** Human-readable audit trail for the M11d trace. */
   reasons: string[];
@@ -86,6 +94,7 @@ export class RankService {
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly claims: ClaimRepository,
     private readonly candidates: MemoryCandidateRepository,
+    private readonly reliability: SourceReliabilityRepository,
   ) {}
 
   async rank(
@@ -136,12 +145,18 @@ export class RankService {
         fused *= downweight;
         reasons.push(`lens downweight ${claim.origin} x${downweight}`);
       }
+      const reliability = await this.reliabilityFor(claim);
+      if (reliability !== null && reliability < 1) {
+        fused *= reliability;
+        reasons.push(`source reliability ${reliability.toFixed(2)}`);
+      }
       rows.push({
         claim,
         fusedScore: fused,
         surfaces: [...surfaces],
         disposition: 'unranked',
         demoted,
+        reliability,
         reasons,
       });
     }
@@ -235,6 +250,26 @@ export class RankService {
         b.fusedScore - a.fusedScore,
     );
     return { ranked: rows, trace };
+  }
+
+  /**
+   * M12c source influence: resolve the first-evidence source key
+   * (role/model, read-only ledger join — same pattern as recency)
+   * and dampen repeatedly-losing sources. No record means neutral
+   * (null, factor untouched). Punishment only: the factor caps at
+   * 1, never rewards.
+   */
+  private async reliabilityFor(claim: Claim): Promise<number | null> {
+    const first = claim.evidence[0];
+    if (!first) return null;
+    const candidate = await this.candidates.getCandidate(first.candidateId);
+    if (!candidate) return null;
+    const record = await this.reliability.get(
+      `${candidate.source.role}/${candidate.extractorModel}`,
+    );
+    if (!record) return null;
+    const factor = reliabilityFactor(record.wins, record.losses);
+    return factor < 1 ? factor : null;
   }
 
   /**

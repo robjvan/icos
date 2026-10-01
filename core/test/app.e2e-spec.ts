@@ -180,6 +180,7 @@ describe('Conversation (e2e)', () => {
         memoryRecallTimeoutMs: 5000,
         memoryMaintenanceEnabled: true,
         memoryMaintenanceIntervalMs: 3600000,
+        memoryAgentDampening: 0.5,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
@@ -683,10 +684,16 @@ describe('Conversation (e2e)', () => {
     const items = (
       parked.body as {
         items: {
+          id: string;
           status: string;
           trigger: string;
           contestCount: number;
-          options: { object: string; origin: string; confidence: number }[];
+          options: {
+            object: string;
+            origin: string;
+            confidence: number;
+            claimId: string;
+          }[];
           suggestedQuestion: string;
         }[];
       }
@@ -715,6 +722,38 @@ describe('Conversation (e2e)', () => {
     expect((ledger.body as { candidates: unknown[] }).candidates).toHaveLength(
       2,
     );
+
+    // Clarification completion: close with a recorded outcome, history
+    // on both claims, then terminal (no re-resolve).
+    const itemId = items[0]?.id ?? '';
+    const resolved = await request(http())
+      .post(`/core/prospective/${itemId}/resolve`)
+      .send({ outcome: 'confirmed', note: 'user picked rival' })
+      .expect(200);
+    expect(
+      (resolved.body as { item: { status: string; resolution: string } }).item,
+    ).toMatchObject({ status: 'dismissed', resolution: 'confirmed' });
+    for (const option of items[0]?.options ?? []) {
+      const detail = await request(http())
+        .get(`/core/claims/${option.claimId}`)
+        .expect(200);
+      expect(detail.body as object).toMatchObject({
+        maintenance: [
+          {
+            transition: 'revise',
+            detail: { prospective: itemId, outcome: 'confirmed' },
+          },
+        ],
+      });
+    }
+    await request(http())
+      .post(`/core/prospective/${itemId}/resolve`)
+      .send({ outcome: 'dismissed' })
+      .expect(400);
+    await request(http())
+      .post('/core/prospective/00000000-0000-0000-0000-000000000000/resolve')
+      .send({ outcome: 'dismissed' })
+      .expect(404);
   });
 
   it('runs belief maintenance explicitly with a durable summary', async () => {
@@ -761,7 +800,7 @@ describe('Conversation (e2e)', () => {
       .expect(200);
     expect(
       (swept.body as { summary: Record<string, number> }).summary,
-    ).toMatchObject({ compounded: 0, skipped: 1 });
+    ).toMatchObject({ compounded: 0, classified: 1, skipped: 0 });
 
     const listed = await request(http()).get('/core/claims').expect(200);
     const claims = (listed.body as { claims: { id: string }[] }).claims;
@@ -771,7 +810,7 @@ describe('Conversation (e2e)', () => {
       .expect(200);
     expect(detail.body as object).toMatchObject({
       history: [{ operation: 'NEW', state: 'committed' }],
-      maintenance: [],
+      maintenance: [{ transition: 'classify' }],
     });
 
     // Fresh confident beliefs refuse retirement; force retires with
@@ -793,7 +832,7 @@ describe('Conversation (e2e)', () => {
       .expect(200);
     expect(after.body as object).toMatchObject({
       claim: { status: 'retired' },
-      maintenance: [{ transition: 'retire' }],
+      maintenance: [{ transition: 'classify' }, { transition: 'retire' }],
     });
     await request(http())
       .post(`/core/claims/${claimId}/retire`)

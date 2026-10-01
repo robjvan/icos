@@ -2,15 +2,16 @@ import type {
   NewProspectiveItem,
   ProspectiveItem,
   ProspectiveOption,
+  ProspectiveResolution,
   ProspectiveStatus,
   ProspectiveTrigger,
 } from './prospective-item';
 
 /**
- * Clarification-queue boundary. Rows are written only by the
- * promotion path on contradiction (M10e trigger rules) and read by
- * the inspection API. `dismissed` has no writer until a later
- * milestone — denial/ignore leaves rows parked as `open`.
+ * Clarification-queue boundary. Rows are written by promotion on
+ * contradiction (M10e trigger rules) and closed by explicit human
+ * resolution (M12c) — denial/ignore leaves rows parked as `open`.
+ * Read by the inspection API.
  */
 export abstract class ProspectiveItemRepository {
   abstract create(item: NewProspectiveItem): Promise<ProspectiveItem>;
@@ -34,6 +35,19 @@ export abstract class ProspectiveItemRepository {
     options: ProspectiveOption[],
     trigger: ProspectiveTrigger,
     suggestedQuestion: string,
+  ): Promise<ProspectiveItem | null>;
+
+  /**
+   * Close an open question with a recorded outcome (M12c
+   * clarification completion): confirmed (standing affirmed),
+   * corrected (revision noted by the caller), dismissed (ignored on
+   * purpose). Always parks as `dismissed` with resolution +
+   * timestamp — closing is terminal, never a reopen. Returns null
+   * when missing, already closed, or the outcome is unknown.
+   */
+  abstract resolve(
+    id: string,
+    outcome: ProspectiveResolution,
   ): Promise<ProspectiveItem | null>;
 
   abstract listItems(options?: {

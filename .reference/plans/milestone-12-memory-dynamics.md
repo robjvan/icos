@@ -104,7 +104,9 @@ chosen (v2's retrieval-shaped-forgetting lineage):
 
 ---
 
-# [ ] M12c — Revision and Supersession
+# [x] M12c — Revision and Supersession (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12c-evidence-revision.md`.
 
 M10 recorded contradiction; M12 resolves it — slowly, visibly,
 reversibly:

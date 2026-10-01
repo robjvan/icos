@@ -71,13 +71,24 @@ export const RETIRE_AFTER_DAYS = 180;
 export const RETIRE_CONFIDENCE_MAX = 0.3;
 
 export type MaintenanceOutcome =
-  'compounded' | 'decayed' | 'linked' | 'gist_proposed' | 'skipped' | 'failed';
+  | 'compounded'
+  | 'decayed'
+  | 'linked'
+  | 'gist_proposed'
+  | 'revised'
+  | 'locked'
+  | 'classified'
+  | 'skipped'
+  | 'failed';
 
 export interface PassSummary {
   compounded: number;
   decayed: number;
   linked: number;
   gistProposed: number;
+  revised: number;
+  locked: number;
+  classified: number;
   skipped: number;
   failed: number;
   /** Wall-clock ms for the M12f latency evidence. */
@@ -89,7 +100,29 @@ export const EMPTY_PASS: PassSummary = {
   decayed: 0,
   linked: 0,
   gistProposed: 0,
+  revised: 0,
+  locked: 0,
+  classified: 0,
   skipped: 0,
   failed: 0,
   durationMs: 0,
 };
+
+/**
+ * Certainty lock (M12c): corroboration bar + confidence bar. Lock
+ * guards decay, never revision — evidence still wins, and a locked
+ * claim that loses (contradicted) unlocks with history.
+ */
+export const LOCK_CORROBORATION_BAR = 5;
+export const LOCK_CONFIDENCE_MIN = 0.9;
+
+/**
+ * Source-influence factor from a win/loss record (M12c reliability).
+ * Laplace-smoothed, punishment-only: neutral and winning records
+ * map to 1.0 (no boost, never rewards), losing records decay
+ * toward 0.5. M11 ranking multiplies fused scores by this.
+ */
+export function reliabilityFactor(wins: number, losses: number): number {
+  const estimate = (wins + 1) / (wins + losses + 2);
+  return Math.min(1, 0.5 + estimate);
+}

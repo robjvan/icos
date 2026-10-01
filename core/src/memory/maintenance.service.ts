@@ -23,12 +23,16 @@ import {
   DECAY_HALF_LIFE_MULTIPLIER,
   EMPTY_PASS,
   GIST_FAMILY_SIZE,
+  LOCK_CONFIDENCE_MIN,
+  LOCK_CORROBORATION_BAR,
   MAINTENANCE_PASS_LIMIT,
   RETIRE_AFTER_DAYS,
   RETIRE_CONFIDENCE_MAX,
 } from './maintenance';
 import type { MaintenanceOutcome, PassSummary } from './maintenance';
+import { MemoryCandidateRepository } from './memory-candidate.repository';
 import { PromotionJournalRepository } from './promotion-journal.repository';
+import { SourceReliabilityRepository } from './source-reliability.repository';
 
 /** Thrown when a record fails the retirement eligibility rule. */
 export class RetirementIneligibleError extends Error {
@@ -39,16 +43,47 @@ export class RetirementIneligibleError extends Error {
 }
 
 /**
+ * Revision winner policy (M12c): fixed order, no model vibes.
+ * Human-approved authority first (an approval outranks automatic
+ * assimilation), then corroboration count, then recency (freshest
+ * evidence), then id for total order. Pure and unit-pinned.
+ */
+export function pickRevisionWinner(rivals: Claim[]): Claim {
+  const [winner] = [...rivals].sort((a, b) => {
+    const authority = Number(isApproved(b)) - Number(isApproved(a));
+    if (authority !== 0) return authority;
+    if (b.timesObserved !== a.timesObserved) {
+      return b.timesObserved - a.timesObserved;
+    }
+    if (b.updatedAt !== a.updatedAt) {
+      return b.updatedAt < a.updatedAt ? -1 : 1;
+    }
+    return a.id < b.id ? -1 : 1;
+  });
+  if (!winner) throw new Error('pickRevisionWinner needs a rival');
+  return winner;
+}
+
+function isApproved(claim: Claim): boolean {
+  return claim.promotion.startsWith('approved:');
+}
+
+/**
  * Bounded compounding step (v2's capped compounding, no ratchet to
  * certainty): `boost × min(cap, timesObserved)`, hard-capped below
- * 1. Pure — the service decides *whether*, this decides *how much*.
+ * 1. The dampening fraction (1 for user testimony) slows machine-made
+ * beliefs. Pure — the service decides *whether*, this decides *how
+ * much*.
  */
 export function compoundConfidence(
   confidence: number,
   timesObserved: number,
+  dampening = 1,
 ): number {
   const step =
-    COMPOUND_BOOST * Math.min(COMPOUND_LEVEL_CAP, Math.max(1, timesObserved));
+    COMPOUND_BOOST *
+    Math.min(COMPOUND_LEVEL_CAP, Math.max(1, timesObserved)) *
+    dampening;
   return Math.min(CONFIDENCE_MAX, COMPOUND_CEILING, confidence + step);
 }
 
@@ -164,6 +199,8 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     private readonly claims: ClaimRepository,
     private readonly history: ClaimHistoryRepository,
     private readonly journal: PromotionJournalRepository,
+    private readonly candidates: MemoryCandidateRepository,
+    private readonly reliability: SourceReliabilityRepository,
   ) {}
 
   onModuleInit(): void {
@@ -253,9 +290,11 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Exactly one transition per record per pass, fixed priority:
-   * compound new corroboration, then decay neglect, then link
-   * unlinked counterparts, then gist-propose unreviewed families.
-   * Later slices add rungs without reordering.
+   * compound corroboration, decay neglect, link counterparts,
+   * propose gist families, resolve standing rival pairs, lock or
+   * unlock certainty, stamp source type. Rungs append at the end —
+   * detection (gist) precedes resolution (revise), and metadata
+   * (classify) never outranks substance.
    */
   private async maintainOne(
     claim: Claim,
@@ -266,6 +305,9 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     if (await this.decay(claim, nowMs)) return 'decayed';
     if (await this.linkCounterparts(claim)) return 'linked';
     if (await this.proposeGist(claim, families)) return 'gist_proposed';
+    if (await this.revise(claim)) return 'revised';
+    if (await this.maintainLock(claim)) return 'locked';
+    if (await this.classify(claim)) return 'classified';
     return 'skipped';
   }
 
@@ -274,6 +316,9 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
    * row records the timesObserved it applied, so re-running
    * converges instead of ratcheting. Below-ceiling only; locked
    * claims compound like any other (lock guards decay, not growth).
+   * Agent-origin claims compound at the dampened fraction (v2's
+   * self-echo rule): machine-made beliefs must earn confidence
+   * from outside corroboration, never from their own repetition.
    */
   private async compound(claim: Claim): Promise<boolean> {
     if (claim.timesObserved <= 1) return false;
@@ -286,15 +331,25 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     if (typeof applied === 'number' && applied >= claim.timesObserved) {
       return false;
     }
+    const dampened = claim.origin === 'agent';
     const before = claim.confidence;
-    const after = compoundConfidence(before, claim.timesObserved);
+    const after = compoundConfidence(
+      before,
+      claim.timesObserved,
+      dampened ? this.config.memoryAgentDampening : 1,
+    );
     if (after <= before) return false;
     const updated = await this.claims.adjustConfidence(claim.id, after);
     if (!updated) return false;
     await this.history.record({
       claimId: claim.id,
       transition: 'compound',
-      detail: { timesObserved: claim.timesObserved },
+      detail: {
+        timesObserved: claim.timesObserved,
+        ...(dampened
+          ? { dampened: true, factor: this.config.memoryAgentDampening }
+          : {}),
+      },
       confidenceBefore: before,
       confidenceAfter: after,
     });
@@ -395,6 +450,179 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
       detail: {
         family: siblings,
         suggestion: `${claim.subject} ${claim.predicate} *`,
+      },
+      confidenceBefore: null,
+      confidenceAfter: null,
+    });
+    return true;
+  }
+
+  /**
+   * Revision (M12c): resolve standing active-active rival pairs the
+   * promotion path never converged (races, negation transients,
+   * legacy rows). Winner-picking policy, fixed order, no model
+   * vibes: human-approved authority first, then corroboration
+   * count, then recency — final tiebreak by id for total order.
+   * The loser goes contradicted with history intact (M10e behavior
+   * kept); both sides link and record `revise` rows, and their
+   * sources accrue win/loss. One active head per triple after.
+   * Comparison runs over ranked shells (comparison speaks only for
+   * recalled rows — here every member is ranked); proposals are
+   * ignored (no auto-parking: recall recommends, promotion parks).
+   */
+  private async revise(claim: Claim): Promise<boolean> {
+    // Re-read: an earlier record in this same pass may have resolved
+    // this claim already (revision touches rivals, not just self —
+    // the pass-start snapshot goes stale by design, never by bug).
+    const fresh = await this.claims.getClaim(claim.id);
+    if (!fresh || fresh.status !== 'active') return false;
+    const rivals = await this.activeRivals(fresh);
+    if (rivals.length === 0) return false;
+    const contenders = [fresh, ...rivals];
+    const winner = pickRevisionWinner(contenders);
+    let changed = false;
+    for (const contender of contenders) {
+      const won = contender.id === winner.id;
+      await this.recordRevisionOutcome(contender, won);
+      if (won) {
+        await this.history.record({
+          claimId: contender.id,
+          transition: 'revise',
+          detail: {
+            outcome: 'affirmed',
+            policy: 'authority>corroboration>recency',
+          },
+          confidenceBefore: contender.confidence,
+          confidenceAfter: contender.confidence,
+        });
+        continue;
+      }
+      const demoted = await this.claims.setStatus(contender.id, 'contradicted');
+      if (!demoted) continue;
+      changed = true;
+      await this.history.record({
+        claimId: contender.id,
+        transition: 'revise',
+        detail: {
+          outcome: 'superseded',
+          winner: winner.id,
+          policy: 'authority>corroboration>recency',
+        },
+        confidenceBefore: contender.confidence,
+        confidenceAfter: demoted.confidence,
+      });
+      await this.claims.addRelated(contender.id, [winner.id]);
+      await this.claims.addRelated(winner.id, [contender.id]);
+    }
+    return changed;
+  }
+
+  /**
+   * Active rivals for revision: same normalized subject+predicate,
+   * distinct objects or opposite markers, both active. Read-only
+   * lookup — the transition happens in `revise`.
+   */
+  private async activeRivals(claim: Claim): Promise<Claim[]> {
+    const rivals = await this.claims.findBySubjectPredicate(
+      claim.subject,
+      claim.predicate,
+    );
+    return rivals.filter(
+      (rival) =>
+        rival.id !== claim.id &&
+        rival.status === 'active' &&
+        (normalizeTripleField(rival.object) !==
+          normalizeTripleField(claim.object) ||
+          rival.negated !== claim.negated),
+    );
+  }
+
+  /** Source key for reliability tracking: role/model of first evidence. */
+  private async sourceKeyFor(claim: Claim): Promise<string | null> {
+    const first = claim.evidence[0];
+    if (!first) return null;
+    const candidate = await this.candidates.getCandidate(first.candidateId);
+    if (!candidate) return null;
+    return `${candidate.source.role}/${candidate.extractorModel}`;
+  }
+
+  private async recordRevisionOutcome(
+    claim: Claim,
+    won: boolean,
+  ): Promise<void> {
+    const key = await this.sourceKeyFor(claim);
+    if (!key) return;
+    await this.reliability.recordOutcome(key, won);
+  }
+
+  /**
+   * Certainty lifecycle (M12c): lock at high corroboration +
+   * confidence (guards decay, never revision), unlock when evidence
+   * wins anyway (a locked loser unlocks with history). Counted
+   * under `locked` either way — the history rows distinguish.
+   */
+  private async maintainLock(claim: Claim): Promise<boolean> {
+    if (claim.locked && claim.status === 'contradicted') {
+      const updated = await this.claims.setLocked(claim.id, false);
+      if (!updated) return false;
+      await this.history.record({
+        claimId: claim.id,
+        transition: 'unlock',
+        detail: { reason: 'contradicted' },
+        confidenceBefore: claim.confidence,
+        confidenceAfter: updated.confidence,
+      });
+      return true;
+    }
+    if (
+      !claim.locked &&
+      claim.timesObserved >= LOCK_CORROBORATION_BAR &&
+      claim.confidence >= LOCK_CONFIDENCE_MIN
+    ) {
+      const updated = await this.claims.setLocked(claim.id, true);
+      if (!updated) return false;
+      await this.history.record({
+        claimId: claim.id,
+        transition: 'lock',
+        detail: {
+          timesObserved: claim.timesObserved,
+          confidence: claim.confidence,
+        },
+        confidenceBefore: claim.confidence,
+        confidenceAfter: updated.confidence,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Source classification (M12c): stamp the reserved `sourceType`
+   * once by fixed rule — user testimony at high extractor
+   * confidence is direct statement, mid is inference, low is
+   * speculation; machine-made beliefs cap at inference (an agent
+   * statement is never direct testimony). First stamp wins, like
+   * origin; history-rowed like every mutation.
+   */
+  private async classify(claim: Claim): Promise<boolean> {
+    if (claim.sourceType !== null) return false;
+    const sourceType =
+      claim.origin === 'agent'
+        ? 'inference'
+        : claim.extractorConfidence >= 0.8
+          ? 'direct_statement'
+          : claim.extractorConfidence >= 0.5
+            ? 'inference'
+            : 'speculation';
+    const updated = await this.claims.setSourceType(claim.id, sourceType);
+    if (!updated) return false;
+    await this.history.record({
+      claimId: claim.id,
+      transition: 'classify',
+      detail: {
+        sourceType,
+        origin: claim.origin,
+        extractorConfidence: claim.extractorConfidence,
       },
       confidenceBefore: null,
       confidenceAfter: null,

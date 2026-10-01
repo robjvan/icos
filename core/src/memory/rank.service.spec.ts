@@ -4,6 +4,7 @@ import { ClaimRepository } from './claim.repository';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
 import { RankService } from './rank.service';
 import type { RecallHit } from './recall.service';
+import { SourceReliabilityRepository } from './source-reliability.repository';
 import { ageDaysBetween, recencyBoost, rrfFuse } from './ranking';
 
 const NOW = Date.parse('2026-09-30T00:00:00.000Z');
@@ -50,6 +51,13 @@ const stubClaims = (claims: Claim[]): ClaimRepository =>
 
 const stubCandidates = (
   extractedAt: Record<string, string>,
+  provenance: Record<
+    string,
+    {
+      role: 'user' | 'assistant' | 'unknown';
+      model: string;
+    }
+  > = {},
 ): MemoryCandidateRepository =>
   ({
     getCandidate: (id: string) =>
@@ -59,19 +67,57 @@ const stubCandidates = (
           : ({
               id,
               extractedAt: extractedAt[id],
+              source: {
+                sessionId: 's1',
+                messageId: 1,
+                role: provenance[id]?.role ?? 'user',
+              },
+              extractorModel: provenance[id]?.model ?? 'test-model',
             } as unknown as import('./memory-candidate').MemoryCandidate),
       ),
   }) as unknown as MemoryCandidateRepository;
+
+const stubReliability = (
+  records: Record<string, { wins: number; losses: number }> = {},
+): SourceReliabilityRepository =>
+  ({
+    get: (sourceKey: string) =>
+      Promise.resolve(
+        records[sourceKey] === undefined
+          ? null
+          : {
+              sourceKey,
+              ...records[sourceKey],
+              updatedAt: 't',
+            },
+      ),
+    recordOutcome: (sourceKey: string, won: boolean) =>
+      Promise.resolve({
+        sourceKey,
+        wins: won ? 1 : 0,
+        losses: won ? 0 : 1,
+        updatedAt: 't',
+      }),
+  }) as unknown as SourceReliabilityRepository;
 
 const ranker = (
   claims: Claim[],
   extractedAt: Record<string, string>,
   gate = 0.3,
+  reliability: SourceReliabilityRepository = stubReliability(),
+  provenance: Record<
+    string,
+    {
+      role: 'user' | 'assistant' | 'unknown';
+      model: string;
+    }
+  > = {},
 ): RankService =>
   new RankService(
     { memoryRecallConfidenceGate: gate } as CoreConfig,
     stubClaims(claims),
-    stubCandidates(extractedAt),
+    stubCandidates(extractedAt, provenance),
+    reliability,
   );
 
 const hit = (claimId: string, surface: RecallHit['surface']): RecallHit => ({
@@ -292,5 +338,60 @@ describe('RankService', () => {
     });
     expect(ranked).toEqual([]);
     expect(trace.vanished).toEqual(['ghost']);
+  });
+
+  it('dampens repeatedly-losing sources with the factor in the trace', async () => {
+    const good = mkClaim({ object: 'good' });
+    const bad = mkClaim({ object: 'bad' });
+    const fresh: Record<string, string> = {
+      [good.lastSurfacedAt]: '2026-09-29T00:00:00.000Z',
+      [bad.lastSurfacedAt]: '2026-09-29T00:00:00.000Z',
+    };
+    const provenance = {
+      [good.lastSurfacedAt]: {
+        role: 'user' as const,
+        model: 'steady-model',
+      },
+      [bad.lastSurfacedAt]: { role: 'user' as const, model: 'shaky-model' },
+    };
+    const service = ranker(
+      [good, bad],
+      fresh,
+      0.3,
+      stubReliability({
+        'user/steady-model': { wins: 5, losses: 0 },
+        'user/shaky-model': { wins: 0, losses: 3 },
+      }),
+      provenance,
+    );
+
+    const { ranked } = await service.rank(
+      [hit(good.id, 'lexical'), hit(bad.id, 'lexical')],
+      { nowMs: NOW },
+    );
+    // shaky: (0+1)/(0+3+2) = 0.2 → min(1, 0.7); steady caps at 1 (neutral).
+    const badRow = ranked.find((row) => row.claim.id === bad.id);
+    expect(badRow?.reliability).toBeCloseTo(0.7, 6);
+    expect(badRow?.reasons.join(' ')).toContain('source reliability 0.70');
+    const goodRow = ranked.find((row) => row.claim.id === good.id);
+    expect(goodRow?.reliability).toBeNull();
+    // The punished source ranks below its twin.
+    expect(ranked[0]?.claim.id).toBe(good.id);
+  });
+
+  it('leaves claims alone without a track record', async () => {
+    const lone = mkClaim({ object: 'lone' });
+    const service = ranker([lone], {
+      [lone.lastSurfacedAt]: '2026-09-29T00:00:00.000Z',
+    });
+
+    const { ranked } = await service.rank([hit(lone.id, 'lexical')], {
+      nowMs: NOW,
+    });
+    expect(ranked[0]).toMatchObject({
+      disposition: 'recalled',
+      reliability: null,
+    });
+    expect(ranked[0]?.reasons.join(' ')).not.toContain('reliability');
   });
 });

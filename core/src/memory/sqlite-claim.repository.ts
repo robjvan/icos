@@ -310,6 +310,28 @@ export class SqliteClaimRepository extends ClaimRepository {
     return toClaim(updated);
   }
 
+  async setLocked(id: string, locked: boolean): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET locked = ?, updated_at = ? WHERE id = ?')
+      .run(locked ? 1 : 0, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async setSourceType(id: string, sourceType: string): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET source_type = ?, updated_at = ? WHERE id = ?')
+      .run(sourceType, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
   async addRelated(id: string, relatedIds: string[]): Promise<Claim | null> {
     const row = this.rowById(id);
     if (!row) return null;

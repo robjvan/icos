@@ -52,6 +52,7 @@ const ranked = (
     surfaces: ['lexical' as const],
     disposition,
     demoted: claim.status === 'contradicted',
+    reliability: null,
     reasons: [],
   }));
 
@@ -161,6 +162,7 @@ describe('applyBandBudget', () => {
       surfaces: ['lexical'],
       disposition,
       demoted: isDemoted,
+      reliability: null,
       reasons: [],
     });
     const rows = [
@@ -193,6 +195,7 @@ describe('applyBandBudget', () => {
         surfaces: ['lexical'],
         disposition: 'recalled',
         demoted: true,
+        reliability: null,
         reasons: [],
       },
     ];

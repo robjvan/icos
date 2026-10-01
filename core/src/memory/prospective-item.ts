@@ -45,9 +45,25 @@ export interface NewProspectiveItem {
 export interface ProspectiveItem extends NewProspectiveItem {
   id: string;
   status: ProspectiveStatus;
+  /**
+   * M12c closing outcome (confirmed | corrected | dismissed) with
+   * `resolvedAt`. Null while open. Every terminal outcome is
+   * recorded here — the completion half of the clarification loop.
+   */
+  resolution: string | null;
+  resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** Closing outcomes for the clarification loop (M12c). */
+export type ProspectiveResolution = 'confirmed' | 'corrected' | 'dismissed';
+
+export const PROSPECTIVE_RESOLUTIONS: readonly ProspectiveResolution[] = [
+  'confirmed',
+  'corrected',
+  'dismissed',
+];
 
 /** A parked option built from a live claim (origin + confidence ride along). */
 export function prospectiveOptionFromClaim(claim: Claim): ProspectiveOption {
