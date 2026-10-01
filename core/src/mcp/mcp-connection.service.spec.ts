@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CoreConfig } from '../config';
 import { McpClient, McpClientFactory, McpError } from './mcp-client';
-import type { McpCallResult, McpTool } from './mcp-client';
+import type {
+  McpCallResult,
+  McpPrompt,
+  McpPromptResult,
+  McpResource,
+  McpResourceRead,
+  McpTool,
+} from './mcp-client';
 import { McpConnectionService } from './mcp-connection.service';
 import type { McpServerEntry } from './mcp-server-config';
 
@@ -62,6 +69,8 @@ class FakeClient extends McpClient {
     private readonly behavior: {
       connectError?: string;
       callError?: string;
+      resources?: McpResource[];
+      prompts?: McpPrompt[];
     } = {},
   ) {
     super();
@@ -94,6 +103,32 @@ class FakeClient extends McpClient {
       text: `called:${toolName}`,
       isError: false,
       attachments: [],
+    });
+  }
+
+  listResources(): Promise<McpResource[]> {
+    return Promise.resolve(this.behavior.resources ?? []);
+  }
+
+  readResource(uri: string, maxChars: number): Promise<McpResourceRead> {
+    return Promise.resolve({
+      uri,
+      text: `read:${uri}`.slice(0, maxChars),
+      isBinary: false,
+      truncated: false,
+    });
+  }
+
+  listPrompts(): Promise<McpPrompt[]> {
+    return Promise.resolve(this.behavior.prompts ?? []);
+  }
+
+  getPrompt(
+    name: string,
+    args: Record<string, string>,
+  ): Promise<McpPromptResult> {
+    return Promise.resolve({
+      messages: [{ role: 'user', text: `${name}:${JSON.stringify(args)}` }],
     });
   }
 }
@@ -233,6 +268,76 @@ describe('McpConnectionService', () => {
     await service.onModuleDestroy();
   });
 
+  describe('resources and prompts (M13e)', () => {
+    const withServer = (
+      behavior: ConstructorParameters<typeof FakeClient>[1] = {},
+    ) => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'srv', transport: 'stdio', command: 'x' }]),
+      );
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(() => new FakeClient([], behavior)),
+      );
+      return service;
+    };
+
+    it('lists resources and reads one through the connected client', async () => {
+      const service = withServer({
+        resources: [{ uri: 'file:///a', name: 'a', mimeType: 'text/plain' }],
+      });
+      await service.initialize();
+      expect(await service.listResources('srv')).toEqual([
+        { uri: 'file:///a', name: 'a', mimeType: 'text/plain' },
+      ]);
+      expect(await service.readResource('srv', 'file:///a')).toMatchObject({
+        uri: 'file:///a',
+        text: 'read:file:///a',
+        isBinary: false,
+      });
+      await service.onModuleDestroy();
+    });
+
+    it('lists prompts and fetches one with named arguments', async () => {
+      const service = withServer({
+        prompts: [{ name: 'greet', arguments: [] }],
+      });
+      await service.initialize();
+      expect(await service.listPrompts('srv')).toEqual([
+        { name: 'greet', arguments: [] },
+      ]);
+      expect(
+        await service.getPrompt('srv', 'greet', { who: 'rob' }),
+      ).toMatchObject({ messages: [{ role: 'user' }] });
+      await service.onModuleDestroy();
+    });
+
+    it('refuses reads through a server that is not connected', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(path, JSON.stringify([]));
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(),
+      );
+      await service.initialize();
+      await expect(service.listResources('missing')).rejects.toBeInstanceOf(
+        McpError,
+      );
+      await expect(
+        service.readResource('missing', 'file:///a'),
+      ).rejects.toBeInstanceOf(McpError);
+      await expect(service.listPrompts('missing')).rejects.toBeInstanceOf(
+        McpError,
+      );
+      await expect(
+        service.getPrompt('missing', 'greet', {}),
+      ).rejects.toBeInstanceOf(McpError);
+      await service.onModuleDestroy();
+    });
+  });
+
   describe('reload (M13d)', () => {
     it('is a no-op report when MCP is disabled', async () => {
       const path = join(dir, 'mcp-servers.json');
@@ -342,7 +447,43 @@ describe('McpConnectionService', () => {
       await service.onModuleDestroy();
     });
 
-    it('reloads on catalog file change (debounced watch)', async () => {
+    it('debounces catalog changes into a single reload', async () => {
+      const path = join(dir, 'mcp-servers.json');
+      writeFileSync(
+        path,
+        JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x' }]),
+      );
+      const service = new McpConnectionService(
+        testConfig({ mcpServersPath: path }),
+        new FakeFactory(
+          () => new FakeClient([{ name: 'ping', inputSchema: {} }]),
+        ),
+      );
+      await service.initialize();
+      expect(service.statusOf('a')?.state).toBe('connected');
+
+      // Deterministic watch entry point — no OS-event dependency.
+      writeFileSync(
+        path,
+        JSON.stringify([
+          { name: 'a', transport: 'stdio', command: 'x' },
+          { name: 'b', transport: 'stdio', command: 'y' },
+        ]),
+      );
+      service.handleCatalogFileEvent();
+      service.handleCatalogFileEvent();
+      const deadline = Date.now() + 3000;
+      while (
+        service.statusOf('b')?.state !== 'connected' &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(service.statusOf('b')?.state).toBe('connected');
+      await service.onModuleDestroy();
+    });
+
+    it('poll-watches the catalog file (no restart needed)', async () => {
       const path = join(dir, 'mcp-servers.json');
       writeFileSync(
         path,
@@ -358,7 +499,7 @@ describe('McpConnectionService', () => {
         await service.onModuleInit();
         expect(service.statusOf('a')?.state).toBe('connected');
 
-        // Add 'b' on disk; the watcher must pick it up without a restart.
+        // Add 'b' on disk; polling must pick it up without a restart.
         writeFileSync(
           path,
           JSON.stringify([
@@ -371,7 +512,7 @@ describe('McpConnectionService', () => {
           service.statusOf('b')?.state !== 'connected' &&
           Date.now() < deadline
         ) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
         expect(service.statusOf('b')?.state).toBe('connected');
       } finally {

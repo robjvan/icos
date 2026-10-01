@@ -1,6 +1,4 @@
-import { watch } from 'node:fs';
-import type { FSWatcher } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { unwatchFile, watchFile } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import {
   Inject,
@@ -12,7 +10,16 @@ import {
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
 import { McpClientFactory, McpError } from './mcp-client';
-import type { McpCallResult, McpClient, McpTool } from './mcp-client';
+import type {
+  McpCallResult,
+  McpClient,
+  McpPrompt,
+  McpPromptResult,
+  McpResource,
+  McpResourceRead,
+  McpTool,
+} from './mcp-client';
+import { MCP_READ_MAX_CHARS } from './mcp-client';
 import { loadCatalogFile, resolveCatalogPath } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
 
@@ -51,6 +58,13 @@ interface ManagedServer {
 export const CATALOG_WATCH_DEBOUNCE_MS = 250;
 
 /**
+ * Catalog poll interval. `fs.watch` is event-driven but documented
+ * as inconsistent (events can be dropped); a hand-edited JSON file
+ * is cheap to poll and correctness beats latency here.
+ */
+export const CATALOG_WATCH_INTERVAL_MS = 1000;
+
+/**
  * MCP connection manager (M13a/d): owns one client per catalogued
  * server, connects fail-soft at boot (a dead server disables
  * itself loudly, never the boot), and answers discovery + calls
@@ -64,7 +78,7 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(McpConnectionService.name);
   private readonly servers = new Map<string, ManagedServer>();
   private readonly toolListeners = new Set<() => void>();
-  private watcher: FSWatcher | null = null;
+  private watchedPath: string | null = null;
   private watchTimer: NodeJS.Timeout | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
 
@@ -102,8 +116,10 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    this.watcher?.close();
-    this.watcher = null;
+    if (this.watchedPath) {
+      unwatchFile(this.watchedPath);
+      this.watchedPath = null;
+    }
     if (this.watchTimer) clearTimeout(this.watchTimer);
     this.watchTimer = null;
     if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -248,35 +264,27 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
     if (retried) this.notifyToolsChanged();
   }
 
-  /** Watch the catalog's directory, reloading (debounced) on change. */
+  /**
+   * Watch the catalog file, reloading (debounced) on change. Uses
+   * `fs.watchFile` (polling) rather than `fs.watch`: a dropped
+   * event on a config file is a real bug, and the file is tiny.
+   * Missing files are fine — polling fires when one appears.
+   */
   private startWatching(): void {
     if (!this.config.mcpEnabled) return;
     const catalogPath = resolveCatalogPath(this.config.mcpServersPath);
-    const dir = dirname(catalogPath);
-    const file = basename(catalogPath);
-    try {
-      this.watcher = watch(dir, (_event, changed) => {
-        // Some platforms report null/partial names; only filter when
-        // a name is known and clearly a different file.
-        if (changed && changed.toString() !== file) return;
-        this.scheduleReload();
-      });
-      this.watcher.on('error', (err) => {
-        this.logger.warn(
-          `MCP catalog watch error: ${err instanceof Error ? err.message : 'unknown'}`,
-        );
-      });
-    } catch (err) {
-      // Directory may not exist yet; explicit reload still works.
-      this.logger.warn(
-        `MCP catalog not watched (${
-          err instanceof Error ? err.message : 'unknown'
-        }); use POST /core/mcp/reload`,
-      );
-    }
+    this.watchedPath = catalogPath;
+    watchFile(catalogPath, { interval: CATALOG_WATCH_INTERVAL_MS }, () =>
+      this.handleCatalogFileEvent(),
+    );
   }
 
-  private scheduleReload(): void {
+  /**
+   * Watch entry point (also the deterministic test seam): a catalog
+   * change debounces into one reload. The watcher only fires on the
+   * watched path, so no name filtering is needed.
+   */
+  handleCatalogFileEvent(): void {
     if (this.watchTimer) clearTimeout(this.watchTimer);
     this.watchTimer = setTimeout(() => {
       this.watchTimer = null;
@@ -370,6 +378,58 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
       throw new McpError(`MCP server "${serverName}" is not connected`, true);
     }
     return server.client.callTool(toolName, args, this.config.mcpTimeoutMs);
+  }
+
+  /**
+   * Read-only surfaces (M13e). Lazy and operator-initiated — never
+   * auto-injected into context, so they need no approval (writes
+   * remain approval-gated, M13b). A server that does not speak
+   * resources/prompts fails soft with an `McpError`.
+   */
+  async listResources(serverName: string): Promise<McpResource[]> {
+    return this.requireConnected(serverName).listResources(
+      this.config.mcpTimeoutMs,
+    );
+  }
+
+  async readResource(
+    serverName: string,
+    uri: string,
+    maxChars: number = MCP_READ_MAX_CHARS,
+  ): Promise<McpResourceRead> {
+    return this.requireConnected(serverName).readResource(
+      uri,
+      maxChars,
+      this.config.mcpTimeoutMs,
+    );
+  }
+
+  async listPrompts(serverName: string): Promise<McpPrompt[]> {
+    return this.requireConnected(serverName).listPrompts(
+      this.config.mcpTimeoutMs,
+    );
+  }
+
+  async getPrompt(
+    serverName: string,
+    name: string,
+    args: Record<string, string>,
+    maxChars: number = MCP_READ_MAX_CHARS,
+  ): Promise<McpPromptResult> {
+    return this.requireConnected(serverName).getPrompt(
+      name,
+      args,
+      maxChars,
+      this.config.mcpTimeoutMs,
+    );
+  }
+
+  private requireConnected(serverName: string): McpClient {
+    const server = this.servers.get(serverName);
+    if (!server || !server.client || server.state !== 'connected') {
+      throw new McpError(`MCP server "${serverName}" is not connected`, true);
+    }
+    return server.client;
   }
 
   statusOf(serverName: string): McpServerStatus | null {
