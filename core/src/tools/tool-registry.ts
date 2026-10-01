@@ -88,6 +88,17 @@ export type ToolValidationResult =
 export const FOREIGN_TOOL_SOURCE = 'FOREIGN_TOOL_SOURCE';
 
 /**
+ * A configured-but-unusable foreign server (M13c): known to the
+ * catalog, absent from planning. The loop declares these in the
+ * planning frame so absence reads as deliberate, never silent.
+ */
+export interface UnavailableForeignServer {
+  readonly server: string;
+  readonly state: 'disabled' | 'failed';
+  readonly reason?: string;
+}
+
+/**
  * Runtime foreign descriptors (bridged MCP tools). The registry
  * owns the name space; the source owns discovery. Optional —
  * without it the registry is exactly the two native tools.
@@ -109,6 +120,11 @@ export interface ForeignToolSource {
         readonly argsSchema: ToolDescriptor['argsSchema'];
       }
     | undefined;
+  /**
+   * Known-but-unusable servers (optional seam; absent = none
+   * declared). The bridge serves it; test doubles omit it.
+   */
+  unavailableForeign?(): readonly UnavailableForeignServer[];
 }
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -312,6 +328,15 @@ export class ToolRegistry {
       DESCRIPTORS.find((d) => d.name === name) ??
       this.foreignSourceDescriptor(name)
     );
+  }
+
+  /**
+   * Known-but-unusable foreign servers for the planning frame
+   * (M13c). Empty without a source, or when the source omits the
+   * seam — absence of the seam reads as nothing to declare.
+   */
+  unavailableForeign(): readonly UnavailableForeignServer[] {
+    return this.foreign?.unavailableForeign?.() ?? [];
   }
 
   private foreignSourceDescriptor(name: string): ToolDescriptor | undefined {

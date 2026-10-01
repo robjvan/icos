@@ -680,5 +680,20 @@ describe('ToolRegistry', () => {
         ).code,
       ).toBe('unknown_tool');
     });
+
+    it('declares unavailable servers only when the source serves them', () => {
+      // No source, no declaration.
+      expect(registry.unavailableForeign()).toEqual([]);
+      // Source without the seam: nothing to declare.
+      expect(withForeign().unavailableForeign()).toEqual([]);
+      // Source with the seam: forwarded verbatim.
+      const down = [{ server: 'files', state: 'failed' as const }];
+      const declaring = new ToolRegistry({
+        listForeign: () => [],
+        lookupForeign: () => undefined,
+        unavailableForeign: () => down,
+      });
+      expect(declaring.unavailableForeign()).toEqual(down);
+    });
   });
 });

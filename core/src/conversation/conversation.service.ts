@@ -45,7 +45,6 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
-import type { ToolName } from '../tools/tool-registry';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -1522,12 +1521,27 @@ export class ConversationService {
       maxToolSteps: this.config.agentMaxToolSteps,
       maxIterations: this.config.agentMaxIterations,
       progress,
+      unavailable: this.describeUnavailableForeign(),
     });
     return assembleTurnMessages({
       baseSystem: turn.baseSystem,
       systemExtra: `${TOOL_STEP_INSTRUCTION}\n\n${block}`,
       rest: turn.rest,
       pairs,
+    });
+  }
+
+  /**
+   * Planning-frame declaration of dead foreign servers (M13c).
+   * Reasons are operator-visible infra text, truncated — the
+   * model gets the fact of absence, not a log dump.
+   */
+  private describeUnavailableForeign(): string[] {
+    return this.registry.unavailableForeign().map((entry) => {
+      const head = `mcp_${entry.server}_* (server "${entry.server}" ${entry.state}`;
+      return entry.reason
+        ? `${head}: ${entry.reason.slice(0, 120)})`
+        : `${head})`;
     });
   }
 
@@ -1656,10 +1670,18 @@ export class ConversationService {
       record.invocationId
     ) {
       const validation = record.validation;
+      // The validated name when there is one; otherwise what the
+      // model actually proposed (never a hardcoded native — a
+      // foreign proposal must report its own name, not
+      // session.search's).
+      const proposed =
+        record.input.proposal.kind === 'tool_calls'
+          ? record.input.proposal.toolCalls[0]?.name
+          : undefined;
       const name =
         validation.ok && 'request' in validation
           ? validation.request.name
-          : ('session.search' as ToolName);
+          : (proposed ?? 'session.search');
       const tool = { invocationId: record.invocationId, name };
       if (record.final.state === 'succeeded') {
         const content = record.final.result.content;

@@ -2,7 +2,11 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { McpConnectionService } from './mcp-connection.service';
 import { toArgsSchema, toNamespacedName } from './mcp-tool-bridge';
 import type { TranslatedSchema } from './mcp-tool-bridge';
-import type { ApprovalPolicy, ForeignToolSource } from '../tools/tool-registry';
+import type {
+  ApprovalPolicy,
+  ForeignToolSource,
+  UnavailableForeignServer,
+} from '../tools/tool-registry';
 
 /** A live foreign descriptor (built, never hand-written). */
 export interface ForeignToolDescriptor {
@@ -87,5 +91,26 @@ export class McpToolBridge implements ForeignToolSource, OnModuleInit {
 
   lookupForeign(name: string): ForeignToolDescriptor | undefined {
     return this.descriptors.find((descriptor) => descriptor.name === name);
+  }
+
+  /**
+   * Known-but-unusable servers for the planning frame (M13c):
+   * every non-connected catalog entry, with its loud reason.
+   * Connected servers are absent by definition — their tools are
+   * offered, not declared. Reasons stay short; they are
+   * operator-visible infra text, never secrets (the catalog
+   * carries references, values never touch this path).
+   */
+  unavailableForeign(): readonly UnavailableForeignServer[] {
+    const out: UnavailableForeignServer[] = [];
+    for (const status of this.connections.statusAll()) {
+      if (status.state === 'connected') continue;
+      out.push({
+        server: status.name,
+        state: status.state,
+        ...(status.reason !== undefined ? { reason: status.reason } : {}),
+      });
+    }
+    return out;
   }
 }

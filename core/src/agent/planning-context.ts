@@ -24,6 +24,12 @@ export function buildPlanningBlock(input: {
   maxToolSteps: number;
   maxIterations: number;
   progress?: PlanningProgress;
+  /**
+   * Known-but-unusable foreign servers, preformatted
+   * (`mcp_<server>_* (server "<s>" <state>[: <reason>])`).
+   * Absent by default — the native loop never declares it.
+   */
+  unavailable?: readonly string[];
 }): string {
   const lines = input.tools.map((tool) =>
     tool.approval === 'none'
@@ -37,6 +43,15 @@ export function buildPlanningBlock(input: {
     ...lines,
     `Budget: at most ${input.maxToolSteps} tool steps across ${input.maxIterations} proposal rounds this turn.`,
   ];
+  // M13c: dead servers' tools are absent from the list above by
+  // construction (only live descriptors are offered). Declared
+  // here so the absence reads as deliberate, never silent.
+  if (input.unavailable && input.unavailable.length > 0) {
+    parts.push(
+      'Unavailable (do not propose):',
+      ...input.unavailable.map((line) => `- ${line}`),
+    );
+  }
   // M9k: per-step progress restated every round so the model always
   // sees remaining budget and what it already tried.
   if (input.progress) {

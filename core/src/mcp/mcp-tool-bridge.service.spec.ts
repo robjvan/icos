@@ -77,6 +77,24 @@ class FakeClient extends McpClient {
   }
 }
 
+class FailingClient extends McpClient {
+  connect(): Promise<McpTool[]> {
+    return Promise.reject(new Error('refused'));
+  }
+
+  disconnect(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  listTools(): Promise<McpTool[]> {
+    return Promise.resolve([]);
+  }
+
+  callTool(): Promise<never> {
+    return Promise.reject(new Error('unused'));
+  }
+}
+
 describe('McpToolBridge', () => {
   let dir = '';
 
@@ -182,6 +200,40 @@ describe('McpToolBridge', () => {
     await connections.initialize();
     bridge.refresh();
     expect(bridge.lookupForeign('mcp_open_go')?.approval).toBe('none');
+    await connections.onModuleDestroy();
+  });
+
+  it('declares non-connected servers, never live ones', async () => {
+    const path = join(dir, 'mcp-servers.json');
+    writeFileSync(
+      path,
+      JSON.stringify([
+        { name: 'up', transport: 'stdio', command: 'x' },
+        { name: 'down', transport: 'stdio', command: 'x' },
+        { name: 'off', transport: 'stdio', command: 'x', enabled: false },
+      ]),
+    );
+    const connections = new McpConnectionService(
+      testConfig({ mcpServersPath: path }),
+      {
+        create: (entry: { name: string }) =>
+          entry.name === 'down'
+            ? new FailingClient()
+            : new FakeClient([{ name: 'go', inputSchema: {} }]),
+      },
+    );
+    const bridge = new McpToolBridge(connections);
+    await connections.initialize();
+    expect(bridge.unavailableForeign()).toMatchObject([
+      { server: 'down', state: 'failed' },
+      { server: 'off', state: 'disabled' },
+    ]);
+    // Reasons stay attached but never carry secrets (no env here at
+    // all — references resolve at spawn, values never surface).
+    const down = bridge
+      .unavailableForeign()
+      .find((entry) => entry.server === 'down');
+    expect(down?.reason).toContain('refused');
     await connections.onModuleDestroy();
   });
 });
