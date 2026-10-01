@@ -179,6 +179,7 @@ describe('Conversation (e2e)', () => {
         authCookieSecure: false,
         ...(auth.vaultKey !== undefined ? { vaultKey: auth.vaultKey } : {}),
         ...(auth.vaultPath !== undefined ? { vaultPath: auth.vaultPath } : {}),
+        providersPath: join(auth.dir, 'providers.json'),
         provider: 'ollama',
         llmBaseUrl: 'http://localhost:11434/v1',
         llmModel: 'test-model',
@@ -2203,6 +2204,25 @@ describe('Conversation (e2e)', () => {
 
     beforeAll(async () => {
       authDir = mkdtempSync(join(tmpdir(), 'icos-e2e-auth-'));
+      writeFileSync(
+        join(authDir, 'providers.json'),
+        JSON.stringify({
+          active: { conversation: 'openrouter', memory: 'local' },
+          providers: [
+            {
+              id: 'openrouter',
+              baseUrl: 'https://openrouter.ai/api/v1',
+              model: 'deepseek/x',
+              apiKeyRef: 'secret:provkey',
+            },
+            {
+              id: 'local',
+              baseUrl: 'http://localhost:11434/v1',
+              model: 'gemma',
+            },
+          ],
+        }),
+      );
       authApp = await createApp(
         join(authDir, 'sessions.sqlite'),
         join(authDir, 'memories.sqlite'),
@@ -2350,6 +2370,82 @@ describe('Conversation (e2e)', () => {
         .expect(400);
       await agent()
         .delete('/core/secrets/nope')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(404);
+    });
+
+    it('lists providers (no keys), stores the referenced key, switches active', async () => {
+      const { cookie, csrf } = await loginCookies();
+
+      const before = await agent()
+        .get('/core/providers')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(before.body).toMatchObject({
+        source: 'catalog',
+        active: { conversation: 'openrouter', memory: 'local' },
+      });
+      const beforeEntries = (
+        before.body as { providers: { id: string; hasKey: boolean }[] }
+      ).providers;
+      expect(beforeEntries.find((p) => p.id === 'openrouter')?.hasKey).toBe(
+        false,
+      );
+
+      // Store the referenced key: presence flips, on demand, no restart.
+      await agent()
+        .put('/core/secrets/provkey')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 'sk-provider-secret' })
+        .expect(200);
+      const after = await agent()
+        .get('/core/providers')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(JSON.stringify(after.body)).not.toContain('sk-provider-secret');
+      const afterEntries = (
+        after.body as { providers: { id: string; hasKey: boolean }[] }
+      ).providers;
+      expect(afterEntries.find((p) => p.id === 'openrouter')?.hasKey).toBe(
+        true,
+      );
+
+      const switched = await agent()
+        .post('/core/providers/active')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ role: 'conversation', id: 'local' })
+        .expect(200);
+      expect(
+        (switched.body as { active: { conversation: string } }).active
+          .conversation,
+      ).toBe('local');
+
+      await agent()
+        .post('/core/providers/reload')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      await agent()
+        .post('/core/providers/active')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ role: 'conversation', id: 'ghost' })
+        .expect(400);
+    });
+
+    it('tests a provider connection and 404s an unknown one', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const tested = await agent()
+        .post('/core/providers/local/test')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      expect(typeof (tested.body as { ok: boolean }).ok).toBe('boolean');
+      await agent()
+        .post('/core/providers/ghost/test')
         .set('Cookie', cookie)
         .set('x-icos-csrf', csrf)
         .expect(404);

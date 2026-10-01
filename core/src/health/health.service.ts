@@ -6,6 +6,7 @@ import { SessionStore } from '../conversation/session.store';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { HostHealthProvider } from '../commands/host-health';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { ProviderRegistryService } from '../providers/provider-registry.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { realtimeEvent } from '../realtime/realtime-event';
 import { buildHealthReport } from './health-report';
@@ -37,6 +38,7 @@ export class HealthService implements OnModuleDestroy {
     private readonly candidates: MemoryCandidateRepository,
     private readonly host: HostHealthProvider,
     private readonly mcp: McpConnectionService,
+    private readonly providers: ProviderRegistryService,
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly modules: ModuleRef,
   ) {
@@ -60,6 +62,7 @@ export class HealthService implements OnModuleDestroy {
       config: this.config,
       host: this.host,
       mcp: this.mcp,
+      providers: this.providers,
     });
   }
 

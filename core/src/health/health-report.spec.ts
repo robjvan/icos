@@ -285,4 +285,51 @@ describe('buildHealthReport', () => {
       expect(report.mcp?.detail).toContain('refused');
     });
   });
+
+  describe('provider surface (S4)', () => {
+    it('is absent when no registry is wired and never carries a key', async () => {
+      const { store, candidates, host, config } = setup();
+      const none = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+      });
+      expect(none.providers).toBeUndefined();
+
+      const withProviders = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        providers: {
+          report: () => ({
+            source: 'catalog',
+            active: { conversation: 'openrouter', memory: 'local' },
+            providers: [
+              {
+                id: 'openrouter',
+                model: 'deepseek/x',
+                baseUrl: 'https://openrouter.ai/api/v1',
+                enabled: true,
+                hasKey: true,
+              },
+            ],
+          }),
+        },
+      });
+      expect(withProviders.providers).toEqual({
+        source: 'catalog',
+        active: { conversation: 'openrouter', memory: 'local' },
+        providers: [
+          {
+            id: 'openrouter',
+            model: 'deepseek/x',
+            enabled: true,
+            hasKey: true,
+          },
+        ],
+      });
+    });
+  });
 });

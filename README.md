@@ -132,6 +132,10 @@ The current system provides:
   gated execution with durable records, resources and prompt
   templates behind a read-only fetch surface, hand-edited catalog
   with no-restart reload and a per-server health surface)
+- Security posture (loopback-by-default binding, authentication with a
+  bootstrap token, an encrypted secret vault, and an LLM provider
+  registry selected at runtime with key references resolved through the
+  vault)
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 

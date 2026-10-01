@@ -1,57 +1,58 @@
-import { CORE_CONFIG } from '../config';
-import type { CoreConfig } from '../config';
+import { Injectable } from '@nestjs/common';
 import { LlmClient } from './llm.client';
 import type { LlmEndpointConfig } from './llm.client';
+import { ProviderRegistryService } from '../providers/provider-registry.service';
+import {
+  conversationEndpointConfig,
+  memoryEndpointConfig,
+} from '../providers/provider-registry.service';
 import { MEMORY_LLM_CLIENT } from '../memory/llm-memory-candidate-extractor';
 
-/** Map the LLM_* role configuration to endpoint values. */
-export function conversationEndpointConfig(
-  config: CoreConfig,
-): LlmEndpointConfig {
-  return {
-    provider: config.provider,
-    llmBaseUrl: config.llmBaseUrl,
-    llmModel: config.llmModel,
-    llmApiKey: config.llmApiKey,
-    headers: config.llmHeaders,
-    userAgent: config.userAgent,
-    llmTimeoutMs: config.llmTimeoutMs,
-  };
-}
+export { conversationEndpointConfig, memoryEndpointConfig };
 
-/** Map the MEMORY_* role configuration to endpoint values. */
-export function memoryEndpointConfig(config: CoreConfig): LlmEndpointConfig {
-  return {
-    provider: config.memoryProvider,
-    llmBaseUrl: config.memoryLlmBaseUrl,
-    llmModel: config.memoryLlmModel,
-    llmApiKey: config.memoryLlmApiKey,
-    headers: config.memoryLlmHeaders,
-    userAgent: config.memoryUserAgent,
-    llmTimeoutMs: config.memoryLlmTimeoutMs,
-  };
+/**
+ * Conversation role (S4): follows the active provider from the registry,
+ * re-resolving the endpoint on every request so a reload, a switched
+ * provider, or a rotated key takes effect without a restart. Falls back
+ * to the env `LLM_*` endpoint when no catalog entry is active.
+ */
+@Injectable()
+export class ConversationLlmClient extends LlmClient {
+  constructor(private readonly registry: ProviderRegistryService) {
+    super(registry.conversationEndpoint());
+  }
+
+  protected override endpoint(): LlmEndpointConfig {
+    return this.registry.conversationEndpoint();
+  }
 }
 
 /**
- * The conversation role's client instance, mapped from the LLM_*
- * configuration. Same mapping shape as the memory role below.
+ * Memory/extraction role: same routing, its own active provider and env
+ * fallback (`MEMORY_LLM_*`), so the two roles never share a provider
+ * unless configured to.
  */
+@Injectable()
+export class MemoryLlmClient extends LlmClient {
+  constructor(private readonly registry: ProviderRegistryService) {
+    super(registry.memoryEndpoint());
+  }
+
+  protected override endpoint(): LlmEndpointConfig {
+    return this.registry.memoryEndpoint();
+  }
+}
+
 export const conversationLlmClientProvider = {
   provide: LlmClient,
-  useFactory: (config: CoreConfig): LlmClient =>
-    new LlmClient(conversationEndpointConfig(config)),
-  inject: [CORE_CONFIG],
+  useFactory: (registry: ProviderRegistryService): LlmClient =>
+    new ConversationLlmClient(registry),
+  inject: [ProviderRegistryService],
 };
 
-/**
- * The memory role's own client instance, built from the MEMORY_* config.
- * Same generic client class as conversation — different values, so the
- * two roles never share a provider, model, endpoint, or timeout unless
- * explicitly configured to.
- */
 export const memoryLlmClientProvider = {
   provide: MEMORY_LLM_CLIENT,
-  useFactory: (config: CoreConfig): LlmClient =>
-    new LlmClient(memoryEndpointConfig(config)),
-  inject: [CORE_CONFIG],
+  useFactory: (registry: ProviderRegistryService): LlmClient =>
+    new MemoryLlmClient(registry),
+  inject: [ProviderRegistryService],
 };

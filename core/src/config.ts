@@ -56,6 +56,12 @@ export interface CoreConfig {
    */
   vaultKeyFile?: string;
   vaultKey?: string;
+  /**
+   * LLM provider catalog (S4). When present, entries here (selected via
+   * its `active` map) replace the `LLM_*` / `MEMORY_LLM_*` env endpoint
+   * values. Absent file = env-only behavior, exactly as before.
+   */
+  providersPath?: string;
   provider: string;
   llmBaseUrl: string;
   llmModel: string;
@@ -260,6 +266,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     vaultKeyFile:
       (env.ICOS_VAULT_KEY_FILE ?? env.VAULT_KEY_FILE ?? '').trim() || undefined,
     vaultKey: (env.ICOS_VAULT_KEY ?? env.VAULT_KEY ?? '').trim() || undefined,
+    providersPath: (env.PROVIDERS_PATH ?? '').trim() || undefined,
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,

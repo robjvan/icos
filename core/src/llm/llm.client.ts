@@ -74,8 +74,17 @@ export class LlmClient {
     @Inject(CORE_CONFIG) private readonly config: LlmEndpointConfig,
   ) {}
 
+  /**
+   * The endpoint this client talks to. Overridable so a routing client
+   * can follow the active provider (S4) without the injected instance
+   * being rebuilt.
+   */
+  protected endpoint(): LlmEndpointConfig {
+    return this.config;
+  }
+
   buildUrl(): string {
-    const url = new URL(this.config.llmBaseUrl);
+    const url = new URL(this.endpoint().llmBaseUrl);
     const path = url.pathname.replace(/\/+$/, '');
     url.pathname = path.endsWith('/chat/completions')
       ? path
@@ -130,12 +139,13 @@ export class LlmClient {
     clientSignal?: AbortSignal,
     offer?: ToolOffer,
   ): Promise<LlmResult> {
+    const config = this.endpoint();
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, this.config.llmTimeoutMs);
+    }, config.llmTimeoutMs);
     const onClientAbort = (): void => controller.abort();
     clientSignal?.addEventListener('abort', onClientAbort, { once: true });
     if (clientSignal?.aborted) controller.abort();
@@ -146,11 +156,11 @@ export class LlmClient {
       try {
         res = await fetch(this.buildUrl(), {
           method: 'POST',
-          headers: buildRequestHeaders(this.config, {
+          headers: buildRequestHeaders(config, {
             sessionId: request.sessionId,
           }),
           body: JSON.stringify({
-            model: this.config.llmModel,
+            model: config.llmModel,
             messages: request.messages,
             stream: sink !== undefined,
             ...offer?.body,
@@ -173,7 +183,7 @@ export class LlmClient {
         );
       }
       if (!res.body) throw protocolError();
-      const parser = new CompletionParser(this.config.llmModel, offer);
+      const parser = new CompletionParser(config.llmModel, offer);
       if (sink) {
         const result = await this.pumpStream(
           res.body,
@@ -193,7 +203,7 @@ export class LlmClient {
         throw this.providerError(
           504,
           timedOut
-            ? `LLM endpoint timed out after ${this.config.llmTimeoutMs}ms`
+            ? `LLM endpoint timed out after ${config.llmTimeoutMs}ms`
             : 'LLM request aborted',
           timedOut,
         );
@@ -218,7 +228,7 @@ export class LlmClient {
   ): LlmError {
     return new LlmError(
       httpStatus,
-      `[${this.config.provider}] ${message}`,
+      `[${this.endpoint().provider}] ${message}`,
       retryable,
       cause,
     );

@@ -37,6 +37,22 @@ export interface McpHealthSource {
   statusAll(): readonly McpServerHealth[];
 }
 
+/** Active LLM provider state (S4) — never a key. */
+export interface ProviderHealth {
+  source: 'catalog' | 'env';
+  active: { conversation: string; memory: string };
+  providers: {
+    id: string;
+    model: string;
+    enabled: boolean;
+    hasKey: boolean;
+  }[];
+}
+
+export interface ProviderHealthSource {
+  report(): ProviderHealth;
+}
+
 /**
  * Pollable health payload. Same shape as the `/health` slash-command
  * `data` — one model serves both the conversation API and `GET /core/health`.
@@ -51,6 +67,8 @@ export interface HealthReport {
   };
   /** Present only when the MCP manager is wired into the health surface. */
   mcp?: McpHealth;
+  /** Present only when the provider registry is wired. */
+  providers?: ProviderHealth;
   host: HostHealth;
 }
 
@@ -61,6 +79,8 @@ export interface HealthReportDeps {
   host: HostHealthProvider;
   /** Optional: absent for callers without the MCP manager (slash command). */
   mcp?: McpHealthSource;
+  /** Optional: absent for callers without the provider registry. */
+  providers?: ProviderHealthSource;
 }
 
 /**
@@ -132,7 +152,25 @@ export async function buildHealthReport(
     ...(deps.mcp
       ? { mcp: buildMcpHealth(config.mcpEnabled, deps.mcp.statusAll()) }
       : {}),
+    ...(deps.providers
+      ? { providers: buildProviderHealth(deps.providers) }
+      : {}),
     host: hostHealth,
+  };
+}
+
+/** Active LLM provider state (S4): ids/models/presence, never keys. */
+function buildProviderHealth(source: ProviderHealthSource): ProviderHealth {
+  const report = source.report();
+  return {
+    source: report.source,
+    active: report.active,
+    providers: report.providers.map((entry) => ({
+      id: entry.id,
+      model: entry.model,
+      enabled: entry.enabled,
+      hasKey: entry.hasKey,
+    })),
   };
 }
 

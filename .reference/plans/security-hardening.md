@@ -108,17 +108,19 @@ Evidence: `.reference/plans/evidence/security-s3-evidence-vault.md`.
 - [x] Deleting a referenced secret fails the dependent server/provider
       loudly — never a cached value (live-verified).
 
-### [ ] S4 — Provider registry (LLM providers as data)
+### [x] S4 — Provider registry (LLM providers as data)
 
-- [ ] `providers.json` catalog mirroring the MCP catalog: entries
+Evidence: `.reference/plans/evidence/security-s4-evidence-providers.md`.
+
+- [x] `providers.json` catalog mirroring the MCP catalog: entries
       `{ id, baseUrl, model, apiKeyRef, headers?, enabled? }`,
       validated at boot, explicit reload endpoint, no-restart diffing.
-- [ ] `apiKeyRef` resolves through `SecretStore` (or `$VAR`); the
+- [x] `apiKeyRef` resolves through `SecretStore` (or `$VAR`); the
       active provider is selectable. Provider-agnostic rule unchanged.
-- [ ] Migrate `LLM_API_KEY` / `MEMORY_LLM_API_KEY` to references; per
+- [x] Migrate `LLM_API_KEY` / `MEMORY_LLM_API_KEY` to references; per
       provider "test connection" that uses the value without storing it
       in a readable form.
-- [ ] Health surface reports provider state (configured/reachable),
+- [x] Health surface reports provider state (configured/reachable),
       never the key.
 
 ### [ ] S5 — Frontend management (web-client, in scope for this milestone)
