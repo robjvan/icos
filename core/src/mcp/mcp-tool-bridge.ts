@@ -126,6 +126,10 @@ function translateNode(
   if (depth > MAX_SCHEMA_DEPTH) return null;
   const schema = node as JsonSchema;
   // Compositional and reference keywords are out of the subset.
+  // `additionalProperties` is banned only when it would widen:
+  // `false` matches the closed shape emitted anyway (and is the
+  // common real-world marker), while `true` or a schema form
+  // would silently accept undeclared args.
   for (const banned of [
     '$ref',
     '$defs',
@@ -138,9 +142,14 @@ function translateNode(
     'then',
     'else',
     'patternProperties',
-    'additionalProperties',
   ]) {
     if (node[banned] !== undefined) return null;
+  }
+  if (
+    node['additionalProperties'] !== undefined &&
+    node['additionalProperties'] !== false
+  ) {
+    return null;
   }
   const out: Record<string, unknown> = {};
   switch (schema.type) {

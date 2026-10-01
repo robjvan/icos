@@ -77,7 +77,26 @@ export class SdkMcpClient extends McpClient {
         stderr: 'ignore',
       });
     }
-    return new StreamableHTTPClientTransport(new URL(this.entry.url ?? ''));
+    return new StreamableHTTPClientTransport(new URL(this.entry.url ?? ''), {
+      requestInit: { headers: this.resolveHeaders() },
+    });
+  }
+
+  /**
+   * HTTP headers resolve like stdio env (M13b secrets rule):
+   * references from the catalog, values from the process only.
+   * Missing vars fail closed here — the manager marks the
+   * server failed with the variable name, never any value.
+   */
+  private resolveHeaders(): Record<string, string> {
+    try {
+      return resolveServerEnv(this.entry.headers, this.entry.name);
+    } catch (err) {
+      throw new McpError(
+        err instanceof Error ? err.message : 'invalid server headers',
+        false,
+      );
+    }
   }
 
   async connect(): Promise<McpTool[]> {

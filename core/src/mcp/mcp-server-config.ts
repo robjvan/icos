@@ -18,6 +18,13 @@ export interface McpServerEntry {
   /** Streamable HTTP endpoint. stdio: unused. */
   url?: string;
   /**
+   * Request headers for Streamable HTTP (e.g. Authorization).
+   * Same rule as `env`: values must be `"$VAR"` references
+   * resolved from the process environment — never literals.
+   * stdio entries must not set it (no HTTP request exists).
+   */
+  headers?: Record<string, string>;
+  /**
    * Extra env for spawned servers. Secrets stay out of the file:
    * every value must be a process-env reference (`"$VAR"` or
    * `"${VAR}"`), resolved at spawn. Literals are rejected at
@@ -50,7 +57,7 @@ function cleanStringArray(value: unknown): string[] | null {
   return [...(value as string[])];
 }
 
-function cleanEnv(value: unknown): Record<string, string> | null {
+function cleanReferenceMap(value: unknown): Record<string, string> | null {
   if (!isRecord(value)) return null;
   const env: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
@@ -128,7 +135,7 @@ function validateOne(
       entry.args = args;
     }
     if (raw['env'] !== undefined) {
-      const env = cleanEnv(raw['env']);
+      const env = cleanReferenceMap(raw['env']);
       if (!env) {
         return {
           error:
@@ -137,6 +144,11 @@ function validateOne(
         };
       }
       entry.env = env;
+    }
+    if (raw['headers'] !== undefined) {
+      return {
+        error: `server "${name}": headers is http-only (no HTTP request exists)`,
+      };
     }
   } else {
     if (typeof raw['url'] !== 'string' || !raw['url'].trim()) {
@@ -147,6 +159,17 @@ function validateOne(
       return {
         error: `server "${name}": env is stdio-only (no child to spawn)`,
       };
+    }
+    if (raw['headers'] !== undefined) {
+      const headers = cleanReferenceMap(raw['headers']);
+      if (!headers) {
+        return {
+          error:
+            `server "${name}": headers values must be process-env ` +
+            `references ("$VAR"), never literals`,
+        };
+      }
+      entry.headers = headers;
     }
   }
   if (raw['enabled'] !== undefined) {

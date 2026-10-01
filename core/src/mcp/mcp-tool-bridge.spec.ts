@@ -82,10 +82,65 @@ describe('toArgsSchema', () => {
       { properties: { a: { type: 'array' } } },
       { properties: { a: { type: 'mystery' } } },
       { properties: { a: { enum: [] } } },
+      { properties: { a: { type: 'string', additionalProperties: true } } },
+      {
+        properties: {
+          a: {
+            type: 'object',
+            properties: {},
+            additionalProperties: { type: 'string' },
+          },
+        },
+      },
     ];
     for (const schema of hostile) {
       expect(toArgsSchema(schema)).toBeNull();
     }
+  });
+
+  it('accepts nested additionalProperties:false (the closed-world marker)', () => {
+    // Bytestash-shaped: array of closed objects. Found live 2026-10-01:
+    // create_snippet hid behind the blanket ban; the ban was wrong.
+    const schema = toArgsSchema({
+      type: 'object',
+      properties: {
+        title: { type: 'string', minLength: 1 },
+        fragments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              file_name: { type: 'string' },
+              code: { type: 'string' },
+            },
+            required: ['code'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+        },
+      },
+      required: ['title', 'fragments'],
+    });
+    expect(schema).not.toBeNull();
+    if (!schema) throw new Error('unreachable');
+    expect(
+      validateForeignArgs(schema, {
+        title: 't',
+        fragments: [{ code: 'x = 1' }],
+      }),
+    ).toBeNull();
+    expect(
+      validateForeignArgs(schema, {
+        title: 't',
+        fragments: [{ file_name: 'a.py' }],
+      }),
+    ).toContain('code');
+    expect(
+      validateForeignArgs(schema, {
+        title: 't',
+        fragments: [{ code: 'x', bogus: 1 }],
+      }),
+    ).toContain('bogus');
   });
 
   it('bounds depth and description size', () => {

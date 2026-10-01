@@ -102,6 +102,35 @@ describe('parseCatalog', () => {
     expect(catalog.errors.join(' ')).toContain('literal');
     expect(catalog.errors.join(' ')).toContain('stdio-only');
   });
+
+  it('accepts $VAR headers on http, rejects literals and stdio headers', () => {
+    const catalog = parseCatalog([
+      {
+        name: 'authed',
+        transport: 'http',
+        url: 'http://localhost:5000/mcp',
+        headers: { Authorization: '$BYTESTASH_TOKEN' },
+      },
+      {
+        name: 'plain',
+        transport: 'http',
+        url: 'http://localhost:5000/mcp',
+        headers: { Authorization: 'Bearer hardcoded-secret' },
+      },
+      {
+        name: 'spawn',
+        transport: 'stdio',
+        command: 'x',
+        headers: { Authorization: '$T' },
+      },
+    ]);
+    expect(catalog.entries.map((entry) => entry.name)).toEqual(['authed']);
+    expect(catalog.entries[0]).toMatchObject({
+      headers: { Authorization: '$BYTESTASH_TOKEN' },
+    });
+    expect(catalog.errors.join(' ')).toContain('literals');
+    expect(catalog.errors.join(' ')).toContain('http-only');
+  });
 });
 
 describe('parseEnvReference', () => {
