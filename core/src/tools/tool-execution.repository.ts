@@ -5,7 +5,6 @@ import { SessionDatabaseService } from '../session/session-database.service';
 import type { SessionSearchResult } from '../session/session.repository';
 import type { LlmMessage, LlmResult } from '../llm/llm.protocol';
 import type {
-  ToolName,
   ToolValidationFailureCode,
   ValidatedToolRequest,
 } from './tool-registry';
@@ -14,7 +13,7 @@ export interface ToolExecutionInput {
   requestId: string;
   sessionId: string;
   context: LlmMessage[];
-  allowedTools: readonly ToolName[];
+  allowedTools: readonly string[];
   proposal: LlmResult;
 }
 
@@ -39,6 +38,24 @@ export type ExecutionOutcome =
       ok: false;
       failure: {
         code: 'search_failed' | 'result_too_large' | 'unknown';
+      };
+    };
+
+/**
+ * Foreign (MCP) outcome arm (M13b): namespaced server/tool with the
+ * text result (bounded by the service, attachments referenced not
+ * embedded). Failures are code-only like native arms — detail
+ * travels the approval description and logs, never the ledger.
+ */
+export type McpOutcome =
+  | {
+      ok: true;
+      mcp: { server: string; tool: string; text: string };
+    }
+  | {
+      ok: false;
+      failure: {
+        code: 'mcp_failed' | 'mcp_unavailable' | 'result_too_large';
       };
     };
 
@@ -78,7 +95,7 @@ export interface ToolExecutionRecord {
     | 'failed'
     | MirrorOutcomeState;
   validation: ValidationOutcome;
-  execution: ExecutionOutcome | RenameOutcome | null;
+  execution: ExecutionOutcome | RenameOutcome | McpOutcome | null;
   final: FinalOutcome;
   executionToken: string | null;
   ownership: 'unconfirmed' | 'released' | 'none';
@@ -117,7 +134,7 @@ export class LedgerError extends Error {
 export interface ExecutionPair {
   invocationId: string;
   proposalContent: string | null;
-  name: ToolName;
+  name: string;
   version: 1;
   args: Record<string, unknown>;
   result: unknown;
@@ -165,6 +182,7 @@ export class ToolExecutionRepository {
   register(
     snapshot: string,
     validate: (input: ToolExecutionInput) => ValidationOutcome,
+    parked?: { approvalId: string },
   ): ToolExecutionRecord {
     return this.access(() =>
       this.database.connection
@@ -182,11 +200,16 @@ export class ToolExecutionRepository {
             validation.ok && 'request' in validation
               ? validation.request
               : null;
+          // Parked bindings ride the INSERT (M13b): the immutability
+          // trigger forbids touching approval_id afterwards, so
+          // authority binds at birth or not at all.
           const state = !validation.ok
             ? 'invalid'
-            : request
-              ? 'validated'
-              : 'closed';
+            : parked
+              ? 'awaiting_approval'
+              : request
+                ? 'validated'
+                : 'closed';
           const final: FinalOutcome =
             state === 'closed' && input.proposal.kind === 'text'
               ? { state: 'not_required', result: input.proposal }
@@ -197,10 +220,11 @@ export class ToolExecutionRepository {
             input.proposal.toolCalls.length === 1
               ? randomUUID()
               : null;
-          const approvalId: string | null = null;
-          // No tool currently parks for approval (rename was
-          // de-escalated). Pre-flip parked rows keep their stored
-          // approval ids and resume paths; nothing new mints them.
+          const approvalId: string | null = parked?.approvalId ?? null;
+          // Native tools never park (rename was de-escalated).
+          // Pre-flip parked rows keep their stored approval ids and
+          // resume paths; foreign tools mint them via register's
+          // parked binding above.
           this.database.connection
             .prepare(
               `INSERT INTO tool_requests
@@ -280,6 +304,125 @@ export class ToolExecutionRepository {
     token: string,
     outcome: ExecutionOutcome,
   ): void {
+    this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const result = this.database.connection
+            .prepare(
+              `UPDATE tool_requests
+        SET state = ?, execution_json = ?, final_state = 'pending', final_json = ?
+        WHERE request_id = ? AND state = 'executing' AND execution_token = ?`,
+            )
+            .run(
+              outcome.ok ? 'succeeded' : 'failed',
+              JSON.stringify(outcome),
+              JSON.stringify({ state: 'pending' }),
+              requestId,
+              token,
+            );
+          if (result.changes !== 1) throw new LedgerError('claim_lost');
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Claim a validated (approval-free) foreign call for inline
+   * execution. Mirrors claimRenameInline but starts from
+   * 'validated' with a namespaced-name check instead of a literal:
+   * revalidates inside the claim transaction and invalidates on
+   * disagreement (policy change since validation fails closed).
+   */
+  claimTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'validated') return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            !('foreign' in validation.request) ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'validated'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'validated' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Claim an approval-parked foreign call after grant. Mirrors
+   * claimRename (awaiting_approval start) with the namespaced
+   * check: only a granted stored approval executes, exactly once.
+   */
+  claimApprovedTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'awaiting_approval' || !record.approvalId)
+            return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            !('foreign' in validation.request) ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'awaiting_approval'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'awaiting_approval' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Persist a foreign call outcome. Same shape contract as
+   * finishSearch (succeeded/failed + pending final) — outcomes
+   * flow to the model through the shared final path untouched.
+   */
+  finishTool(requestId: string, token: string, outcome: McpOutcome): void {
     this.access(() =>
       this.database.connection
         .transaction(() => {

@@ -1,6 +1,6 @@
-import type { ToolName } from '../tools/tool-registry';
 import type {
   ExecutionOutcome,
+  McpOutcome,
   RenameOutcome,
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
@@ -16,14 +16,14 @@ export type ObservationStatus = 'succeeded' | 'failed' | 'unknown';
 export interface RunObservation {
   requestId: string;
   invocationId: string;
-  tool: ToolName;
+  tool: string;
   args: Record<string, unknown>;
   status: ObservationStatus;
-  result: ExecutionOutcome | RenameOutcome;
+  result: ExecutionOutcome | RenameOutcome | McpOutcome;
 }
 
 export function observationStatus(
-  execution: ExecutionOutcome | RenameOutcome,
+  execution: ExecutionOutcome | RenameOutcome | McpOutcome,
 ): ObservationStatus {
   if (execution.ok) return 'succeeded';
   if (execution.failure.code === 'unknown') return 'unknown';

@@ -70,13 +70,13 @@ export type TurnStatus = 'ok' | 'approval_required' | 'processing';
 
 export interface ToolSummary {
   invocationId: string;
-  name: ToolName;
+  name: string;
 }
 
 export interface ApprovalSummary {
   approvalId: string;
   invocationId: string;
-  tool: ToolName;
+  tool: string;
   args: Record<string, unknown>;
 }
 
@@ -101,7 +101,7 @@ export interface TurnOutcome {
 export type ConversationStreamEvent =
   | { type: 'meta'; sessionId: string; model: string; requestId: string }
   | { type: 'token'; content: string }
-  | { type: 'tool'; invocationId: string; name: ToolName; state: string }
+  | { type: 'tool'; invocationId: string; name: string; state: string }
   | { type: 'approval'; approval: ApprovalSummary; requestId: string }
   | {
       type: 'done';
@@ -1321,7 +1321,7 @@ export class ConversationService {
    */
   private priorAttempts(
     context: readonly LlmMessage[],
-    name: ToolName,
+    name: string,
     args: Record<string, unknown>,
   ): number {
     let attempts = 0;
@@ -1381,7 +1381,7 @@ export class ConversationService {
   private continuationPair(record: ToolExecutionRecord):
     | {
         invocationId: string;
-        name: ToolName;
+        name: string;
         assistant: LlmMessage;
         tool: LlmMessage;
       }
@@ -1540,7 +1540,7 @@ export class ConversationService {
     baseSystem: string | undefined;
     rest: LlmMessage[];
     descriptors: LlmToolRequest['tools'];
-    allowedTools: ToolName[];
+    allowedTools: string[];
   }> {
     const history = await this.sessions.getContextMessages(sessionId);
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
@@ -2262,7 +2262,8 @@ function approvalSummary(
   if (!record.approvalId || !record.invocationId) return undefined;
   const validation = record.validation;
   if (!validation.ok || !('request' in validation)) return undefined;
-  if (validation.request.name !== 'session.rename') return undefined;
+  // Any validated call with a bound approval surfaces (rename today,
+  // foreign tomorrow) — the card shows name + args, never internals.
   return {
     approvalId: record.approvalId,
     invocationId: record.invocationId,

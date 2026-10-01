@@ -1,11 +1,37 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
+import {
+  isForeignToolName,
+  splitForeignToolName,
+} from '../mcp/mcp-tool-bridge';
+import { validateForeignArgs } from '../mcp/mcp-tool-bridge';
 
 export type ToolName = 'session.search' | 'session.rename';
+
+/**
+ * A validated foreign (MCP) tool call. The `foreign` marker
+ * discriminates the arm: namespaced `mcp_<server>_<tool>` names
+ * with args validated against the remote schema (never hand
+ * validators). Literal arms narrow first; this catches the rest —
+ * and the template type keeps it that way (a general `string`
+ * would defeat literal narrowing tree-wide).
+ */
+export type ForeignToolName = `mcp_${string}`;
+
+export interface ForeignToolCall {
+  readonly name: ForeignToolName;
+  readonly version: 1;
+  readonly sessionId: string;
+  readonly args: Record<string, unknown>;
+  readonly foreign: {
+    readonly server: string;
+    readonly tool: string;
+  };
+}
 
 export type ApprovalPolicy = 'none' | 'required';
 
 export interface ToolDescriptor {
-  readonly name: ToolName;
+  readonly name: string;
   readonly version: 1;
   readonly description: string;
   readonly approval: ApprovalPolicy;
@@ -34,11 +60,11 @@ export type ValidatedToolRequest = {
 } & (
   | { readonly name: 'session.search'; readonly args: SessionSearchArgs }
   | { readonly name: 'session.rename'; readonly args: SessionRenameArgs }
+  | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
-
 export interface ToolValidationContext {
   sessionId: string;
-  allowedTools: readonly ToolName[];
+  allowedTools: readonly string[];
 }
 
 export type ToolValidationFailureCode =
@@ -57,6 +83,33 @@ export interface ToolValidationFailure {
 export type ToolValidationResult =
   | { ok: true; request: ValidatedToolRequest }
   | { ok: false; failure: ToolValidationFailure };
+
+/** DI token for the optional foreign (MCP) tool source. */
+export const FOREIGN_TOOL_SOURCE = 'FOREIGN_TOOL_SOURCE';
+
+/**
+ * Runtime foreign descriptors (bridged MCP tools). The registry
+ * owns the name space; the source owns discovery. Optional —
+ * without it the registry is exactly the two native tools.
+ */
+export interface ForeignToolSource {
+  listForeign(): readonly {
+    readonly name: string;
+    readonly description: string;
+    readonly approval: ApprovalPolicy;
+    readonly argsSchema: ToolDescriptor['argsSchema'];
+  }[];
+  lookupForeign(name: string):
+    | {
+        readonly name: string;
+        readonly server: string;
+        readonly tool: string;
+        readonly description: string;
+        readonly approval: ApprovalPolicy;
+        readonly argsSchema: ToolDescriptor['argsSchema'];
+      }
+    | undefined;
+}
 
 const DEFAULT_SEARCH_LIMIT = 20;
 const MIN_SEARCH_LIMIT = 1;
@@ -236,12 +289,41 @@ function fail(
 
 @Injectable()
 export class ToolRegistry {
+  constructor(
+    @Optional()
+    @Inject(FOREIGN_TOOL_SOURCE)
+    private readonly foreign?: ForeignToolSource,
+  ) {}
+
   list(): readonly ToolDescriptor[] {
-    return DESCRIPTORS;
+    const foreign =
+      this.foreign?.listForeign().map((descriptor): ToolDescriptor => ({
+        name: descriptor.name,
+        version: 1,
+        description: descriptor.description,
+        approval: descriptor.approval,
+        argsSchema: descriptor.argsSchema,
+      })) ?? [];
+    return [...DESCRIPTORS, ...foreign];
   }
 
   lookup(name: string): ToolDescriptor | undefined {
-    return DESCRIPTORS.find((d) => d.name === name);
+    return (
+      DESCRIPTORS.find((d) => d.name === name) ??
+      this.foreignSourceDescriptor(name)
+    );
+  }
+
+  private foreignSourceDescriptor(name: string): ToolDescriptor | undefined {
+    const foreign = this.foreign?.lookupForeign(name);
+    if (!foreign) return undefined;
+    return {
+      name: foreign.name,
+      version: 1,
+      description: foreign.description,
+      approval: foreign.approval,
+      argsSchema: foreign.argsSchema,
+    };
   }
 
   validate(
@@ -298,16 +380,57 @@ export class ToolRegistry {
         }),
       };
     }
-    const result = validateRenameArgs(args);
-    if (!result.ok) {
-      return fail('invalid_args', result.message);
+    if (descriptor.name === 'session.rename') {
+      const result = validateRenameArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'session.rename',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    return this.validateForeign(descriptor.name, args, base);
+  }
+
+  /**
+   * Foreign validation (M13b): the descriptor came from the bridged
+   * source (never hand-written), args check against the translated
+   * remote schema. Unknown tools fail here — descriptors and
+   * validation read the same source, so a mismatch means the set
+   * moved mid-turn (fail closed, re-discover).
+   */
+  private validateForeign(
+    name: string,
+    args: Record<string, unknown>,
+    base: { version: 1; sessionId: string },
+  ): ToolValidationResult {
+    if (!isForeignToolName(name)) {
+      return fail('unknown_tool', `Unknown tool: ${name}`);
+    }
+    const foreign = this.foreign?.lookupForeign(name);
+    if (!foreign) {
+      return fail('unknown_tool', `Unknown tool: ${name}`);
+    }
+    const split = splitForeignToolName(name);
+    if (!split || split.server !== foreign.server) {
+      return fail('unknown_tool', `Unknown tool: ${name}`);
+    }
+    const failure = validateForeignArgs(foreign.argsSchema, args);
+    if (failure) {
+      return fail('invalid_args', failure);
     }
     return {
       ok: true,
       request: Object.freeze({
-        name: 'session.rename',
+        name,
         ...base,
-        args: result.value,
+        args: Object.freeze({ ...args }),
+        foreign: { server: foreign.server, tool: foreign.tool },
       }),
     };
   }

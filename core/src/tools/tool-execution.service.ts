@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import type { ApprovalRepository } from '../approvals/approval.repository';
+import { ApprovalService } from '../approvals/approval.service';
 import type { SessionStore } from '../conversation/session.store';
 import type { LlmClient, StreamSink } from '../llm/llm.client';
 import { ToolOffer } from '../llm/llm.protocol';
@@ -9,12 +10,15 @@ import type {
   LlmToolCall,
   LlmToolRequest,
 } from '../llm/llm.protocol';
+import { McpConnectionService } from '../mcp/mcp-connection.service';
 import { ToolRegistry } from './tool-registry';
+import type { ForeignToolCall } from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
 import type {
   ExecutionOutcome,
   ExecutionPair,
   FinalOutcome,
+  McpOutcome,
   MirrorOutcomeState,
   ToolExecutionInput,
   ToolExecutionRecord,
@@ -22,6 +26,9 @@ import type {
 } from './tool-execution.repository';
 
 export type { ToolExecutionInput } from './tool-execution.repository';
+
+/** Approval action for foreign (MCP) tool execution. */
+export const MCP_EXECUTE_ACTION = 'mcp.execute';
 
 const MAX_RESULT_BYTES = 64 * 1024;
 
@@ -37,7 +44,10 @@ export class ToolExecutionService {
     private readonly llm: Pick<LlmClient, 'chatWithTools'>,
     private readonly approvals: Pick<ApprovalRepository, 'getApproval'>,
     options: { searchTimeoutMs?: number } = {},
-    private readonly streamer?: Pick<LlmClient, 'chatStreamWithTools'>,
+    private readonly streamer:
+      Pick<LlmClient, 'chatStreamWithTools'> | undefined,
+    private readonly approvalService: ApprovalService,
+    private readonly mcp: McpConnectionService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     if (
@@ -71,8 +81,34 @@ export class ToolExecutionService {
     } catch {
       throw new Error('invalid_request');
     }
-    let record = this.ledger.register(snapshot, (saved) =>
-      this.validate(saved),
+    // Foreign parking binds at birth (M13b): pure-validate first;
+    // approval-required foreign calls mint their approval, then
+    // register carries the binding into the INSERT (the ledger's
+    // immutability trigger forbids binding afterwards). Existing
+    // rows converge through register's idempotency — no second
+    // approval is ever minted for a replay.
+    let parkedApprovalId: string | null = null;
+    if (!this.ledger.get(input.requestId)) {
+      const preview = this.validate(input);
+      if (preview.ok && 'request' in preview && 'foreign' in preview.request) {
+        const descriptor = this.registry.lookup(preview.request.name);
+        if (descriptor && descriptor.approval !== 'none') {
+          const approval = await this.approvalService.create({
+            sessionId: input.sessionId,
+            action: MCP_EXECUTE_ACTION,
+            description:
+              `Execute foreign tool ${preview.request.foreign.server}/` +
+              `${preview.request.foreign.tool} (${preview.request.name}) ` +
+              `with args ${JSON.stringify(preview.request.args).slice(0, 500)}`,
+          });
+          parkedApprovalId = approval.id;
+        }
+      }
+    }
+    let record = this.ledger.register(
+      snapshot,
+      (saved) => this.validate(saved),
+      parkedApprovalId ? { approvalId: parkedApprovalId } : undefined,
     );
     if (record.state === 'executing' && record.ownership === 'released') {
       this.ledger.resolveReleasedToUnknown(record.requestId);
@@ -83,6 +119,9 @@ export class ToolExecutionService {
         record.validation.ok && 'request' in record.validation
           ? record.validation.request
           : null;
+      if (request && 'foreign' in request) {
+        return this.consumeForeign(record, request, options);
+      }
       if (request?.name === 'session.rename') {
         record = this.renameInline(record);
       } else {
@@ -142,6 +181,71 @@ export class ToolExecutionService {
   }
 
   /**
+   * Foreign (MCP) validated path (M13b). Approval-required tools
+   * arrive already parked (binding rides the INSERT); this handles
+   * the approval-free inline path like rename-inline — claim,
+   * execute, finish through the generic pair. A required-policy
+   * row reaching here unparked is an invariant violation (loud,
+   * never silently executed).
+   */
+  private async consumeForeign(
+    record: ToolExecutionRecord,
+    request: ForeignToolCall,
+    options: {
+      sink?: StreamSink;
+      signal?: AbortSignal;
+      skipFinal?: boolean;
+    },
+  ): Promise<ToolExecutionRecord> {
+    const descriptor = this.registry.lookup(request.name);
+    if (!descriptor || descriptor.approval !== 'none') {
+      throw new Error('mcp_parking_bypassed');
+    }
+    const token = this.ledger.claimTool(record.requestId, (saved) =>
+      this.validate(saved),
+    );
+    if (token) {
+      await this.executeForeign(record.requestId, token);
+    }
+    if (options.skipFinal) {
+      return this.required(record.requestId);
+    }
+    return this.maybeFinal(record.requestId, options);
+  }
+
+  /** Execute one claimed foreign call through its MCP server. */
+  private async executeForeign(
+    requestId: string,
+    token: string,
+  ): Promise<void> {
+    const claimed = this.required(requestId);
+    const validation = claimed.validation;
+    if (
+      !validation.ok ||
+      !('request' in validation) ||
+      !('foreign' in validation.request)
+    ) {
+      throw new Error('invalid_execution_state');
+    }
+    const { server, tool } = validation.request.foreign;
+    const args = validation.request.args;
+    let outcome: McpOutcome;
+    try {
+      const result = await this.mcp.callTool(server, tool, args);
+      if (Buffer.byteLength(result.text) > MAX_RESULT_BYTES) {
+        outcome = { ok: false, failure: { code: 'result_too_large' } };
+      } else if (result.isError) {
+        outcome = { ok: false, failure: { code: 'mcp_failed' } };
+      } else {
+        outcome = { ok: true, mcp: { server, tool, text: result.text } };
+      }
+    } catch {
+      outcome = { ok: false, failure: { code: 'mcp_failed' } };
+    }
+    this.ledger.finishTool(requestId, token, outcome);
+  }
+
+  /**
    * Inline rename execution (approval-free policy). Claims the
    * validated record, applies the local title mutation, and persists
    * the outcome — the same claim/finish pair as the resume path,
@@ -157,7 +261,8 @@ export class ToolExecutionService {
       if (
         validation.ok &&
         'request' in validation &&
-        validation.request.name === 'session.rename'
+        validation.request.name === 'session.rename' &&
+        !('foreign' in validation.request)
       ) {
         this.ledger.finishRename(claimed.requestId, token, {
           sessionId: claimed.sessionId,
@@ -195,21 +300,36 @@ export class ToolExecutionService {
         approval.id === record.approvalId
       ) {
         if (approval.status === 'approved') {
-          const token = this.ledger.claimRename(requestId, (saved) =>
-            this.validate(saved),
-          );
-          if (token) {
-            const claimed = this.required(requestId);
-            if (
-              !claimed.validation.ok ||
-              !('request' in claimed.validation) ||
-              claimed.validation.request.name !== 'session.rename'
-            )
-              throw new Error('invalid_execution_state');
-            this.ledger.finishRename(requestId, token, {
-              sessionId: claimed.sessionId,
-              title: claimed.validation.request.args.title,
-            });
+          const validated = record.validation;
+          if (
+            validated.ok &&
+            'request' in validated &&
+            'foreign' in validated.request
+          ) {
+            const token = this.ledger.claimApprovedTool(requestId, (saved) =>
+              this.validate(saved),
+            );
+            if (token) {
+              await this.executeForeign(requestId, token);
+            }
+          } else {
+            const token = this.ledger.claimRename(requestId, (saved) =>
+              this.validate(saved),
+            );
+            if (token) {
+              const claimed = this.required(requestId);
+              if (
+                !claimed.validation.ok ||
+                !('request' in claimed.validation) ||
+                claimed.validation.request.name !== 'session.rename' ||
+                'foreign' in claimed.validation.request
+              )
+                throw new Error('invalid_execution_state');
+              this.ledger.finishRename(requestId, token, {
+                sessionId: claimed.sessionId,
+                title: claimed.validation.request.args.title,
+              });
+            }
           }
         } else if (approval.status !== 'pending') {
           const outcome: MirrorOutcomeState = approval.status;
@@ -291,10 +411,11 @@ export class ToolExecutionService {
     if (!validation.ok)
       return { ok: false, failure: { code: validation.failure.code } };
     const descriptor = this.registry.lookup(validation.request.name);
-    // Both tools are approval-free by policy (rename was de-escalated:
-    // benign, reversible, user decision). Anything requiring approval
-    // fails closed here — there is currently no such tool.
-    if (descriptor?.approval !== 'none')
+    // Native tools are all approval-free by policy; anything native
+    // requiring approval fails closed here (there is currently no
+    // such tool). Foreign required-approval tools pass through —
+    // consumeForeign parks them with a minted approval.
+    if (descriptor?.approval !== 'none' && !('foreign' in validation.request))
       return { ok: false, failure: { code: 'unpermitted_tool' } };
     try {
       if (
@@ -314,7 +435,8 @@ export class ToolExecutionService {
     if (
       !validation.ok ||
       !('request' in validation) ||
-      validation.request.name !== 'session.search'
+      validation.request.name !== 'session.search' ||
+      'foreign' in validation.request
     )
       throw new Error('invalid_execution_state');
     try {

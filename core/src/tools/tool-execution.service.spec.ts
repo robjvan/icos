@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { ApprovalService } from '../approvals/approval.service';
+import type { McpConnectionService } from '../mcp/mcp-connection.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import { SqliteApprovalRepository } from '../approvals/sqlite-approval.repository';
 import type { CoreConfig } from '../config';
@@ -73,6 +74,12 @@ describe('ToolExecutionService SQLite', () => {
         chatWithTools: final,
       },
       approvals,
+      {},
+      undefined,
+      approvalService,
+      {
+        callTool: () => Promise.reject(new Error('mcp unwired')),
+      } as unknown as McpConnectionService,
     );
     return {
       database,
@@ -905,7 +912,8 @@ describe('ToolExecutionService SQLite', () => {
   it.each(['success', 'failure'] as const)(
     'wait timeout leaves sole owner to persist eventual %s',
     async (outcome) => {
-      const { ledger, store, registry, sessions, approvals } = open();
+      const { ledger, store, registry, sessions, approvals, approvalService } =
+        open();
       await sessions.createSession('s1');
       let release!: (value: []) => void;
       let reject!: (error: Error) => void;
@@ -924,6 +932,11 @@ describe('ToolExecutionService SQLite', () => {
         { chatWithTools: final },
         approvals,
         { searchTimeoutMs: 5 },
+        undefined,
+        approvalService,
+        {
+          callTool: () => Promise.reject(new Error('mcp unwired')),
+        } as unknown as McpConnectionService,
       );
       const result = await service.consume(input());
       expect(result).toMatchObject({
@@ -1166,5 +1179,285 @@ describe('ToolExecutionService SQLite', () => {
     });
     expect(JSON.stringify(result)).not.toContain('secret');
     expect(final).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ToolExecutionService foreign tools (M13b)', () => {
+  let dir = '';
+  const databases: SessionDatabaseService[] = [];
+  const final = jest.fn<Promise<LlmResult>, [LlmToolRequest]>();
+
+  const argsSchema = {
+    type: 'object' as const,
+    additionalProperties: false as const,
+    required: ['path'] as readonly string[],
+    properties: {
+      path: { type: 'string' },
+    } as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+  };
+
+  const source = {
+    listForeign: () => [
+      {
+        name: 'mcp_files_read',
+        server: 'files',
+        tool: 'read',
+        description: 'Read a file',
+        approval: 'required' as const,
+        argsSchema,
+      },
+      {
+        name: 'mcp_open_go',
+        server: 'open',
+        tool: 'go',
+        description: 'Go',
+        approval: 'none' as const,
+        argsSchema: {
+          type: 'object' as const,
+          additionalProperties: false as const,
+          required: [] as readonly string[],
+          properties: {} as Readonly<
+            Record<string, Readonly<Record<string, unknown>>>
+          >,
+        },
+      },
+    ],
+    lookupForeign: (name: string) =>
+      name === 'mcp_files_read'
+        ? {
+            name: 'mcp_files_read',
+            server: 'files',
+            tool: 'read',
+            description: 'Read a file',
+            approval: 'required' as const,
+            argsSchema,
+          }
+        : name === 'mcp_open_go'
+          ? {
+              name: 'mcp_open_go',
+              server: 'open',
+              tool: 'go',
+              description: 'Go',
+              approval: 'none' as const,
+              argsSchema: {
+                type: 'object' as const,
+                additionalProperties: false as const,
+                required: [] as readonly string[],
+                properties: {} as Readonly<
+                  Record<string, Readonly<Record<string, unknown>>>
+                >,
+              },
+            }
+          : undefined,
+  };
+
+  function openForeign(
+    call?: (tool: string) => {
+      text: string;
+      isError: boolean;
+    },
+  ) {
+    const config = {
+      sessionDbPath: join(dir, 'sessions.sqlite'),
+      memoryDbPath: join(dir, 'unused.sqlite'),
+      maxHistory: 50,
+    } as CoreConfig;
+    const database = new SessionDatabaseService(config);
+    database.onModuleInit();
+    databases.push(database);
+    const sessions = new SqliteSessionRepository(database);
+    const store = new SessionStore(sessions, config);
+    const ledger = new ToolExecutionRepository(database);
+    const registry = new ToolRegistry(source);
+    const approvals = new SqliteApprovalRepository(database);
+    const approvalService = new ApprovalService(
+      approvals,
+      sessions,
+      new NoopPublisher(),
+    );
+    const mcpCall = jest.fn<
+      Promise<{ text: string; isError: boolean; attachments: [] }>,
+      [string, Record<string, unknown>]
+    >((tool) =>
+      Promise.resolve(
+        call
+          ? { ...call(tool), attachments: [] }
+          : { text: `content:${tool}`, isError: false, attachments: [] },
+      ),
+    );
+    const service = new ToolExecutionService(
+      ledger,
+      store,
+      registry,
+      { chatWithTools: final },
+      approvals,
+      {},
+      undefined,
+      approvalService,
+      {
+        callTool: (
+          _server: string,
+          tool: string,
+          _args: Record<string, unknown>,
+        ) => mcpCall(tool, _args),
+      } as unknown as McpConnectionService,
+    );
+    return {
+      database,
+      sessions,
+      store,
+      ledger,
+      registry,
+      service,
+      approvals,
+      mcpCall,
+    };
+  }
+
+  function foreignInput(
+    name = 'mcp_files_read',
+    args: Record<string, unknown> = { path: '/x' },
+    requestId = 'request-9',
+  ): ToolExecutionInput {
+    return {
+      requestId,
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'Read it' }],
+      allowedTools: [name],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'model-id',
+            name,
+            version: 1,
+            rawArguments: JSON.stringify(args),
+            args,
+          },
+        ],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'icos-tools-mcp-'));
+    final.mockReset().mockResolvedValue({
+      kind: 'text',
+      content: 'File says hi',
+      model: 'test',
+    });
+  });
+
+  afterEach(() => {
+    databases.splice(0).forEach((database) => database.onModuleDestroy());
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('parks approval-required foreign calls with a minted approval', async () => {
+    const h = openForeign();
+    await h.sessions.createSession('s1');
+
+    const parked = await h.service.consume(foreignInput());
+    expect(parked.state).toBe('awaiting_approval');
+    expect(parked.approvalId).toBeDefined();
+    expect(parked.validation).toMatchObject({
+      ok: true,
+      request: { foreign: { server: 'files', tool: 'read' } },
+    });
+    // Stable across re-consumes: no duplicate approvals, no execution.
+    const again = await h.service.consume(foreignInput());
+    expect(again.approvalId).toBe(parked.approvalId);
+    expect(h.mcpCall).not.toHaveBeenCalled();
+    const approvals = await h.approvals.listApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ action: 'mcp.execute' });
+  });
+
+  it('executes on grant through the generic claim/finish pair', async () => {
+    const h = openForeign();
+    await h.sessions.createSession('s1');
+
+    const parked = await h.service.consume(foreignInput());
+    await h.approvals.resolveApproval(parked.approvalId ?? '', 'approved');
+    const done = await h.service.resume('request-9', 's1');
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      mcp: { server: 'files', tool: 'read', text: 'content:read' },
+    });
+    expect(h.mcpCall).toHaveBeenCalledTimes(1);
+    expect(h.mcpCall.mock.calls[0]).toEqual(['read', { path: '/x' }]);
+    // Exactly-once: resume again changes nothing.
+    expect((await h.service.resume('request-9', 's1')).state).toBe('succeeded');
+    expect(h.mcpCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('never executes on denial', async () => {
+    const h = openForeign();
+    await h.sessions.createSession('s1');
+
+    const parked = await h.service.consume(foreignInput());
+    await h.approvals.resolveApproval(parked.approvalId ?? '', 'rejected');
+    const done = await h.service.resume('request-9', 's1');
+    expect(done.state).toBe('rejected');
+    expect(h.mcpCall).not.toHaveBeenCalled();
+  });
+
+  it('executes approval-free foreign tools inline', async () => {
+    const h = openForeign();
+    await h.sessions.createSession('s1');
+
+    const done = await h.service.consume(foreignInput('mcp_open_go', {}));
+    expect(done.state).toBe('succeeded');
+    expect(done.approvalId).toBeNull();
+    expect(done.execution).toMatchObject({
+      ok: true,
+      mcp: { server: 'open', tool: 'go' },
+    });
+  });
+
+  it('maps remote failures honestly without leaking internals', async () => {
+    const h = openForeign(() => {
+      throw new Error('connection reset by peer');
+    });
+    await h.sessions.createSession('s1');
+
+    const parked = await h.service.consume(foreignInput());
+    await h.approvals.resolveApproval(parked.approvalId ?? '', 'approved');
+    const done = await h.service.resume('request-9', 's1');
+    expect(done).toMatchObject({
+      state: 'failed',
+      execution: { ok: false, failure: { code: 'mcp_failed' } },
+    });
+    expect(JSON.stringify(done)).not.toContain('reset by peer');
+  });
+
+  it('maps remote isError to failure, never success', async () => {
+    const h = openForeign(() => ({ text: 'remote refused', isError: true }));
+    await h.sessions.createSession('s1');
+
+    const parked = await h.service.consume(foreignInput());
+    await h.approvals.resolveApproval(parked.approvalId ?? '', 'approved');
+    const done = await h.service.resume('request-9', 's1');
+    expect(done).toMatchObject({
+      state: 'failed',
+      execution: { ok: false, failure: { code: 'mcp_failed' } },
+    });
+  });
+
+  it('fails oversized results instead of storing them', async () => {
+    const h = openForeign(() => ({
+      text: 'x'.repeat(70 * 1024),
+      isError: false,
+    }));
+    await h.sessions.createSession('s1');
+
+    const done = await h.service.consume(foreignInput('mcp_open_go', {}));
+    expect(done).toMatchObject({
+      state: 'failed',
+      execution: { ok: false, failure: { code: 'result_too_large' } },
+    });
   });
 });

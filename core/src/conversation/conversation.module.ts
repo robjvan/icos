@@ -29,6 +29,11 @@ import { PromotionJournalRepository } from '../memory/promotion-journal.reposito
 import { PromotionService } from '../memory/promotion.service';
 import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
 import { MaintenanceService } from '../memory/maintenance.service';
+import { McpClientFactory } from '../mcp/mcp-client';
+import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { McpToolBridge } from '../mcp/mcp-tool-bridge.service';
+import { SdkMcpClientFactory } from '../mcp/sdk-mcp-client';
+import { FOREIGN_TOOL_SOURCE } from '../tools/tool-registry';
 import { RankService } from '../memory/rank.service';
 import { SourceReliabilityRepository } from '../memory/source-reliability.repository';
 import { RecallService } from '../memory/recall.service';
@@ -72,6 +77,8 @@ const toolExecutionServiceProvider = {
     registry: ToolRegistry,
     llm: LlmClient,
     approvals: ApprovalRepository,
+    approvalService: ApprovalService,
+    mcp: McpConnectionService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -81,6 +88,8 @@ const toolExecutionServiceProvider = {
       approvals,
       {},
       llm,
+      approvalService,
+      mcp,
     ),
   inject: [
     ToolExecutionRepository,
@@ -88,6 +97,8 @@ const toolExecutionServiceProvider = {
     ToolRegistry,
     LlmClient,
     ApprovalRepository,
+    ApprovalService,
+    McpConnectionService,
   ],
 };
 
@@ -153,6 +164,16 @@ const toolExecutionServiceProvider = {
     RankService,
     RecallTraceStore,
     MaintenanceService,
+    {
+      provide: McpClientFactory,
+      useClass: SdkMcpClientFactory,
+    },
+    McpConnectionService,
+    McpToolBridge,
+    {
+      provide: FOREIGN_TOOL_SOURCE,
+      useExisting: McpToolBridge,
+    },
     PromotionService,
     {
       provide: MemoryCandidateExtractor,

@@ -66,6 +66,15 @@ export interface CoreConfig {
   /** M12 maintenance cadence in ms (default: hourly). */
   memoryMaintenanceIntervalMs: number;
   /**
+   * M13 MCP kill-switch (default off — new capability, conservative).
+   * False skips catalog loading entirely (explicit runs still work).
+   */
+  mcpEnabled: boolean;
+  /** M13 catalog file for MCP servers (default ~/.icos/mcp-servers.json). */
+  mcpServersPath: string;
+  /** M13 per-call timeout in ms for MCP tool calls. */
+  mcpTimeoutMs: number;
+  /**
    * M12c agent dampening: agent-origin claims compound at this
    * fraction of the normal step (default conservative 0.5), so the
    * agent's own statements never inflate by self-echo.
@@ -231,6 +240,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       0.5,
       'MEMORY_AGENT_DAMPENING',
     ),
+    mcpEnabled: parseBoolean(env.MCP_ENABLED, false),
+    mcpServersPath: (env.MCP_SERVERS_PATH ?? '').trim() || '',
+    mcpTimeoutMs: parsePositiveInt(env.MCP_TIMEOUT_MS, 30000, 'MCP_TIMEOUT_MS'),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',
