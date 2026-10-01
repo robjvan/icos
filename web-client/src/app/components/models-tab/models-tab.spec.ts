@@ -1,29 +1,68 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { ModelsTab } from './models-tab';
+import { ProviderAdminService } from '../../services/provider-admin.service';
 
 describe('ModelsTab', () => {
-  let component: ModelsTab;
+  const api = {
+    report: vi.fn(() =>
+      Promise.resolve({
+        source: 'catalog' as const,
+        active: { conversation: 'openrouter', memory: 'local' },
+        providers: [
+          {
+            id: 'openrouter',
+            model: 'deepseek/x',
+            baseUrl: 'https://openrouter.ai/api/v1',
+            enabled: true,
+            hasKey: true,
+          },
+        ],
+        errors: [],
+        path: '/tmp/providers.json',
+      }),
+    ),
+    catalog: vi.fn(() =>
+      Promise.resolve([
+        {
+          id: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'deepseek/x',
+        },
+      ]),
+    ),
+    upsert: vi.fn(() => Promise.resolve({})),
+    remove: vi.fn(() => Promise.resolve({})),
+    setActive: vi.fn(() => Promise.resolve({})),
+    test: vi.fn(() => Promise.resolve({ ok: true, detail: 'HTTP 200' })),
+    reload: vi.fn(() => Promise.resolve({})),
+  };
+
   let fixture: ComponentFixture<ModelsTab>;
 
   beforeEach(async () => {
+    api.report.mockClear();
     await TestBed.configureTestingModule({
       imports: [ModelsTab],
+      providers: [{ provide: ProviderAdminService, useValue: api }],
     }).compileComponents();
-
     fixture = TestBed.createComponent(ModelsTab);
-    component = fixture.componentInstance;
-    await fixture.whenStable();
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
-  });
-
-  it('should render the unimplemented badge with no fake data', () => {
+    await fixture.componentInstance.refresh();
     fixture.detectChanges();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.badge')?.textContent).toContain('server unimplemented');
-    expect(compiled.querySelector('.milestone')?.textContent).toContain('TODO(server milestone');
+  });
+
+  it('renders providers with presence and active markers', () => {
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('openrouter');
+    expect(text).toContain('present');
+    expect(text).toContain('conversation');
+  });
+
+  it('opens the editor form', () => {
+    fixture.componentInstance.startAdd();
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[formControlName="baseUrl"]'),
+    ).not.toBeNull();
   });
 });

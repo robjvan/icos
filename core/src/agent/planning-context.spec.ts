@@ -58,6 +58,27 @@ describe('buildPlanningBlock', () => {
     expect(block).toContain('prior actions: none.');
     expect(block).not.toContain('Approval');
   });
+
+  it('declares unavailable foreign servers, silent by default', () => {
+    const plain = buildPlanningBlock({
+      goal: 'find teal',
+      tools,
+      maxToolSteps: 5,
+      maxIterations: 5,
+    });
+    expect(plain).not.toContain('Unavailable');
+    const declared = buildPlanningBlock({
+      goal: 'find teal',
+      tools,
+      maxToolSteps: 5,
+      maxIterations: 5,
+      unavailable: ['mcp_files_* (server "files" failed: refused)'],
+    });
+    expect(declared).toContain('Unavailable (do not propose):');
+    expect(declared).toContain(
+      '- mcp_files_* (server "files" failed: refused)',
+    );
+  });
 });
 
 describe('assembleTurnMessages', () => {

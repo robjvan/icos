@@ -226,17 +226,22 @@ Status: complete (2026-09-26). Plan: `web-client-phase4-memory-review.md`
 
 ## 9. Phase 5 - Contradiction Transparency
 
-Status: planned. Plan: `web-client-phase5-contradiction-transparency.md`
-(`web-client/` only, no core changes). From live use 2026-09-30:
-contradicted claims render as flags with no visible counterpart.
+Status: complete (2026-09-30). Plan:
+`web-client-phase5-contradiction-transparency.md` (`web-client/`
+only, no core changes); evidence:
+`.reference/plans/evidence/web-client-phase5-contradiction-transparency.md`.
 
-- [ ] Loser rows render "contradicted by \<object\>" with a claim link;
-  winner rows link back (icon + label, never colour-only).
-- [ ] Parked prospective item linked off the pair when one exists
-  (fourth-segment seam reserved, not built).
-- [ ] Negation-aware pair labels (affirmed vs negated rivals must not
-  render as two identical values).
-- [ ] Specs + AXE + one live-core pass; evidence file on completion.
+- [x] Contradiction pairing derived from committed journal rows
+  (both directions, missing-counterpart tolerance).
+- [x] Beliefs rows cue "contradicted by / contradicts" with
+  counterpart links; detail adds the pair + parked question.
+- [x] Negation markers on row, search, and detail statements;
+  client `Claim` mirror gained the M10e `negated` field.
+- [x] Pairing fetches best-effort (unpaired rows on failure,
+  never a failed view).
+- [x] Verify: 168 client tests green, `tsc` + `eslint` clean,
+  browser dark+light AXE-clean, live contradiction leg
+  (affirmed rival + `neg=true` denial → pair + question).
 
 ## 10. Execution order
 

@@ -13,7 +13,7 @@ const SESSION_ID = 'session-1';
 const ALL_TOOLS: readonly ToolName[] = ['session.search', 'session.rename'];
 
 function contextWith(
-  allowedTools: readonly ToolName[] = ALL_TOOLS,
+  allowedTools: readonly string[] = ALL_TOOLS,
   sessionId = SESSION_ID,
 ): ToolValidationContext {
   return { sessionId, allowedTools };
@@ -411,12 +411,14 @@ describe('ToolRegistry', () => {
             ? true
             : false = false;
           expect([query, limit, hasTitle]).toEqual(['q', 20, false]);
-        } else {
+        } else if (!('foreign' in request)) {
           const title: string = request.args.title;
           const hasQuery: 'query' extends keyof typeof request.args
             ? true
             : false = false;
           expect([title, hasQuery]).toEqual(['t', false]);
+        } else {
+          throw new Error('native calls never validate foreign');
         }
       }
     });
@@ -570,6 +572,128 @@ describe('ToolRegistry', () => {
           ),
         ).code,
       ).toBe('invalid_session');
+    });
+  });
+
+  describe('foreign delegation (M13b)', () => {
+    const foreignDescriptor = {
+      name: 'mcp_files_read',
+      server: 'files',
+      tool: 'read',
+      description: 'Read a file',
+      approval: 'required' as const,
+      argsSchema: {
+        type: 'object' as const,
+        additionalProperties: false as const,
+        required: ['path'] as readonly string[],
+        properties: {
+          path: { type: 'string' },
+        } as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+      },
+    };
+
+    const withForeign = () =>
+      new ToolRegistry({
+        listForeign: () => [foreignDescriptor],
+        lookupForeign: (name: string) =>
+          name === foreignDescriptor.name ? foreignDescriptor : undefined,
+      });
+
+    const foreignCall = (args: unknown): unknown => ({
+      name: 'mcp_files_read',
+      version: 1,
+      args,
+    });
+
+    it('lists and looks up bridged tools alongside natives', () => {
+      const bridged = withForeign();
+      expect(bridged.list().map((d) => d.name)).toEqual([
+        'session.search',
+        'session.rename',
+        'mcp_files_read',
+      ]);
+      expect(bridged.lookup('mcp_files_read')).toMatchObject({
+        approval: 'required',
+      });
+      expect(bridged.lookup('mcp_nope')).toBeUndefined();
+    });
+
+    it('validates foreign args with the foreign marker attached', () => {
+      const bridged = withForeign();
+      const request = expectOk(
+        bridged.validate(
+          foreignCall({ path: '/x' }),
+          contextWith(['mcp_files_read']),
+        ),
+      );
+      expect(request).toMatchObject({
+        name: 'mcp_files_read',
+        foreign: { server: 'files', tool: 'read' },
+      });
+      expect(request.args).toEqual({ path: '/x' });
+    });
+
+    it('fails foreign calls closed: missing, unpermitted, invalid', () => {
+      const bridged = withForeign();
+      // Unknown to the bridge (moved set mid-turn).
+      expect(
+        expectFailure(
+          bridged.validate(
+            { name: 'mcp_files_gone', version: 1, args: {} },
+            contextWith(['mcp_files_gone']),
+          ),
+        ).code,
+      ).toBe('unknown_tool');
+      // Not in the allowed set.
+      expect(
+        expectFailure(
+          bridged.validate(
+            foreignCall({ path: '/x' }),
+            contextWith(['session.search']),
+          ),
+        ).code,
+      ).toBe('unpermitted_tool');
+      // Against the remote schema.
+      expect(
+        expectFailure(
+          bridged.validate(foreignCall({}), contextWith(['mcp_files_read'])),
+        ).code,
+      ).toBe('invalid_args');
+      expect(
+        expectFailure(
+          bridged.validate(
+            foreignCall({ path: '/x', extra: 1 }),
+            contextWith(['mcp_files_read']),
+          ),
+        ).code,
+      ).toBe('invalid_args');
+    });
+
+    it('stays native-only without a foreign source', () => {
+      expect(registry.lookup('mcp_files_read')).toBeUndefined();
+      expect(
+        expectFailure(
+          registry.validate(
+            foreignCall({ path: '/x' }),
+            contextWith(['mcp_files_read']),
+          ),
+        ).code,
+      ).toBe('unknown_tool');
+    });
+
+    it('declares unavailable servers only when the source serves them', () => {
+      // No source, no declaration.
+      expect(registry.unavailableForeign()).toEqual([]);
+      // Source without the seam: nothing to declare.
+      expect(withForeign().unavailableForeign()).toEqual([]);
+      // Source with the seam: forwarded verbatim.
+      const down = [{ server: 'files', state: 'failed' as const }];
+      const declaring = new ToolRegistry({
+        listForeign: () => [],
+        lookupForeign: () => undefined,
+        unavailableForeign: () => down,
+      });
+      expect(declaring.unavailableForeign()).toEqual(down);
     });
   });
 });

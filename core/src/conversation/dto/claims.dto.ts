@@ -1,6 +1,16 @@
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Claim } from '../../memory/claim';
+import type { ClaimHistory } from '../../memory/claim-history';
 import type { MemoryCandidate } from '../../memory/memory-candidate';
 import type { PromotionJournalEntry } from '../../memory/promotion';
 
@@ -35,6 +45,23 @@ export class ClaimDetailResponseDto {
   evidence!: (MemoryCandidate | null)[];
   /** Journal rows that built or touched this claim, oldest first. */
   history!: PromotionJournalEntry[];
+  /** M12 maintenance transitions on this claim, oldest first. */
+  maintenance!: ClaimHistory[];
+}
+
+export class RetireClaimDto {
+  /**
+   * Explicit "forget this": bypasses the eligibility rule
+   * (unretrieved window + low confidence). The caller is the HITL
+   * authority; the bypass is recorded in history either way.
+   */
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
+export class RetireClaimResponseDto {
+  claim!: Claim;
 }
 
 export class SearchClaimsQueryDto {
@@ -47,6 +74,34 @@ export class SearchClaimsQueryDto {
   @Min(1)
   @Max(50)
   k?: number;
+}
+
+export class TimelineClaimsQueryDto {
+  /** ISO lower bound on claim creation (inclusive). */
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  /** ISO upper bound on claim creation (inclusive). */
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  /** Scope to one conversation (resolved via evidence references). */
+  @IsOptional()
+  @IsUUID()
+  sessionId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+export class TimelineClaimsResponseDto {
+  claims!: Claim[];
 }
 
 export class SearchClaimsResponseDto {

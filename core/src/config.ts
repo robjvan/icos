@@ -6,6 +6,62 @@ export const CORE_CONFIG = 'CORE_CONFIG';
 
 export interface CoreConfig {
   port: number;
+  /**
+   * Interface to bind (S1). Default `127.0.0.1` — reachable only from
+   * this machine. Set `0.0.0.0` (or a specific address) to expose it,
+   * but read the boot warning first: ICOS has no authentication until
+   * the security-hardening milestone lands.
+   */
+  host: string;
+  /**
+   * Browser origins allowed to call the API (S1). Explicit origins only
+   * (`*` is refused); defaults to the bundled local dev client.
+   */
+  corsAllowedOrigins: string[];
+  /**
+   * Operator assertion that exposure is deliberate and protected
+   * (TLS + auth in front). Silences the off-loopback boot warning only;
+   * it changes no technical behavior.
+   */
+  exposeAcknowledged: boolean;
+  /**
+   * API authentication (S2). **On by default**: every route needs a
+   * valid session except the explicit liveness/login allowlist. Set
+   * false only for local throwaway use.
+   */
+  authEnabled: boolean;
+  /** Directory holding the bootstrap token, session key, and audit log. */
+  authDirPath: string;
+  /** Session lifetime in ms (default 30 days). */
+  authSessionTtlMs: number;
+  /**
+   * Send the session cookie with `Secure`. Requires HTTPS — keep true.
+   * Set false ONLY for loopback/LAN HTTP development (the documented
+   * exception); it downgrades transport protection.
+   */
+  authCookieSecure: boolean;
+  /**
+   * Encrypted secret vault path (S3). Defaults to
+   * `<authDirPath>/secrets.vault` so it sits with the other secret
+   * material and follows `AUTH_DIR_PATH` in Docker. Values written
+   * through the API are encrypted here; the catalog only ever holds
+   * references.
+   */
+  vaultPath?: string;
+  /**
+   * Master key for the vault: a 32-byte key as base64/base64url/hex,
+   * read from a file (preferred; e.g. a Docker secret) or the
+   * environment. Absent + empty vault = UI-managed secrets disabled;
+   * absent + non-empty vault = boot fails loudly.
+   */
+  vaultKeyFile?: string;
+  vaultKey?: string;
+  /**
+   * LLM provider catalog (S4). When present, entries here (selected via
+   * its `active` map) replace the `LLM_*` / `MEMORY_LLM_*` env endpoint
+   * values. Absent file = env-only behavior, exactly as before.
+   */
+  providersPath?: string;
   provider: string;
   llmBaseUrl: string;
   llmModel: string;
@@ -58,6 +114,36 @@ export interface CoreConfig {
   /** M11e turn-time recall latency budget in ms. */
   memoryRecallTimeoutMs: number;
   /**
+   * M12 maintenance kill-switch (default on): false disables the
+   * scheduled pass entirely (explicit runs still work). Async
+   * aging must never surprise an operator.
+   */
+  memoryMaintenanceEnabled: boolean;
+  /** M12 maintenance cadence in ms (default: hourly). */
+  memoryMaintenanceIntervalMs: number;
+  /**
+   * M13 MCP kill-switch (default off — new capability, conservative).
+   * False skips catalog loading entirely (explicit runs still work).
+   */
+  mcpEnabled: boolean;
+  /** M13 catalog file for MCP servers (default ~/.icos/mcp-servers.json). */
+  mcpServersPath: string;
+  /** M13 per-call timeout in ms for MCP tool calls. */
+  mcpTimeoutMs: number;
+  /**
+   * M13d reconnect backoff in ms. A failed server is retried in the
+   * background at this cadence (unref'd — never blocks shutdown),
+   * until it connects or the process stops. 0 disables auto-retry
+   * (explicit `reconnect`/reload still work).
+   */
+  mcpReconnectBackoffMs: number;
+  /**
+   * M12c agent dampening: agent-origin claims compound at this
+   * fraction of the normal step (default conservative 0.5), so the
+   * agent's own statements never inflate by self-echo.
+   */
+  memoryAgentDampening: number;
+  /**
    * M10e clarification trigger: a contradiction parks a prospective
    * item when the contradicted claim's confidence sits below this
    * (default 0.5). Repeat contests park regardless of confidence.
@@ -94,8 +180,10 @@ export interface CoreConfig {
   /** Server heartbeat cadence in ms for socket liveness frames. */
   realtimeHeartbeatMs: number;
   /**
-   * Socket origin allowlist. Default `*` in dev with the same posture as
-   * the permissive CORS TODO in main.ts — restrict when frontends land.
+   * Socket origin allowlist (S1). Explicit origins only (`*` is
+   * refused); falls back to `corsAllowedOrigins` when unset. A socket
+   * with no Origin header is rejected unless the list is wildcard —
+   * and wildcard is refused, so missing-origin clients are rejected.
    */
   realtimeAllowedOrigins: string[];
 }
@@ -109,6 +197,20 @@ function parsePositiveInt(
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
+/** Like parsePositiveInt but admits 0 (used for opt-out timers). */
+function parseNonNegativeInt(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer (got "${raw}")`);
   }
   return value;
 }
@@ -138,8 +240,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     .trim()
     .replace(/\/+$/, '');
 
+  // Parsed once; the realtime allowlist falls back to it when unset.
+  const corsAllowedOrigins = parseOriginList(
+    env.CORS_ALLOWED_ORIGINS,
+    DEFAULT_ALLOWED_ORIGINS,
+    'CORS_ALLOWED_ORIGINS',
+  );
+  const authDirPath = resolvePath(env.AUTH_DIR_PATH, '~/.icos/auth');
+
   return {
     port: parsePositiveInt(env.PORT, 3000, 'PORT'),
+    host: (env.HOST ?? '').trim() || '127.0.0.1',
+    corsAllowedOrigins,
+    exposeAcknowledged: parseBoolean(env.EXPOSE_ACKNOWLEDGED, false),
+    authEnabled: parseBoolean(env.AUTH_ENABLED, true),
+    authDirPath,
+    authSessionTtlMs: parsePositiveInt(
+      env.AUTH_SESSION_TTL_MS,
+      30 * 24 * 60 * 60 * 1000,
+      'AUTH_SESSION_TTL_MS',
+    ),
+    authCookieSecure: parseBoolean(env.AUTH_COOKIE_SECURE, true),
+    vaultPath:
+      (env.VAULT_PATH ?? '').trim() || join(authDirPath, 'secrets.vault'),
+    vaultKeyFile:
+      (env.ICOS_VAULT_KEY_FILE ?? env.VAULT_KEY_FILE ?? '').trim() || undefined,
+    vaultKey: (env.ICOS_VAULT_KEY ?? env.VAULT_KEY ?? '').trim() || undefined,
+    providersPath: (env.PROVIDERS_PATH ?? '').trim() || undefined,
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,
@@ -203,6 +330,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       5000,
       'MEMORY_RECALL_TIMEOUT_MS',
     ),
+    memoryMaintenanceEnabled: parseBoolean(
+      env.MEMORY_MAINTENANCE_ENABLED,
+      true,
+    ),
+    memoryMaintenanceIntervalMs: parsePositiveInt(
+      env.MEMORY_MAINTENANCE_INTERVAL_MS,
+      3600000,
+      'MEMORY_MAINTENANCE_INTERVAL_MS',
+    ),
+    memoryAgentDampening: parseScore(
+      env.MEMORY_AGENT_DAMPENING,
+      0.5,
+      'MEMORY_AGENT_DAMPENING',
+    ),
+    mcpEnabled: parseBoolean(env.MCP_ENABLED, false),
+    mcpServersPath: (env.MCP_SERVERS_PATH ?? '').trim() || '',
+    mcpTimeoutMs: parsePositiveInt(env.MCP_TIMEOUT_MS, 30000, 'MCP_TIMEOUT_MS'),
+    mcpReconnectBackoffMs: parseNonNegativeInt(
+      env.MCP_RECONNECT_BACKOFF_MS,
+      10000,
+      'MCP_RECONNECT_BACKOFF_MS',
+    ),
     vectorDbPath: resolvePath(
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',
@@ -255,7 +404,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       30_000,
       'REALTIME_HEARTBEAT_MS',
     ),
-    realtimeAllowedOrigins: parseOriginList(env.REALTIME_ALLOWED_ORIGINS),
+    realtimeAllowedOrigins: parseOriginList(
+      env.REALTIME_ALLOWED_ORIGINS,
+      corsAllowedOrigins,
+      'REALTIME_ALLOWED_ORIGINS',
+    ),
   };
 }
 
@@ -305,20 +458,56 @@ function parseKindList(raw: string | undefined): string[] {
 }
 
 /**
- * Comma-separated origin allowlist, e.g. "http://localhost:4200". Empty
- * or unset means `*` (dev default, same posture as the permissive CORS
- * TODO — restrict when real frontends land).
+ * Default browser origins allowed in local development: the bundled
+ * web client (`:4200`, loopback only). Anything else must be listed
+ * explicitly — the API is not open to arbitrary origins.
  */
-function parseOriginList(raw: string | undefined): string[] {
-  if (raw === undefined || raw.trim() === '') return ['*'];
-  return [
-    ...new Set(
-      raw
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part !== ''),
-    ),
-  ];
+export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = [
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+];
+
+/**
+ * Comma-separated origin allowlist. Empty/unset returns `fallback`.
+ * Wildcards are refused outright: ICOS sends credentials-capable
+ * responses and drives a live socket, and `*` would let any page the
+ * operator visits call the API. Every entry must be a bare
+ * `scheme://host[:port]` origin (no path, no trailing slash).
+ */
+function parseOriginList(
+  raw: string | undefined,
+  fallback: readonly string[],
+  name: string,
+): string[] {
+  if (raw === undefined || raw.trim() === '') return [...fallback];
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const origin = part.trim();
+    if (origin === '') continue;
+    if (origin === '*') {
+      throw new Error(
+        `${name} must list explicit origins; "*" is not allowed ` +
+          `(wildcard access is unsafe). e.g. http://localhost:4200`,
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error(`${name} entry "${origin}" is not a valid origin`);
+    }
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.origin !== origin
+    ) {
+      throw new Error(
+        `${name} entry "${origin}" must be a bare origin ` +
+          `(scheme://host[:port], no path or trailing slash)`,
+      );
+    }
+    out.push(origin);
+  }
+  return [...new Set(out)];
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

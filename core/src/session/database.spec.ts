@@ -119,6 +119,8 @@ describe('openDatabase', () => {
         'claims',
         'promotion_journal',
         'prospective_items',
+        'claim_history',
+        'source_reliability',
         'claims_fts',
         'claims_fts_data',
         'claims_fts_idx',
@@ -193,6 +195,79 @@ describe('openDatabase', () => {
         .prepare('SELECT source_role FROM memory_candidates WHERE id = ?')
         .get('c1') as { source_role: string };
       expect(row.source_role).toBe('unknown');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('migrates pre-M12c history files, preserving rows', () => {
+    // Simulate a memories file from before M12c: history CHECK
+    // without classify/activate, one live row to preserve.
+    const path = join(dir, 'old-history.sqlite');
+    const old = new Database(path);
+    try {
+      old.exec(`
+        CREATE TABLE claim_history (
+            id TEXT PRIMARY KEY,
+            claim_id TEXT NOT NULL,
+            transition TEXT NOT NULL
+                CHECK (transition IN (
+                    'compound', 'decay', 'revise', 'retire', 'link',
+                    'gist_proposed', 'lock', 'unlock', 'suppress'
+                )),
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            confidence_before REAL,
+            confidence_after REAL,
+            created_at TEXT NOT NULL
+        );`);
+      old
+        .prepare(
+          `INSERT INTO claim_history
+             (id, claim_id, transition, detail_json,
+              confidence_before, confidence_after, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'h1',
+          'claim-1',
+          'compound',
+          '{"timesObserved":2}',
+          0.9,
+          0.94,
+          '2026-01-03T00:00:00.000Z',
+        );
+    } finally {
+      old.close();
+    }
+
+    const db = openDatabase(path, 'memories');
+    try {
+      const row = db
+        .prepare('SELECT * FROM claim_history WHERE id = ?')
+        .get('h1') as { transition: string; confidence_after: number };
+      expect(row.transition).toBe('compound');
+      expect(row.confidence_after).toBe(0.94);
+      // New transitions write cleanly after migration.
+      db.prepare(
+        `INSERT INTO claim_history
+           (id, claim_id, transition, detail_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        'h2',
+        'claim-1',
+        'classify',
+        '{"sourceType":"direct_statement"}',
+        new Date().toISOString(),
+      );
+      expect(
+        (
+          db
+            .prepare(
+              'SELECT COUNT(*) AS n FROM claim_history WHERE claim_id = ?',
+            )
+            .get('claim-1') as { n: number }
+        ).n,
+      ).toBe(2);
     } finally {
       db.close();
     }

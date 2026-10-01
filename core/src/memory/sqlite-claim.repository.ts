@@ -296,6 +296,74 @@ export class SqliteClaimRepository extends ClaimRepository {
       .run(nowIso(), nowIso(), ...unique);
   }
 
+  async adjustConfidence(
+    id: string,
+    confidence: number,
+  ): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET confidence = ?, updated_at = ? WHERE id = ?')
+      .run(confidence, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async setLocked(id: string, locked: boolean): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET locked = ?, updated_at = ? WHERE id = ?')
+      .run(locked ? 1 : 0, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async setSourceType(id: string, sourceType: string): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET source_type = ?, updated_at = ? WHERE id = ?')
+      .run(sourceType, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async setActivation(id: string, activation: number): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    this.database
+      .prepare('UPDATE claims SET activation = ?, updated_at = ? WHERE id = ?')
+      .run(activation, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
+  async addRelated(id: string, relatedIds: string[]): Promise<Claim | null> {
+    const row = this.rowById(id);
+    if (!row) return null;
+    const current = toClaim(row);
+    const merged = [...current.related];
+    for (const relatedId of relatedIds) {
+      if (relatedId !== id && !merged.includes(relatedId)) {
+        merged.push(relatedId);
+      }
+    }
+    if (merged.length === current.related.length) return current;
+    this.database
+      .prepare(
+        'UPDATE claims SET related_json = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(JSON.stringify(merged), nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Claim ${id} vanished during update`);
+    return toClaim(updated);
+  }
+
   async listClaims(options?: {
     status?: ClaimStatus;
     category?: ClaimCategory;
@@ -322,6 +390,43 @@ export class SqliteClaimRepository extends ClaimRepository {
       `SELECT * FROM claims` +
       (clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '') +
       ` ORDER BY rowid DESC LIMIT ?`;
+    const rows = this.database.prepare(sql).all(...params) as ClaimRow[];
+    return rows.map(toClaim);
+  }
+
+  async listClaimsByTime(options?: {
+    from?: string;
+    to?: string;
+    sessionId?: string;
+    limit?: number;
+  }): Promise<Claim[]> {
+    const limit = Math.min(options?.limit ?? 50, MAX_LIST_LIMIT);
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (options?.from !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(options.from);
+    }
+    if (options?.to !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.to);
+    }
+    if (options?.sessionId !== undefined) {
+      // Claims store no session of their own: scope through ledger
+      // references (evidence candidate ids → sessions). JSON1
+      // unpacking; the ledger is read, never touched.
+      clauses.push(`EXISTS (
+        SELECT 1 FROM memory_candidates AS mc, json_each(claims.evidence_json) AS je
+         WHERE mc.id = je.value ->> 'candidateId'
+           AND mc.session_id = ?
+      )`);
+      params.push(options.sessionId);
+    }
+    params.push(limit);
+    const sql =
+      `SELECT * FROM claims` +
+      (clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '') +
+      ` ORDER BY created_at DESC, rowid DESC LIMIT ?`;
     const rows = this.database.prepare(sql).all(...params) as ClaimRow[];
     return rows.map(toClaim);
   }

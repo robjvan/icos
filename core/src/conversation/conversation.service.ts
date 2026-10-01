@@ -45,7 +45,6 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
-import type { ToolName } from '../tools/tool-registry';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -70,13 +69,13 @@ export type TurnStatus = 'ok' | 'approval_required' | 'processing';
 
 export interface ToolSummary {
   invocationId: string;
-  name: ToolName;
+  name: string;
 }
 
 export interface ApprovalSummary {
   approvalId: string;
   invocationId: string;
-  tool: ToolName;
+  tool: string;
   args: Record<string, unknown>;
 }
 
@@ -101,7 +100,7 @@ export interface TurnOutcome {
 export type ConversationStreamEvent =
   | { type: 'meta'; sessionId: string; model: string; requestId: string }
   | { type: 'token'; content: string }
-  | { type: 'tool'; invocationId: string; name: ToolName; state: string }
+  | { type: 'tool'; invocationId: string; name: string; state: string }
   | { type: 'approval'; approval: ApprovalSummary; requestId: string }
   | {
       type: 'done';
@@ -1321,7 +1320,7 @@ export class ConversationService {
    */
   private priorAttempts(
     context: readonly LlmMessage[],
-    name: ToolName,
+    name: string,
     args: Record<string, unknown>,
   ): number {
     let attempts = 0;
@@ -1381,7 +1380,7 @@ export class ConversationService {
   private continuationPair(record: ToolExecutionRecord):
     | {
         invocationId: string;
-        name: ToolName;
+        name: string;
         assistant: LlmMessage;
         tool: LlmMessage;
       }
@@ -1522,12 +1521,27 @@ export class ConversationService {
       maxToolSteps: this.config.agentMaxToolSteps,
       maxIterations: this.config.agentMaxIterations,
       progress,
+      unavailable: this.describeUnavailableForeign(),
     });
     return assembleTurnMessages({
       baseSystem: turn.baseSystem,
       systemExtra: `${TOOL_STEP_INSTRUCTION}\n\n${block}`,
       rest: turn.rest,
       pairs,
+    });
+  }
+
+  /**
+   * Planning-frame declaration of dead foreign servers (M13c).
+   * Reasons are operator-visible infra text, truncated — the
+   * model gets the fact of absence, not a log dump.
+   */
+  private describeUnavailableForeign(): string[] {
+    return this.registry.unavailableForeign().map((entry) => {
+      const head = `mcp_${entry.server}_* (server "${entry.server}" ${entry.state}`;
+      return entry.reason
+        ? `${head}: ${entry.reason.slice(0, 120)})`
+        : `${head})`;
     });
   }
 
@@ -1540,7 +1554,7 @@ export class ConversationService {
     baseSystem: string | undefined;
     rest: LlmMessage[];
     descriptors: LlmToolRequest['tools'];
-    allowedTools: ToolName[];
+    allowedTools: string[];
   }> {
     const history = await this.sessions.getContextMessages(sessionId);
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
@@ -1656,10 +1670,18 @@ export class ConversationService {
       record.invocationId
     ) {
       const validation = record.validation;
+      // The validated name when there is one; otherwise what the
+      // model actually proposed (never a hardcoded native — a
+      // foreign proposal must report its own name, not
+      // session.search's).
+      const proposed =
+        record.input.proposal.kind === 'tool_calls'
+          ? record.input.proposal.toolCalls[0]?.name
+          : undefined;
       const name =
         validation.ok && 'request' in validation
           ? validation.request.name
-          : ('session.search' as ToolName);
+          : (proposed ?? 'session.search');
       const tool = { invocationId: record.invocationId, name };
       if (record.final.state === 'succeeded') {
         const content = record.final.result.content;
@@ -2262,7 +2284,8 @@ function approvalSummary(
   if (!record.approvalId || !record.invocationId) return undefined;
   const validation = record.validation;
   if (!validation.ok || !('request' in validation)) return undefined;
-  if (validation.request.name !== 'session.rename') return undefined;
+  // Any validated call with a bound approval surfaces (rename today,
+  // foreign tomorrow) — the card shows name + args, never internals.
   return {
     approvalId: record.approvalId,
     invocationId: record.invocationId,

@@ -1,11 +1,17 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { CLAIMS_ENDPOINT } from '../../constants';
+import {
+  CLAIMS_ENDPOINT,
+  PROMOTIONS_ENDPOINT,
+  PROSPECTIVE_ENDPOINT,
+} from '../../constants';
 import type {
   ClaimDetailResponse,
   ClaimFilters,
   ListClaimsResponse,
   SearchClaimsResponse,
 } from '../models/claim';
+import type { PromotionJournalEntry } from '../models/promotion';
+import type { ListProspectiveResponse } from '../models/prospective';
 import { CoreApiService } from './core-api.service';
 
 const CLAIM_LIST_LIMIT = 200;
@@ -48,6 +54,30 @@ export class ClaimService {
     return this.api.get<ClaimDetailResponse>(
       `${CLAIMS_ENDPOINT}/${encodeURIComponent(id)}`,
     );
+  }
+
+  /**
+   * Committed contradiction rows for pairing (Phase 5): journal
+   * `CONTRADICT/committed` entries name winner (`claimId`) and loser
+   * (`contradicts:<id>`). Read-only pairing input — derivation lives
+   * in `models/contradiction.ts`, never here.
+   */
+  async listCommittedContradictions(): Promise<PromotionJournalEntry[]> {
+    const data = await this.api.get<{
+      promotions: (PromotionJournalEntry & { approvalStatus: string | null })[];
+      total: number;
+    }>(PROMOTIONS_ENDPOINT, { state: 'committed', limit: 200 });
+    return data.promotions.filter(
+      (row) => row.operation === 'CONTRADICT',
+    );
+  }
+
+  /** Open parked questions for pair linking (Phase 5, fourth-seam reserve). */
+  async listProspective(): Promise<ListProspectiveResponse> {
+    return this.api.get<ListProspectiveResponse>(PROSPECTIVE_ENDPOINT, {
+      status: 'open',
+      limit: 200,
+    });
   }
 
   /** Signal a pushed claim/promotion event; live views reload. */

@@ -1,0 +1,61 @@
+:host {
+  display: block;
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.grid th,
+.grid td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.editor {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+  max-width: 40rem;
+}
+
+.editor input {
+  width: 100%;
+}
+
+.editor .actions {
+  grid-column: 1 / -1;
+}
+
+.exposure {
+  border: 1px solid var(--accent-red);
+  border-radius: 0.375rem;
+  padding: 0.6rem 0.75rem;
+  color: var(--accent-red);
+}
+
+.error {
+  color: var(--accent-red);
+}
+
+.hint {
+  color: var(--text-secondary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

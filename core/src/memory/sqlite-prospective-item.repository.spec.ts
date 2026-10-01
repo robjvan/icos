@@ -10,6 +10,13 @@ import { SqliteProspectiveItemRepository } from './sqlite-prospective-item.repos
 function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
+    authEnabled: false,
+    authDirPath: '/tmp/icos-test-auth-unused',
+    authSessionTtlMs: 2592000000,
+    authCookieSecure: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'm',
@@ -31,6 +38,13 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
+    mcpEnabled: false,
+    mcpServersPath: '',
+    mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -171,5 +185,31 @@ describe('SqliteProspectiveItemRepository', () => {
     const listed = await reopened.listItems();
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ contestCount: 2, status: 'open' });
+  });
+
+  it('closes open questions with a recorded outcome, terminally', async () => {
+    const repository = openRepo();
+    const saved = await repository.create(item());
+
+    const resolved = await repository.resolve(saved.id, 'confirmed');
+    expect(resolved).toMatchObject({
+      status: 'dismissed',
+      resolution: 'confirmed',
+    });
+    expect(resolved?.resolvedAt).toBeDefined();
+    expect(resolved?.suggestedQuestion).toBe('Which should be kept?');
+    expect(
+      (await repository.listItems({ status: 'dismissed' })).map(
+        (entry) => entry.id,
+      ),
+    ).toEqual([saved.id]);
+    expect(await repository.listItems({ status: 'open' })).toHaveLength(0);
+
+    // Closing is terminal: no re-resolve, no unknown outcomes, no ghosts.
+    expect(await repository.resolve(saved.id, 'corrected')).toBeNull();
+    expect(await repository.resolve('missing', 'confirmed')).toBeNull();
+    expect(
+      await repository.resolve(saved.id, 'whatever' as 'confirmed'),
+    ).toBeNull();
   });
 });

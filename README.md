@@ -99,7 +99,8 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M11 are complete. M12 (memory dynamics) is the active milestone.**
+**M1–M13 are complete, and the security-hardening milestone (S1–S6) is
+complete.**
 
 The current system provides:
 
@@ -122,10 +123,20 @@ The current system provides:
 - Turn-time recall (lexical + semantic + associative surfaces, ranked
   with confidence gating and provenance lenses, band-separated context
   that never confuses memory with user speech)
-
-The active milestone is **M12: Memory Dynamics** (consolidation, decay,
-supersession, belief revision — beliefs that evolve instead of only
-accumulating).
+- Memory dynamics (bounded reinforcement, honest decay, revision with
+  walkable history, deliberate retirement, salience apart from truth,
+  temporal navigation)
+- Contradiction transparency in the web client (paired belief links,
+  negation markers, parked-question surfacing)
+- MCP client support (consumes standard Model Context Protocol
+  servers: namespaced tools bridged into the agent loop, approval-
+  gated execution with durable records, resources and prompt
+  templates behind a read-only fetch surface, hand-edited catalog
+  with no-restart reload and a per-server health surface)
+- Security posture (loopback-by-default binding, authentication with a
+  bootstrap token, an encrypted secret vault, and an LLM provider
+  registry selected at runtime with key references resolved through the
+  vault) — managed from the web client (MCP servers, providers, secrets)
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
@@ -149,7 +160,7 @@ ICOS v3 is being developed as a sequence of increasingly capable experiments.
 |   **M10**    | _Can it form knowledge?_                                                      |
 |   **M11**    | _Can it retrieve and use that knowledge?_                                     |
 |   **M12**    | _Can that knowledge evolve?_                                                  |
-|   **M13**    | _Can it expose its capabilities to other systems?_                            |
+|   **M13**    | _Can it use capabilities provided by other systems?_                          |
 |   **M14**    | _Can it maintain a persistent persona?_                                       |
 |   **M15**    | _Can it detect and correct its own drift?_                                    |
 |   **M16**    | _Can it communicate through external channels?_                               |
@@ -188,6 +199,11 @@ Run it wherever suits you: your local machine, or any host on your local
 network (publish port `3000` accordingly). Bare-metal `npm run start` remains
 available for local development, but Docker is the expected way to launch and
 play with the stack.
+
+> **Security first.** ICOS binds to `127.0.0.1` and publishes only to
+> loopback by default, and requires a login. **Put TLS in front before
+> exposing it** — session cookies are `Secure`, so they need HTTPS. See
+> [docs/security.md](docs/security.md).
 
 ## Requirements
 
@@ -414,6 +430,8 @@ bin/dmr                 # Shorthand for the DMR variant
   plans/                # Milestone plans
   plans/evidence/       # Verification and live-run evidence
 
+docs/security.md        # Exposure, TLS, secrets posture
+
 LICENSE                 # PolyForm Noncommercial License
 COMMERCIAL-LICENSE.md   # Commercial licensing information
 ```
@@ -468,7 +486,7 @@ Questions are particularly useful when they challenge an assumption behind the a
 
 # License
 
-ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE).
+ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
 
 Commercial use requires a separate license.
 

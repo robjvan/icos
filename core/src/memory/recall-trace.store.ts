@@ -61,4 +61,13 @@ export class RecallTraceStore {
   get(sessionId: string): RecallTrace | null {
     return this.traces.get(sessionId) ?? null;
   }
+
+  /**
+   * All stored traces, oldest first. The maintenance pass reads
+   * these for retrieval-shaped suppression (M12d) — inspection
+   * owns the single-get path above; this is the batch path.
+   */
+  listAll(): RecallTrace[] {
+    return [...this.traces.values()];
+  }
 }

@@ -1,5 +1,119 @@
-<app-tab-placeholder
-  title="Models"
-  description="Set the model from the frontend. Unimplemented in the server."
-  milestone="model selection endpoint (unplanned)"
-/>
+<section class="tab-pane" aria-label="LLM providers">
+  <div class="tab-pane-header">
+    <h1>LLM providers</h1>
+    <span class="badge">references only · keys live in the vault</span>
+    <span class="grow"></span>
+    <button type="button" (click)="reload()" [disabled]="busy()">Reload</button>
+    <button type="button" (click)="startAdd()" [disabled]="busy()">Add provider</button>
+  </div>
+
+  @if (report(); as rep) {
+    <p class="source">
+      Active source: <strong>{{ rep.source }}</strong> · conversation
+      <span class="mono">{{ rep.active.conversation }}</span> · memory
+      <span class="mono">{{ rep.active.memory }}</span>
+    </p>
+  }
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (notice() !== null) {
+    <p class="notice" role="status">{{ notice() }}</p>
+  }
+
+  <table class="grid" aria-label="Configured providers">
+    <thead>
+      <tr>
+        <th scope="col">Provider</th>
+        <th scope="col">Model</th>
+        <th scope="col">Base URL</th>
+        <th scope="col">Key</th>
+        <th scope="col">Active</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (status of report()?.providers ?? []; track status.id) {
+        <tr>
+          <td class="mono">{{ status.id }}</td>
+          <td class="mono">{{ status.model }}</td>
+          <td class="mono url">{{ status.baseUrl }}</td>
+          <td>{{ status.hasKey ? 'present' : (status.enabled ? 'missing' : 'disabled') }}</td>
+          <td>
+            @if (isActive('conversation', status.id)) {
+              <span class="badge">conversation</span>
+            }
+            @if (isActive('memory', status.id)) {
+              <span class="badge">memory</span>
+            }
+          </td>
+          <td class="actions">
+            <button type="button" (click)="activate('conversation', status.id)" [disabled]="busy()">
+              Use for chat
+            </button>
+            <button type="button" (click)="activate('memory', status.id)" [disabled]="busy()">
+              Use for memory
+            </button>
+            <button type="button" (click)="test(status.id)" [disabled]="busy()">Test</button>
+            @if (entryFor(status.id); as entry) {
+              <button type="button" (click)="startEdit(entry)" [disabled]="busy()">Edit</button>
+              <button type="button" (click)="remove(entry)" [disabled]="busy()">Remove</button>
+            }
+          </td>
+        </tr>
+        @if (testResult()[status.id]; as result) {
+          <tr>
+            <td colspan="6" class="mono test">{{ status.id }}: {{ result }}</td>
+          </tr>
+        }
+      } @empty {
+        <tr>
+          <td colspan="6">No catalog providers; the LLM_* environment values are in use.</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  @if (formOpen()) {
+    <form class="editor" [formGroup]="form" (ngSubmit)="submit()" aria-label="Provider editor">
+      <h2>{{ editingId() ? 'Edit provider' : 'Add provider' }}</h2>
+
+      <label for="p-id">Id</label>
+      <input id="p-id" formControlName="id" autocomplete="off" />
+
+      <label for="p-base">Base URL</label>
+      <input id="p-base" formControlName="baseUrl" autocomplete="off" />
+
+      <label for="p-model">Model</label>
+      <input id="p-model" formControlName="model" autocomplete="off" />
+
+      <label for="p-key">API key reference</label>
+      <input
+        id="p-key"
+        formControlName="apiKeyRef"
+        autocomplete="off"
+        placeholder="secret:openrouter"
+      />
+
+      <label for="p-headers">Headers (NAME=$VAR or NAME=secret:NAME)</label>
+      <textarea id="p-headers" formControlName="headers" rows="2" spellcheck="false"></textarea>
+
+      <label for="p-ua">User agent</label>
+      <input id="p-ua" formControlName="userAgent" autocomplete="off" />
+
+      <label for="p-timeout">Timeout (ms)</label>
+      <input id="p-timeout" formControlName="timeoutMs" inputmode="numeric" autocomplete="off" />
+
+      <label class="inline">
+        <input type="checkbox" formControlName="enabled" />
+        Enabled
+      </label>
+
+      <div class="actions">
+        <button type="submit" [disabled]="busy()">Save</button>
+        <button type="button" (click)="cancel()" [disabled]="busy()">Cancel</button>
+      </div>
+    </form>
+  }
+</section>

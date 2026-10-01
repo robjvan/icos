@@ -6,10 +6,18 @@ import { DatabaseService } from '../session/database.service';
 import { MemoryDatabaseService } from './memory-database.service';
 import type { NewClaim } from './claim';
 import { SqliteClaimRepository } from './sqlite-claim.repository';
+import { SqliteMemoryCandidateRepository } from './sqlite-memory-candidate.repository';
 
 function testConfig(memoryDbPath: string, dir: string): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
+    authEnabled: false,
+    authDirPath: '/tmp/icos-test-auth-unused',
+    authSessionTtlMs: 2592000000,
+    authCookieSecure: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'm',
@@ -31,6 +39,13 @@ function testConfig(memoryDbPath: string, dir: string): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
+    mcpEnabled: false,
+    mcpServersPath: '',
+    mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: join(dir, 'claims-vector-test.db'),
     skillsDirPath: join(dir, 'skills-unused'),
     skillsEnabled: true,
@@ -303,6 +318,59 @@ describe('SqliteClaimRepository', () => {
     await repository.recordAccessed([]);
   });
 
+  it('adjusts engine confidence without touching lifecycle or provenance', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+
+    const updated = await repository.adjustConfidence(saved.id, 0.96);
+    expect(updated?.confidence).toBe(0.96);
+    expect(updated).toMatchObject({
+      status: 'candidate',
+      origin: 'user',
+      firstAssertedAt: 'cand-1',
+      extractorConfidence: 0.9,
+    });
+    expect(await repository.adjustConfidence('missing', 0.5)).toBeNull();
+  });
+
+  it('appends related ids deduped, never self-linked', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+
+    const linked = await repository.addRelated(saved.id, ['b', 'c', 'b']);
+    expect(linked?.related).toEqual(['b', 'c']);
+    const relinked = await repository.addRelated(saved.id, [
+      'c',
+      'd',
+      saved.id,
+    ]);
+    expect(relinked?.related).toEqual(['b', 'c', 'd']);
+    expect(await repository.addRelated('missing', ['b'])).toBeNull();
+  });
+
+  it('freezes and releases the certainty lock', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+    expect(saved.locked).toBe(false);
+
+    expect((await repository.setLocked(saved.id, true))?.locked).toBe(true);
+    expect((await repository.getClaim(saved.id))?.locked).toBe(true);
+    expect((await repository.setLocked(saved.id, false))?.locked).toBe(false);
+    expect(await repository.setLocked('missing', true)).toBeNull();
+  });
+
+  it('stamps the source type once read', async () => {
+    const repository = openRepo();
+    const saved = await repository.createClaim(claim());
+    expect(saved.sourceType).toBeNull();
+
+    expect(
+      (await repository.setSourceType(saved.id, 'direct_statement'))
+        ?.sourceType,
+    ).toBe('direct_statement');
+    expect(await repository.setSourceType('missing', 'x')).toBeNull();
+  });
+
   it('coexists affirmed and negated rivals under one triple', async () => {
     const repository = openRepo();
     const affirmed = await repository.createClaim(claim());
@@ -376,5 +444,83 @@ describe('SqliteClaimRepository', () => {
         })
       )?.id,
     ).toBe(saved.id);
+  });
+
+  it('queries the timeline by window and conversation', async () => {
+    const service = new MemoryDatabaseService(
+      testConfig(join(dir, 'timeline.sqlite'), dir),
+    );
+    service.onModuleInit();
+    services.push(service);
+    const repository = new SqliteClaimRepository(service);
+    const old = await repository.createClaim(claim('Old'));
+    await repository.createClaim(claim('Young'));
+    // Backdate through the table: creation time is stamped at write.
+    service.connection
+      .prepare('UPDATE claims SET created_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', old.id);
+
+    expect(
+      (await repository.listClaimsByTime({})).map((c) => c.object),
+    ).toEqual(['Young', 'Old']);
+    expect(
+      (
+        await repository.listClaimsByTime({
+          from: '2025-01-01T00:00:00.000Z',
+        })
+      ).map((c) => c.object),
+    ).toEqual(['Young']);
+    expect(
+      await repository.listClaimsByTime({
+        from: '2021-01-01T00:00:00.000Z',
+        to: '2022-01-01T00:00:00.000Z',
+      }),
+    ).toHaveLength(0);
+    expect(await repository.listClaimsByTime({ limit: 1 })).toHaveLength(1);
+  });
+
+  it('scopes the timeline to one conversation via evidence', async () => {
+    const service = new MemoryDatabaseService(
+      testConfig(join(dir, 'timeline-sess.sqlite'), dir),
+    );
+    service.onModuleInit();
+    services.push(service);
+    const candidates = new SqliteMemoryCandidateRepository(service);
+    const repository = new SqliteClaimRepository(service);
+    const save = async (sessionId: string, object: string): Promise<string> => {
+      const [saved] = await candidates.saveCandidates([
+        {
+          kind: 'fact',
+          subject: 'user',
+          predicate: 'likes',
+          object,
+          confidence: 0.9,
+          importance: 0.5,
+          stability: 0.5,
+          sourceRole: 'user',
+          source: { sessionId, messageId: 1, role: 'user' },
+          extractorModel: 'mem',
+          extractorVersion: 'v1',
+          negated: false,
+        },
+      ]);
+      if (!saved) throw new Error('seed failed');
+      const created = await repository.createClaim({
+        ...claim(object),
+        subject: 'user',
+        predicate: 'likes',
+        evidence: [{ candidateId: saved.id, role: 'user' }],
+      });
+      return created.id;
+    };
+    const inSession = await save('s1', 'tea');
+    await save('s2', 'coffee');
+
+    expect(
+      (await repository.listClaimsByTime({ sessionId: 's1' })).map((c) => c.id),
+    ).toEqual([inSession]);
+    expect(
+      await repository.listClaimsByTime({ sessionId: 'nope' }),
+    ).toHaveLength(0);
   });
 });

@@ -1,5 +1,92 @@
-<app-tab-placeholder
-  title="Server settings"
-  description="Core is configured through environment variables (see core/.env.sample). It exposes no settings endpoint, so this tab is read-only until one lands."
-  milestone="server settings endpoint (unplanned)"
-/>
+<section class="tab-pane" aria-label="Server settings">
+  <div class="tab-pane-header">
+    <h1>Server settings</h1>
+    <span class="grow"></span>
+    <button type="button" (click)="refresh()" [disabled]="busy()">Refresh</button>
+  </div>
+
+  @if (status(); as posture) {
+    @if (!posture.loopback && !posture.exposeAcknowledged) {
+      <p class="exposure" role="alert">
+        <strong>This instance is exposed beyond localhost.</strong>
+        Bound to <span class="mono">{{ posture.host }}:{{ posture.port }}</span>. Session
+        cookies require HTTPS — put a TLS reverse proxy (and authentication) in front, or
+        rebind to 127.0.0.1. Set <span class="mono">EXPOSE_ACKNOWLEDGED=true</span> once
+        protected.
+      </p>
+    } @else if (posture.loopback) {
+      <p class="posture">Bound to loopback (<span class="mono">{{ posture.host }}:{{ posture.port }}</span>) — reachable only from this machine.</p>
+    }
+  }
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (notice() !== null) {
+    <p class="notice" role="status">{{ notice() }}</p>
+  }
+
+  <h2>Secrets</h2>
+  @if (!writable()) {
+    <p class="hint">
+      The vault is disabled (no master key). Set <span class="mono">VAULT_KEY_FILE</span>
+      or <span class="mono">VAULT_KEY</span> and restart to store secrets here.
+      <span class="mono">$VAR</span> environment references still work.
+    </p>
+  } @else {
+    <p class="hint">Values are write-only: once stored they are never shown again.</p>
+  }
+
+  <table class="grid" aria-label="Stored secrets">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Updated</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (secret of secrets(); track secret.name) {
+        <tr>
+          <td class="mono">{{ secret.name }}</td>
+          <td>{{ secret.updatedAt }}</td>
+          <td class="actions">
+            <button
+              type="button"
+              (click)="form.controls.name.setValue(secret.name)"
+              [disabled]="busy() || !writable()"
+            >
+              Rotate
+            </button>
+            <button type="button" (click)="remove(secret)" [disabled]="busy() || !writable()">
+              Delete
+            </button>
+          </td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="3">No secrets stored.</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  @if (writable()) {
+    <form class="editor" [formGroup]="form" (ngSubmit)="save()" aria-label="Store a secret">
+      <label for="s-name">Name</label>
+      <input id="s-name" formControlName="name" autocomplete="off" />
+
+      <label for="s-value">Value</label>
+      <input
+        id="s-value"
+        type="password"
+        formControlName="value"
+        autocomplete="new-password"
+      />
+
+      <div class="actions">
+        <button type="submit" [disabled]="busy()">Store</button>
+      </div>
+    </form>
+  }
+</section>

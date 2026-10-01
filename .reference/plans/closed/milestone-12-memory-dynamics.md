@@ -54,7 +54,9 @@ Same constraint as M10/M11: `core/` and `.reference/` only.
 
 ---
 
-# [ ] M12a — Reinforcement (Consolidation)
+# [x] M12a — Reinforcement (Consolidation) (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-12a-evidence-reinforcement.md`.
 
 Repeated observation strengthens — with a ceiling, not a ratchet
 to certainty (v2's capped compounding):
@@ -77,7 +79,9 @@ to certainty (v2's capped compounding):
 
 ---
 
-# [ ] M12b — Decay and Forgetting
+# [x] M12b — Decay and Forgetting (complete 2026-09-30)
+
+Evidence: `.reference/plans/evidence/milestone-12b-evidence-decay.md`.
 
 Forgetting is a first-class operation with two modes — passive and
 chosen (v2's retrieval-shaped-forgetting lineage):
@@ -100,7 +104,9 @@ chosen (v2's retrieval-shaped-forgetting lineage):
 
 ---
 
-# [ ] M12c — Revision and Supersession
+# [x] M12c — Revision and Supersession (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12c-evidence-revision.md`.
 
 M10 recorded contradiction; M12 resolves it — slowly, visibly,
 reversibly:
@@ -133,7 +139,9 @@ reversibly:
 
 ---
 
-# [ ] M12d — Activation (Salience ≠ Truth)
+# [x] M12d — Activation (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12d-evidence-activation.md`. (Salience ≠ Truth)
 
 The v2 idea with no other home: a per-claim `activation` dimension,
 orthogonal to `confidence`, so the system can hold "I keep hearing
@@ -156,7 +164,9 @@ this, but it's wrong" (ACT-R lineage):
 
 ---
 
-# [ ] M12e — Temporal Reasoning
+# [x] M12e — Temporal Reasoning (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12e-evidence-temporal.md`.
 
 Claims have timestamps (M10); M12 navigates them:
 
@@ -181,7 +191,9 @@ Claims have timestamps (M10); M12 navigates them:
 
 ---
 
-# [ ] M12f — Verification
+# [x] M12f — Verification (complete 2026-10-01)
+
+Evidence: `.reference/plans/evidence/milestone-12f-evidence-verification.md`.
 
 Dynamics are slow and easy to fake — verification is longitudinal:
 

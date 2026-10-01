@@ -6,6 +6,7 @@ import {
   SERVER_URL,
   SESSIONS_ENDPOINT,
 } from '../../constants';
+import { mutationHeaders } from '../auth/credentials';
 
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}${path}`;
@@ -13,6 +14,15 @@ function joinUrl(base: string, path: string): string {
 
 async function readJson<T>(response: Response, what: string): Promise<T> {
   if (!response.ok) {
+    // A 401 means the session expired: let the app redirect to login.
+    // The login call itself is exempt (a wrong token is a normal 401).
+    if (
+      response.status === 401 &&
+      !what.includes('/core/auth/login') &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new Event('icos:unauthorized'));
+    }
     let detail = `HTTP ${response.status}`;
     try {
       const data = (await response.json()) as { message?: string };
@@ -36,17 +46,37 @@ export class CoreApiService {
     for (const [key, value] of Object.entries(params ?? {})) {
       url.searchParams.set(key, String(value));
     }
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { credentials: 'include' });
     return readJson<T>(response, `GET ${endpoint}`);
   }
 
   async post<T>(endpoint: string, body: unknown): Promise<T> {
     const response = await fetch(joinUrl(SERVER_URL, endpoint), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: mutationHeaders(),
       body: JSON.stringify(body),
+      credentials: 'include',
     });
     return readJson<T>(response, `POST ${endpoint}`);
+  }
+
+  async put<T>(endpoint: string, body: unknown): Promise<T> {
+    const response = await fetch(joinUrl(SERVER_URL, endpoint), {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify(body),
+      credentials: 'include',
+    });
+    return readJson<T>(response, `PUT ${endpoint}`);
+  }
+
+  async delete<T>(endpoint: string): Promise<T> {
+    const response = await fetch(joinUrl(SERVER_URL, endpoint), {
+      method: 'DELETE',
+      headers: mutationHeaders(),
+      credentials: 'include',
+    });
+    return readJson<T>(response, `DELETE ${endpoint}`);
   }
 
   conversationUrl(suffix: '' | '/stream' | '/resume' | '/resume-stream'): string {

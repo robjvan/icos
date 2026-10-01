@@ -5,10 +5,18 @@ import type { MemoryCandidateRepository } from '../memory/memory-candidate.repos
 import { HostHealthProvider } from '../commands/host-health';
 import type { HostHealth } from '../commands/host-health';
 import { buildHealthReport } from './health-report';
+import type { McpServerHealth } from './health-report';
 
 function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
+    authEnabled: false,
+    authDirPath: '/tmp/icos-test-auth-unused',
+    authSessionTtlMs: 2592000000,
+    authCookieSecure: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'test-model',
@@ -31,6 +39,13 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
+    mcpEnabled: false,
+    mcpServersPath: '',
+    mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
@@ -164,5 +179,157 @@ describe('buildHealthReport', () => {
     expect(report.status).toBe('healthy');
     expect(report.host.cpuPercent).toBeNull();
     expect(report.host.gpu).toBeNull();
+  });
+
+  describe('MCP surface (M13d)', () => {
+    const mcpWith = (servers: McpServerHealth[]) => ({
+      statusAll: () => servers,
+    });
+
+    it('is absent when no manager is wired', async () => {
+      const { store, candidates, host, config } = setup();
+      const report = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+      });
+      expect(report.mcp).toBeUndefined();
+    });
+
+    it('reads unknown when disabled or unconfigured', async () => {
+      const { store, candidates, host } = setup(
+        testConfig({ mcpEnabled: false }),
+      );
+      const disabled = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config: testConfig({ mcpEnabled: false }),
+        host,
+        mcp: mcpWith([]),
+      });
+      expect(disabled.mcp).toMatchObject({ status: 'unknown', enabled: false });
+
+      const {
+        store: s2,
+        candidates: c2,
+        host: h2,
+      } = setup(testConfig({ mcpEnabled: true }));
+      const empty = await buildHealthReport({
+        sessions: s2,
+        candidates: c2,
+        config: testConfig({ mcpEnabled: true }),
+        host: h2,
+        mcp: mcpWith([]),
+      });
+      expect(empty.mcp).toMatchObject({
+        status: 'unknown',
+        enabled: true,
+        detail: 'no MCP servers configured',
+      });
+    });
+
+    it('summarizes connected/disabled and never leaks into overall status', async () => {
+      const config = testConfig({ mcpEnabled: true });
+      const { store, candidates, host } = setup(config);
+      const report = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        mcp: mcpWith([
+          {
+            name: 'files',
+            transport: 'stdio',
+            state: 'connected',
+            toolCount: 3,
+          },
+          {
+            name: 'off',
+            transport: 'http',
+            state: 'disabled',
+            reason: 'disabled in catalog',
+            toolCount: 0,
+          },
+        ]),
+      });
+      expect(report.status).toBe('healthy');
+      expect(report.mcp).toMatchObject({
+        status: 'healthy',
+        enabled: true,
+        detail: '1 connected, 1 disabled',
+      });
+    });
+
+    it('degrades only the MCP section when a server fails', async () => {
+      const config = testConfig({ mcpEnabled: true });
+      const { store, candidates, host } = setup(config);
+      const report = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        mcp: mcpWith([
+          {
+            name: 'files',
+            transport: 'stdio',
+            state: 'failed',
+            reason: 'refused',
+            toolCount: 0,
+          },
+        ]),
+      });
+      expect(report.status).toBe('healthy');
+      expect(report.mcp).toMatchObject({ status: 'degraded', enabled: true });
+      expect(report.mcp?.detail).toContain('files');
+      expect(report.mcp?.detail).toContain('refused');
+    });
+  });
+
+  describe('provider surface (S4)', () => {
+    it('is absent when no registry is wired and never carries a key', async () => {
+      const { store, candidates, host, config } = setup();
+      const none = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+      });
+      expect(none.providers).toBeUndefined();
+
+      const withProviders = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        providers: {
+          report: () => ({
+            source: 'catalog',
+            active: { conversation: 'openrouter', memory: 'local' },
+            providers: [
+              {
+                id: 'openrouter',
+                model: 'deepseek/x',
+                baseUrl: 'https://openrouter.ai/api/v1',
+                enabled: true,
+                hasKey: true,
+              },
+            ],
+          }),
+        },
+      });
+      expect(withProviders.providers).toEqual({
+        source: 'catalog',
+        active: { conversation: 'openrouter', memory: 'local' },
+        providers: [
+          {
+            id: 'openrouter',
+            model: 'deepseek/x',
+            enabled: true,
+            hasKey: true,
+          },
+        ],
+      });
+    });
   });
 });

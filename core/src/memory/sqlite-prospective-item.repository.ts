@@ -8,10 +8,15 @@ import type {
   NewProspectiveItem,
   ProspectiveItem,
   ProspectiveOption,
+  ProspectiveResolution,
   ProspectiveStatus,
   ProspectiveTrigger,
 } from './prospective-item';
-import { PROSPECTIVE_STATUSES, PROSPECTIVE_TRIGGERS } from './prospective-item';
+import {
+  PROSPECTIVE_RESOLUTIONS,
+  PROSPECTIVE_STATUSES,
+  PROSPECTIVE_TRIGGERS,
+} from './prospective-item';
 import { normalizeTripleField } from './claim-identity';
 import { ProspectiveItemRepository } from './prospective-item.repository';
 import { MemoryDatabaseService } from './memory-database.service';
@@ -31,6 +36,8 @@ interface ProspectiveRow {
   trigger: string;
   suggested_question: string;
   status: string;
+  resolution: string | null;
+  resolved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +87,12 @@ function toItem(row: ProspectiveRow): ProspectiveItem {
   if (!(PROSPECTIVE_STATUSES as readonly string[]).includes(row.status)) {
     throw new Error(`Prospective item ${row.id} has unknown status`);
   }
+  if (
+    row.resolution !== null &&
+    !(PROSPECTIVE_RESOLUTIONS as readonly string[]).includes(row.resolution)
+  ) {
+    throw new Error(`Prospective item ${row.id} has unknown resolution`);
+  }
   return {
     id: row.id,
     subject: row.subject,
@@ -89,6 +102,8 @@ function toItem(row: ProspectiveRow): ProspectiveItem {
     trigger: row.trigger as ProspectiveTrigger,
     suggestedQuestion: row.suggested_question,
     status: row.status as ProspectiveStatus,
+    resolution: row.resolution,
+    resolvedAt: row.resolved_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -181,6 +196,31 @@ export class SqliteProspectiveItemRepository extends ProspectiveItemRepository {
           WHERE id = ?`,
       )
       .run(JSON.stringify(merged), trigger, suggestedQuestion, nowIso(), id);
+    const updated = this.rowById(id);
+    if (!updated) throw new Error(`Prospective item ${id} vanished`);
+    return toItem(updated);
+  }
+
+  async resolve(
+    id: string,
+    outcome: ProspectiveResolution,
+  ): Promise<ProspectiveItem | null> {
+    if (!(PROSPECTIVE_RESOLUTIONS as readonly string[]).includes(outcome)) {
+      return null;
+    }
+    const row = this.rowById(id);
+    if (!row) return null;
+    const current = toItem(row);
+    if (current.status !== 'open') return null;
+    const now = nowIso();
+    this.database
+      .prepare(
+        `UPDATE prospective_items
+            SET status = 'dismissed', resolution = ?, resolved_at = ?,
+                updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(outcome, now, now, id);
     const updated = this.rowById(id);
     if (!updated) throw new Error(`Prospective item ${id} vanished`);
     return toItem(updated);

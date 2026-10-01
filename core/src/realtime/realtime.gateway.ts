@@ -8,6 +8,7 @@ import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
+import { AuthService } from '../auth/auth.service';
 import {
   REALTIME_CLIENT_MESSAGE_TYPES,
   isRealtimeEvent,
@@ -79,7 +80,10 @@ export class RealtimeGateway
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private readonly subscriptions = new Map<WebSocket, Subscription>();
 
-  constructor(@Inject(CORE_CONFIG) private readonly config: CoreConfig) {
+  constructor(
+    @Inject(CORE_CONFIG) private readonly config: CoreConfig,
+    private readonly auth: AuthService,
+  ) {
     super();
   }
 
@@ -188,6 +192,15 @@ export class RealtimeGateway
   ): void {
     if (!this.originAllowed(request.headers['origin'])) {
       socket.close(1008, 'origin not allowed');
+      return;
+    }
+    // Authentication (S2): the socket bypasses the HTTP guard, so verify
+    // the session cookie here too. SameSite=Strict means the browser
+    // sends it for same-site clients only; absence is a rejection.
+    const cookie = request.headers['cookie'];
+    const cookieHeader = Array.isArray(cookie) ? cookie[0] : cookie;
+    if (this.auth.enabled && !this.auth.verify(cookieHeader)) {
+      socket.close(1008, 'authentication required');
       return;
     }
     this.subscriptions.set(socket, {});

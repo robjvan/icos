@@ -13,8 +13,21 @@ export const CLARIFICATIONS_ENDPOINT = '/core/clarifications';
 export const MEMORY_CANDIDATES_ENDPOINT = '/core/memory-candidates';
 export const PROMOTIONS_ENDPOINT = '/core/promotions';
 export const CLAIMS_ENDPOINT = '/core/claims';
+export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
 export const HEALTH_ENDPOINT = '/core/health';
+
+// Management surfaces (security S5).
+export const MCP_ENDPOINT = '/core/mcp';
+export const PROVIDERS_ENDPOINT = '/core/providers';
+export const SECRETS_ENDPOINT = '/core/secrets';
+export const SECURITY_ENDPOINT = '/core/security';
+
+// Authentication (S2). The session lives in an httpOnly cookie, so every
+// request must carry credentials; mutating requests echo the CSRF cookie.
+export const AUTH_LOGIN_ENDPOINT = '/core/auth/login';
+export const AUTH_LOGOUT_ENDPOINT = '/core/auth/logout';
+export const AUTH_SESSION_ENDPOINT = '/core/auth/session';
 
 /** Approval action for candidate → belief promotion (mirrors core PROMOTE_ACTION). */
 export const MEMORY_PROMOTE_ACTION = 'memory.promote';

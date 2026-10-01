@@ -17,10 +17,9 @@
 - [x] M9: Agent Orchestration
 - [x] M10: Build the epistemic memory
 - [x] M11: Memory retrieval / application
+- [x] M12: Memory dynamics
 
 ## Designed
-
-- [ ] M12: Memory dynamics
 
 ## Planned
 

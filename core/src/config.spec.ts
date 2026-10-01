@@ -13,6 +13,9 @@ describe('loadConfig', () => {
     const config = loadConfig({ LLM_MODEL: 'llama3.1' });
     expect(config).toMatchObject({
       port: 3000,
+      host: '127.0.0.1',
+      corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+      exposeAcknowledged: false,
       llmBaseUrl: 'http://localhost:11434/v1',
       llmModel: 'llama3.1',
       llmTimeoutMs: 60000,
@@ -22,9 +25,18 @@ describe('loadConfig', () => {
       agentMaxTurnDurationMs: 900000,
       realtimeEnabled: true,
       realtimeHeartbeatMs: 30000,
-      realtimeAllowedOrigins: ['*'],
+      realtimeAllowedOrigins: [
+        'http://localhost:4200',
+        'http://127.0.0.1:4200',
+      ],
     });
     expect(config.llmApiKey).toBeUndefined();
+    expect(config).toMatchObject({
+      authEnabled: true,
+      authSessionTtlMs: 30 * 24 * 60 * 60 * 1000,
+      authCookieSecure: true,
+    });
+    expect(config.authDirPath).toContain('.icos');
   });
 
   it('parses agent budget overrides and rejects non-positive values', () => {
@@ -192,11 +204,14 @@ describe('loadConfig', () => {
     ).toThrow(/MEMORY_PROMOTION_AUTO_KINDS/);
   });
 
-  it('defaults realtime on with the dev-open origin posture', () => {
+  it('defaults realtime on with loopback-only origins (no wildcard)', () => {
     const config = loadConfig({ LLM_MODEL: 'm' });
     expect(config.realtimeEnabled).toBe(true);
     expect(config.realtimeHeartbeatMs).toBe(30000);
-    expect(config.realtimeAllowedOrigins).toEqual(['*']);
+    expect(config.realtimeAllowedOrigins).toEqual([
+      'http://localhost:4200',
+      'http://127.0.0.1:4200',
+    ]);
 
     const off = loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'false' });
     expect(off.realtimeEnabled).toBe(false);
@@ -210,11 +225,138 @@ describe('loadConfig', () => {
       'http://host:4200',
     ]);
 
+    // Realtime falls back to the CORS list when it has no list of its own.
+    const viaCors = loadConfig({
+      LLM_MODEL: 'm',
+      CORS_ALLOWED_ORIGINS: 'https://app.example.com',
+    });
+    expect(viaCors.realtimeAllowedOrigins).toEqual(['https://app.example.com']);
+
     expect(() =>
       loadConfig({ LLM_MODEL: 'm', REALTIME_HEARTBEAT_MS: '0' }),
     ).toThrow(/REALTIME_HEARTBEAT_MS/);
     expect(() =>
       loadConfig({ LLM_MODEL: 'm', REALTIME_ENABLED: 'maybe' }),
     ).toThrow(/Expected a boolean/);
+  });
+
+  it('binds loopback by default and refuses wildcard origins (S1)', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults.host).toBe('127.0.0.1');
+    expect(defaults.exposeAcknowledged).toBe(false);
+    expect(defaults.corsAllowedOrigins).toEqual([
+      'http://localhost:4200',
+      'http://127.0.0.1:4200',
+    ]);
+
+    const exposed = loadConfig({
+      LLM_MODEL: 'm',
+      HOST: '0.0.0.0',
+      CORS_ALLOWED_ORIGINS: 'https://app.example.com,http://localhost:4200',
+      EXPOSE_ACKNOWLEDGED: 'true',
+    });
+    expect(exposed).toMatchObject({
+      host: '0.0.0.0',
+      exposeAcknowledged: true,
+    });
+    expect(exposed.corsAllowedOrigins).toEqual([
+      'https://app.example.com',
+      'http://localhost:4200',
+    ]);
+
+    // Wildcards are refused everywhere.
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: '*' }),
+    ).toThrow(/not allowed/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', REALTIME_ALLOWED_ORIGINS: '*' }),
+    ).toThrow(/not allowed/);
+
+    // Origins must be bare (no path/trailing slash); bad input fails loud.
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: 'http://x:4200/' }),
+    ).toThrow(/bare origin/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', CORS_ALLOWED_ORIGINS: 'not-a-url' }),
+    ).toThrow(/not a valid origin/);
+  });
+
+  it('parses MCP switches, timeout, and reconnect backoff', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults).toMatchObject({
+      mcpEnabled: false,
+      mcpServersPath: '',
+      mcpTimeoutMs: 30000,
+      mcpReconnectBackoffMs: 10000,
+    });
+
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      MCP_ENABLED: 'true',
+      MCP_SERVERS_PATH: '/etc/icos/mcp.json',
+      MCP_TIMEOUT_MS: '5000',
+      MCP_RECONNECT_BACKOFF_MS: '0',
+    });
+    expect(configured).toMatchObject({
+      mcpEnabled: true,
+      mcpServersPath: '/etc/icos/mcp.json',
+      mcpTimeoutMs: 5000,
+      // 0 is a valid opt-out (auto-retry off), not an error.
+      mcpReconnectBackoffMs: 0,
+    });
+
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', MCP_RECONNECT_BACKOFF_MS: '-1' }),
+    ).toThrow(/MCP_RECONNECT_BACKOFF_MS/);
+    expect(() => loadConfig({ LLM_MODEL: 'm', MCP_TIMEOUT_MS: '0' })).toThrow(
+      /MCP_TIMEOUT_MS/,
+    );
+  });
+
+  it('parses authentication settings (S2)', () => {
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      AUTH_ENABLED: 'false',
+      AUTH_DIR_PATH: '/etc/icos/auth',
+      AUTH_SESSION_TTL_MS: '60000',
+      AUTH_COOKIE_SECURE: 'false',
+    });
+    expect(configured).toMatchObject({
+      authEnabled: false,
+      authDirPath: '/etc/icos/auth',
+      authSessionTtlMs: 60000,
+      authCookieSecure: false,
+    });
+
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', AUTH_SESSION_TTL_MS: '0' }),
+    ).toThrow(/AUTH_SESSION_TTL_MS/);
+    expect(() =>
+      loadConfig({ LLM_MODEL: 'm', AUTH_ENABLED: 'sometimes' }),
+    ).toThrow(/Expected a boolean/);
+  });
+
+  it('parses secret vault settings (S3)', () => {
+    const defaults = loadConfig({ LLM_MODEL: 'm' });
+    expect(defaults.vaultPath).toBe(
+      join(defaults.authDirPath, 'secrets.vault'),
+    );
+    expect(defaults.vaultKey).toBeUndefined();
+    expect(defaults.vaultKeyFile).toBeUndefined();
+
+    const configured = loadConfig({
+      LLM_MODEL: 'm',
+      VAULT_PATH: '/etc/icos/v.vault',
+      VAULT_KEY: 'x'.repeat(32),
+    });
+    expect(configured.vaultPath).toBe('/etc/icos/v.vault');
+    expect(configured.vaultKey).toBe('x'.repeat(32));
+
+    // The plan's ICOS_-prefixed names are accepted too.
+    const viaFile = loadConfig({
+      LLM_MODEL: 'm',
+      ICOS_VAULT_KEY_FILE: '/run/secrets/vault',
+    });
+    expect(viaFile.vaultKeyFile).toBe('/run/secrets/vault');
   });
 });

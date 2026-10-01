@@ -4,7 +4,8 @@ import type { ChatMessage, StreamSink } from './llm.client';
 
 export interface LlmToolCall {
   readonly id: string;
-  readonly name: ToolName;
+  /** Native literal or namespaced foreign (`mcp_<server>_<tool>`). */
+  readonly name: string;
   readonly version: 1;
   readonly rawArguments: string;
   readonly args: Record<string, unknown>;
@@ -78,7 +79,7 @@ export function parseJson(value: string): unknown {
 }
 
 export class ToolOffer {
-  private readonly aliases = new Map<string, { name: ToolName; version: 1 }>();
+  private readonly aliases = new Map<string, { name: string; version: 1 }>();
   readonly body: {
     tools: unknown[];
     tool_choice: 'auto' | 'none';
@@ -87,9 +88,8 @@ export class ToolOffer {
 
   constructor(request: LlmToolRequest) {
     const tools = request.tools.map((tool) => {
-      const alias = ALIASES[tool.name];
-      if (!alias || tool.version !== 1 || this.aliases.has(alias))
-        throw protocolError();
+      const alias = this.providerAlias(tool.name);
+      if (tool.version !== 1 || this.aliases.has(alias)) throw protocolError();
       this.aliases.set(alias, { name: tool.name, version: tool.version });
       return {
         type: 'function',
@@ -109,10 +109,23 @@ export class ToolOffer {
     };
   }
 
-  resolve(alias: string): { name: ToolName; version: 1 } {
+  resolve(alias: string): { name: string; version: 1 } {
     const descriptor = this.aliases.get(alias);
     if (!descriptor || this.body.tool_choice === 'none') throw protocolError();
     return descriptor;
+  }
+
+  /**
+   * Provider function name: native tools keep their stable aliases;
+   * foreign names are already provider-safe by sanitizer contract
+   * (lowercase alnum/underscore/dash) and pass through. Anything
+   * else is a protocol violation, never guessed.
+   */
+  private providerAlias(name: string): string {
+    const native = (ALIASES as Readonly<Record<string, string>>)[name];
+    if (native) return native;
+    if (/^[a-z0-9][a-z0-9_-]*$/.test(name)) return name;
+    throw protocolError();
   }
 
   private messages(messages: readonly LlmMessage[]): unknown[] {
@@ -143,9 +156,8 @@ export class ToolOffer {
         let total = 0;
         const tool_calls = message.toolCalls.map((call) => {
           const id = metadata(call.id);
-          const alias = ALIASES[call.name];
+          const alias = this.providerAlias(call.name);
           if (
-            !alias ||
             call.version !== 1 ||
             seen.has(id) ||
             typeof call.rawArguments !== 'string'

@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -8,6 +14,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { CoreModule } from '../src/core.module';
 import { CORE_CONFIG } from '../src/config';
+import { generateMasterKey } from '../src/secrets/file-vault';
 import {
   MAX_ITERATIONS,
   MAX_TOOL_STEPS,
@@ -147,6 +154,15 @@ describe('Conversation (e2e)', () => {
     sessionDbPath: string,
     memoryDbPath: string,
     legacyDbPath?: string,
+    auth: {
+      dir: string;
+      enabled: boolean;
+      vaultKey?: string;
+      vaultPath?: string;
+    } = {
+      dir: join(dir, 'auth-unused'),
+      enabled: false,
+    },
   ): Promise<INestApplication<App>> {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CoreModule],
@@ -154,6 +170,16 @@ describe('Conversation (e2e)', () => {
       .overrideProvider(CORE_CONFIG)
       .useValue({
         port: 3000,
+        host: '127.0.0.1',
+        corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+        exposeAcknowledged: false,
+        authEnabled: auth.enabled,
+        authDirPath: auth.dir,
+        authSessionTtlMs: 2592000000,
+        authCookieSecure: false,
+        ...(auth.vaultKey !== undefined ? { vaultKey: auth.vaultKey } : {}),
+        ...(auth.vaultPath !== undefined ? { vaultPath: auth.vaultPath } : {}),
+        providersPath: join(auth.dir, 'providers.json'),
         provider: 'ollama',
         llmBaseUrl: 'http://localhost:11434/v1',
         llmModel: 'test-model',
@@ -178,6 +204,13 @@ describe('Conversation (e2e)', () => {
         memoryRecallExcludeOrigins: [],
         memoryRecallMaxBandTokens: 800,
         memoryRecallTimeoutMs: 5000,
+        memoryMaintenanceEnabled: true,
+        memoryMaintenanceIntervalMs: 3600000,
+        memoryAgentDampening: 0.5,
+        mcpEnabled: false,
+        mcpServersPath: join(auth.dir, 'mcp-servers.json'),
+        mcpTimeoutMs: 30000,
+        mcpReconnectBackoffMs: 60000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
@@ -191,7 +224,7 @@ describe('Conversation (e2e)', () => {
         agentMaxTurnDurationMs: MAX_TURN_DURATION_MS,
         realtimeEnabled: false,
         realtimeHeartbeatMs: 30000,
-        realtimeAllowedOrigins: ['*'],
+        realtimeAllowedOrigins: ['http://localhost:4200'],
       })
       .overrideProvider(LlmClient)
       .useValue({ chatWithTools, chatStreamWithTools })
@@ -681,10 +714,16 @@ describe('Conversation (e2e)', () => {
     const items = (
       parked.body as {
         items: {
+          id: string;
           status: string;
           trigger: string;
           contestCount: number;
-          options: { object: string; origin: string; confidence: number }[];
+          options: {
+            object: string;
+            origin: string;
+            confidence: number;
+            claimId: string;
+          }[];
           suggestedQuestion: string;
         }[];
       }
@@ -713,6 +752,170 @@ describe('Conversation (e2e)', () => {
     expect((ledger.body as { candidates: unknown[] }).candidates).toHaveLength(
       2,
     );
+
+    // Clarification completion: close with a recorded outcome, history
+    // on both claims, then terminal (no re-resolve).
+    const itemId = items[0]?.id ?? '';
+    const resolved = await request(http())
+      .post(`/core/prospective/${itemId}/resolve`)
+      .send({ outcome: 'confirmed', note: 'user picked rival' })
+      .expect(200);
+    expect(
+      (resolved.body as { item: { status: string; resolution: string } }).item,
+    ).toMatchObject({ status: 'dismissed', resolution: 'confirmed' });
+    for (const option of items[0]?.options ?? []) {
+      const detail = await request(http())
+        .get(`/core/claims/${option.claimId}`)
+        .expect(200);
+      expect(detail.body as object).toMatchObject({
+        maintenance: [
+          {
+            transition: 'revise',
+            detail: { prospective: itemId, outcome: 'confirmed' },
+          },
+        ],
+      });
+    }
+    await request(http())
+      .post(`/core/prospective/${itemId}/resolve`)
+      .send({ outcome: 'dismissed' })
+      .expect(400);
+    await request(http())
+      .post('/core/prospective/00000000-0000-0000-0000-000000000000/resolve')
+      .send({ outcome: 'dismissed' })
+      .expect(404);
+  });
+
+  it('runs belief maintenance explicitly with a durable summary', async () => {
+    const empty = await request(http())
+      .post('/core/maintenance/run')
+      .expect(200);
+    expect(
+      (empty.body as { summary: Record<string, number> }).summary,
+    ).toMatchObject({
+      compounded: 0,
+      linked: 0,
+      gistProposed: 0,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(
+      (empty.body as { summary: { durationMs: number } }).summary.durationMs,
+    ).toEqual(expect.any(Number));
+
+    // One promoted belief: a pass touches it (skip — single
+    // observation) and its detail carries both histories.
+    const first = await request(http())
+      .post('/core/conversation')
+      .send({ message: 'I prefer oak' })
+      .expect(200);
+    const sessionId = (first.body as ConversationResponse).sessionId;
+    let pending: { approvalId: string; state: string }[] = [];
+    for (let i = 0; i < 100 && pending.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const res = await request(http())
+        .get('/core/promotions/pending')
+        .expect(200);
+      pending = (res.body as { pending: typeof pending }).pending.filter(
+        (row) => row.state === 'proposed',
+      );
+    }
+    await request(http())
+      .post(`/core/approvals/${pending[0].approvalId}/approve`)
+      .send({ sessionId })
+      .expect(200);
+    await request(http()).post('/core/promotions/run').expect(200);
+    const swept = await request(http())
+      .post('/core/maintenance/run')
+      .expect(200);
+    expect(
+      (swept.body as { summary: Record<string, number> }).summary,
+    ).toMatchObject({ compounded: 0, classified: 1, skipped: 0 });
+
+    const listed = await request(http()).get('/core/claims').expect(200);
+    const claims = (listed.body as { claims: { id: string }[] }).claims;
+    expect(claims).toHaveLength(1);
+    const detail = await request(http())
+      .get(`/core/claims/${claims[0]?.id}`)
+      .expect(200);
+    expect(detail.body as object).toMatchObject({
+      history: [{ operation: 'NEW', state: 'committed' }],
+      maintenance: [{ transition: 'classify' }],
+    });
+
+    // A recall turn observes access; the next pass saliences it.
+    await request(http())
+      .post('/core/conversation')
+      .send({ message: 'tell me about oak', sessionId })
+      .expect(200);
+    await request(http()).post('/core/maintenance/run').expect(200);
+    const accessed = await request(http())
+      .get(`/core/claims/${claims[0]?.id}`)
+      .expect(200);
+    expect(
+      (accessed.body as { claim: { activation: number | null } }).claim
+        .activation,
+    ).toBeCloseTo(0.3, 6);
+
+    // Fresh confident beliefs refuse retirement; force retires with
+    // history; the row stays queryable; re-retire is a no-op.
+    const claimId = claims[0]?.id ?? '';
+    await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({})
+      .expect(400);
+    const retired = await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({ force: true })
+      .expect(200);
+    expect((retired.body as { claim: { status: string } }).claim.status).toBe(
+      'retired',
+    );
+    const after = await request(http())
+      .get(`/core/claims/${claimId}`)
+      .expect(200);
+    expect(after.body as object).toMatchObject({
+      claim: { status: 'retired' },
+      maintenance: [
+        { transition: 'classify' },
+        { transition: 'activate' },
+        { transition: 'retire' },
+      ],
+    });
+    await request(http())
+      .post(`/core/claims/${claimId}/retire`)
+      .send({ force: true })
+      .expect(200);
+    await request(http())
+      .post('/core/claims/00000000-0000-0000-0000-000000000000/retire')
+      .send({})
+      .expect(404);
+
+    // Timeline axis: windowed recall with conversation scoping.
+    const wide = await request(http())
+      .get('/core/claims/timeline')
+      .query({ from: '2020-01-01T00:00:00.000Z' })
+      .expect(200);
+    expect(
+      (wide.body as { claims: { id: string }[] }).claims.map((c) => c.id),
+    ).toEqual([claimId]);
+    const future = await request(http())
+      .get('/core/claims/timeline')
+      .query({ from: '2030-01-01T00:00:00.000Z' })
+      .expect(200);
+    expect((future.body as { claims: unknown[] }).claims).toHaveLength(0);
+    const scoped = await request(http())
+      .get('/core/claims/timeline')
+      .query({ sessionId })
+      .expect(200);
+    expect(
+      (scoped.body as { claims: { id: string }[] }).claims.map((c) => c.id),
+    ).toEqual([claimId]);
+    const other = await request(http())
+      .get('/core/claims/timeline')
+      .query({ sessionId: '00000000-0000-0000-0000-000000000000' })
+      .expect(200);
+    expect((other.body as { claims: unknown[] }).claims).toHaveLength(0);
   });
 
   it('traces turn-time recall per session for inspection', async () => {
@@ -1989,6 +2192,391 @@ describe('Conversation (e2e)', () => {
         sessions.body as { sessions: { sessionId: string; title?: string }[] }
       ).sessions.find((s) => s.sessionId === sessionId);
       expect(renamed?.title).toBe('Ward map');
+    });
+  });
+
+  describe('authentication (S2)', () => {
+    let authApp: INestApplication<App>;
+    let authDir: string;
+    let token: string;
+
+    const agent = () => request(authApp.getHttpServer());
+
+    beforeAll(async () => {
+      authDir = mkdtempSync(join(tmpdir(), 'icos-e2e-auth-'));
+      writeFileSync(
+        join(authDir, 'providers.json'),
+        JSON.stringify({
+          active: { conversation: 'openrouter', memory: 'local' },
+          providers: [
+            {
+              id: 'openrouter',
+              baseUrl: 'https://openrouter.ai/api/v1',
+              model: 'deepseek/x',
+              apiKeyRef: 'secret:provkey',
+            },
+            {
+              id: 'local',
+              baseUrl: 'http://localhost:11434/v1',
+              model: 'gemma',
+            },
+          ],
+        }),
+      );
+      authApp = await createApp(
+        join(authDir, 'sessions.sqlite'),
+        join(authDir, 'memories.sqlite'),
+        undefined,
+        {
+          dir: authDir,
+          enabled: true,
+          vaultKey: generateMasterKey(),
+          vaultPath: join(authDir, 'secrets.vault'),
+        },
+      );
+      token = readFileSync(join(authDir, 'token'), 'utf8').trim();
+    });
+
+    afterAll(async () => {
+      await authApp.close();
+      rmSync(authDir, { recursive: true, force: true });
+    });
+
+    async function loginCookies(): Promise<{ cookie: string; csrf: string }> {
+      const login = await agent()
+        .post('/core/auth/login')
+        .send({ token })
+        .expect(200);
+      const cookies =
+        (login.headers['set-cookie'] as unknown as string[]) ?? [];
+      const cookie = cookies.map((c) => c.split(';')[0]).join('; ');
+      const csrf = /icos_csrf=([^;]+)/.exec(cookie)?.[1] ?? '';
+      return { cookie, csrf };
+    }
+
+    it('keeps liveness public and locks everything else', async () => {
+      await agent().get('/core/health/live').expect(200);
+      await agent().get('/core/health').expect(401);
+      await agent().get('/core/sessions').expect(401);
+      await agent().get('/core/mcp/servers').expect(401);
+    });
+
+    it('rejects a wrong token without leaking why', async () => {
+      await agent()
+        .post('/core/auth/login')
+        .send({ token: 'nope' })
+        .expect(401);
+      await agent().post('/core/auth/login').send({}).expect(400);
+    });
+
+    it('logs in, verifies the session, and gates mutations on CSRF', async () => {
+      const login = await agent()
+        .post('/core/auth/login')
+        .send({ token })
+        .expect(200);
+      const cookies =
+        (login.headers['set-cookie'] as unknown as string[]) ?? [];
+      const cookieHeader = cookies.map((c) => c.split(';')[0]).join('; ');
+      expect(cookieHeader).toContain('icos_session=');
+      const csrf = /icos_csrf=([^;]+)/.exec(cookieHeader)?.[1] ?? '';
+      expect(csrf).not.toBe('');
+
+      await agent()
+        .get('/core/auth/session')
+        .set('Cookie', cookieHeader)
+        .expect(200, { authenticated: true, role: 'admin' });
+      await agent()
+        .get('/core/sessions')
+        .set('Cookie', cookieHeader)
+        .expect(200);
+
+      // Mutation without the CSRF header is refused even with a session.
+      await agent()
+        .post('/core/mcp/reload')
+        .set('Cookie', cookieHeader)
+        .expect(403);
+      // With the double-submit header it clears the guard.
+      await agent()
+        .post('/core/mcp/reload')
+        .set('Cookie', cookieHeader)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+    });
+
+    it('clears both cookies on logout', async () => {
+      const logout = await agent().post('/core/auth/logout').expect(200, {
+        authenticated: false,
+      });
+      const setCookie = String(logout.headers['set-cookie']);
+      expect(setCookie).toContain('icos_session=;');
+      expect(setCookie).toContain('icos_csrf=;');
+      expect(setCookie).toContain('Max-Age=0');
+    });
+
+    it('stores secrets write-only and never returns a value', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const put = await agent()
+        .put('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 's3cret-value' })
+        .expect(200);
+      expect(String(put.headers['cache-control'])).toContain('no-store');
+      expect(JSON.stringify(put.body)).not.toContain('s3cret-value');
+
+      const list = await agent()
+        .get('/core/secrets')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(list.body).toMatchObject({ writable: true });
+      expect(JSON.stringify(list.body)).not.toContain('s3cret-value');
+
+      const one = await agent()
+        .get('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(one.body).toMatchObject({ name: 'bytestash', present: true });
+      expect(JSON.stringify(one.body)).not.toContain('s3cret-value');
+
+      await agent()
+        .delete('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      await agent()
+        .get('/core/secrets/bytestash')
+        .set('Cookie', cookie)
+        .expect(404);
+    });
+
+    it('requires the CSRF header and valid names', async () => {
+      const { cookie, csrf } = await loginCookies();
+      await agent()
+        .put('/core/secrets/x')
+        .set('Cookie', cookie)
+        .send({ value: 'v' })
+        .expect(403);
+      await agent()
+        .put('/core/secrets/-bad')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 'v' })
+        .expect(400);
+      await agent()
+        .put('/core/secrets/x')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: '' })
+        .expect(400);
+      await agent()
+        .delete('/core/secrets/nope')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(404);
+    });
+
+    it('lists providers (no keys), stores the referenced key, switches active', async () => {
+      const { cookie, csrf } = await loginCookies();
+
+      const before = await agent()
+        .get('/core/providers')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(before.body).toMatchObject({
+        source: 'catalog',
+        active: { conversation: 'openrouter', memory: 'local' },
+      });
+      const beforeEntries = (
+        before.body as { providers: { id: string; hasKey: boolean }[] }
+      ).providers;
+      expect(beforeEntries.find((p) => p.id === 'openrouter')?.hasKey).toBe(
+        false,
+      );
+
+      // Store the referenced key: presence flips, on demand, no restart.
+      await agent()
+        .put('/core/secrets/provkey')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ value: 'sk-provider-secret' })
+        .expect(200);
+      const after = await agent()
+        .get('/core/providers')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(JSON.stringify(after.body)).not.toContain('sk-provider-secret');
+      const afterEntries = (
+        after.body as { providers: { id: string; hasKey: boolean }[] }
+      ).providers;
+      expect(afterEntries.find((p) => p.id === 'openrouter')?.hasKey).toBe(
+        true,
+      );
+
+      const switched = await agent()
+        .post('/core/providers/active')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ role: 'conversation', id: 'local' })
+        .expect(200);
+      expect(
+        (switched.body as { active: { conversation: string } }).active
+          .conversation,
+      ).toBe('local');
+
+      await agent()
+        .post('/core/providers/reload')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      await agent()
+        .post('/core/providers/active')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .send({ role: 'conversation', id: 'ghost' })
+        .expect(400);
+    });
+
+    it('tests a provider connection and 404s an unknown one', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const tested = await agent()
+        .post('/core/providers/local/test')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(200);
+      expect(typeof (tested.body as { ok: boolean }).ok).toBe('boolean');
+      await agent()
+        .post('/core/providers/ghost/test')
+        .set('Cookie', cookie)
+        .set('x-icos-csrf', csrf)
+        .expect(404);
+    });
+
+    it('manages the MCP and provider catalogs (S5)', async () => {
+      const { cookie, csrf } = await loginCookies();
+      const put = (path: string, body: object) =>
+        agent()
+          .put(path)
+          .set('Cookie', cookie)
+          .set('x-icos-csrf', csrf)
+          .send(body);
+      const del = (path: string) =>
+        agent().delete(path).set('Cookie', cookie).set('x-icos-csrf', csrf);
+
+      // MCP catalog: add, read, remove.
+      await put('/core/mcp/servers/newsrv', {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'thing'],
+        env: { KEY: 'secret:files' },
+      }).expect(200);
+      const mcpCatalog = await agent()
+        .get('/core/mcp/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (mcpCatalog.body as { servers: { name: string }[] }).servers.map(
+          (s) => s.name,
+        ),
+      ).toContain('newsrv');
+      await put('/core/mcp/servers/bad', { transport: 'stdio' }).expect(400);
+      await del('/core/mcp/servers/newsrv').expect(200);
+      const after = await agent()
+        .get('/core/mcp/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (after.body as { servers: { name: string }[] }).servers.map(
+          (s) => s.name,
+        ),
+      ).not.toContain('newsrv');
+
+      // Provider catalog: add (referenced key), read, remove.
+      const added = await put('/core/providers/third', {
+        baseUrl: 'https://third.example/v1',
+        model: 'third-model',
+        apiKeyRef: 'secret:third',
+      }).expect(200);
+      expect(
+        (added.body as { providers: { id: string }[] }).providers.map(
+          (p) => p.id,
+        ),
+      ).toContain('third');
+      await put('/core/providers/literal', {
+        baseUrl: 'https://x/v1',
+        model: 'm',
+        apiKeyRef: 'sk-plaintext',
+      }).expect(400);
+      const providerCatalog = await agent()
+        .get('/core/providers/catalog')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        (providerCatalog.body as { providers: { id: string }[] }).providers.map(
+          (p) => p.id,
+        ),
+      ).toContain('third');
+      await del('/core/providers/third').expect(200);
+    });
+
+    it('reports the exposure posture (S5)', async () => {
+      const { cookie } = await loginCookies();
+      const status = await agent()
+        .get('/core/security/status')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(status.body).toMatchObject({
+        loopback: true,
+        authEnabled: true,
+        exposeAcknowledged: false,
+      });
+    });
+
+    describe('with the vault disabled (no master key)', () => {
+      let noVaultApp: INestApplication<App>;
+      let noVaultDir: string;
+
+      beforeAll(async () => {
+        noVaultDir = mkdtempSync(join(tmpdir(), 'icos-e2e-novault-'));
+        noVaultApp = await createApp(
+          join(noVaultDir, 'sessions.sqlite'),
+          join(noVaultDir, 'memories.sqlite'),
+          undefined,
+          { dir: noVaultDir, enabled: true },
+        );
+      });
+
+      afterAll(async () => {
+        await noVaultApp.close();
+        rmSync(noVaultDir, { recursive: true, force: true });
+      });
+
+      it('lists as not writable and refuses writes with 409', async () => {
+        const noVaultToken = readFileSync(
+          join(noVaultDir, 'token'),
+          'utf8',
+        ).trim();
+        const login = await request(noVaultApp.getHttpServer())
+          .post('/core/auth/login')
+          .send({ token: noVaultToken })
+          .expect(200);
+        const cookies =
+          (login.headers['set-cookie'] as unknown as string[]) ?? [];
+        const cookie = cookies.map((c) => c.split(';')[0]).join('; ');
+        const csrf = /icos_csrf=([^;]+)/.exec(cookie)?.[1] ?? '';
+
+        const list = await request(noVaultApp.getHttpServer())
+          .get('/core/secrets')
+          .set('Cookie', cookie)
+          .expect(200);
+        expect(list.body).toMatchObject({ writable: false, secrets: [] });
+
+        await request(noVaultApp.getHttpServer())
+          .put('/core/secrets/x')
+          .set('Cookie', cookie)
+          .set('x-icos-csrf', csrf)
+          .send({ value: 'v' })
+          .expect(409);
+      });
     });
   });
 });

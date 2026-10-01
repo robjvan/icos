@@ -4,6 +4,10 @@ import {
   NotFoundException,
   Param,
   Query,
+  Post,
+  Body,
+  BadRequestException,
+  HttpCode,
 } from '@nestjs/common';
 import type { Claim } from '../memory/claim';
 import {
@@ -11,7 +15,12 @@ import {
   ClaimIndexUnavailableError,
   type SimilarClaim,
 } from '../memory/claim-index';
+import { ClaimHistoryRepository } from '../memory/claim-history.repository';
 import { ClaimRepository } from '../memory/claim.repository';
+import {
+  MaintenanceService,
+  RetirementIneligibleError,
+} from '../memory/maintenance.service';
 import type { MemoryCandidate } from '../memory/memory-candidate';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
@@ -19,8 +28,12 @@ import {
   ClaimDetailResponseDto,
   ListClaimsQueryDto,
   ListClaimsResponseDto,
+  RetireClaimDto,
+  RetireClaimResponseDto,
   SearchClaimsQueryDto,
   SearchClaimsResponseDto,
+  TimelineClaimsQueryDto,
+  TimelineClaimsResponseDto,
 } from './dto/claims.dto';
 
 /**
@@ -35,6 +48,8 @@ export class ClaimsController {
     private readonly candidates: MemoryCandidateRepository,
     private readonly journal: PromotionJournalRepository,
     private readonly index: ClaimIndex,
+    private readonly history: ClaimHistoryRepository,
+    private readonly maintenance: MaintenanceService,
   ) {}
 
   @Get()
@@ -51,7 +66,7 @@ export class ClaimsController {
     };
   }
 
-  // Registered before ':id' — otherwise 'search' parses as a claim id.
+  // Registered before ':id' — otherwise 'search'/'timeline' parse as ids.
   @Get('search')
   async search(
     @Query() query: SearchClaimsQueryDto,
@@ -73,6 +88,28 @@ export class ClaimsController {
     return { results, degraded: false };
   }
 
+  /**
+   * Timeline axis (M12e): recall along *when* — creation window,
+   * optionally scoped to one conversation (resolved through
+   * evidence references; claims store no session of their own).
+   * Newest first. No new write paths.
+   */
+  @Get('timeline')
+  async timeline(
+    @Query() query: TimelineClaimsQueryDto,
+  ): Promise<TimelineClaimsResponseDto> {
+    return {
+      claims: await this.claims.listClaimsByTime({
+        ...(query.from !== undefined ? { from: query.from } : {}),
+        ...(query.to !== undefined ? { to: query.to } : {}),
+        ...(query.sessionId !== undefined
+          ? { sessionId: query.sessionId }
+          : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      }),
+    };
+  }
+
   @Get(':id')
   async get(@Param('id') id: string): Promise<ClaimDetailResponseDto> {
     const claim = await this.claims.getClaim(id);
@@ -85,6 +122,34 @@ export class ClaimsController {
       claim,
       evidence,
       history: await this.journal.listByClaimId(id),
+      maintenance: await this.history.listByClaimId(id),
     };
+  }
+
+  /**
+   * Deliberate retirement (M12b): explicit status transition with
+   * history — the `retired` writer. Missing rows 404; ineligible
+   * rows 400 unless forced (explicit "forget this", caller = HITL
+   * authority, bypass recorded). Retirement is never a delete:
+   * the row stays queryable with full history.
+   */
+  @Post(':id/retire')
+  @HttpCode(200)
+  async retire(
+    @Param('id') id: string,
+    @Body() body: RetireClaimDto,
+  ): Promise<RetireClaimResponseDto> {
+    try {
+      const claim = await this.maintenance.retireClaim(id, {
+        force: body.force,
+      });
+      if (!claim) throw new NotFoundException(`Unknown claim "${id}"`);
+      return { claim };
+    } catch (err) {
+      if (err instanceof RetirementIneligibleError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 }

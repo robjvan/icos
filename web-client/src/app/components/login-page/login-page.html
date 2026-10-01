@@ -1,0 +1,40 @@
+<main class="min-h-full flex items-center justify-center bg-(--bg-primary) text-(--text-primary)">
+  <form
+    class="w-full max-w-md flex flex-col gap-4 p-6 rounded-lg border border-(--border-default) bg-(--bg-secondary)"
+    [formGroup]="form"
+    (ngSubmit)="submit()"
+  >
+    <h1 class="text-lg font-semibold">Sign in to ICOS</h1>
+    <p class="text-sm text-(--text-secondary)">
+      Paste the bootstrap token from your server's <code>AUTH_DIR_PATH/token</code> file.
+    </p>
+
+    <label class="flex flex-col gap-1 text-sm" for="token">
+      <span>Access token</span>
+      <input
+        id="token"
+        type="password"
+        autocomplete="current-password"
+        formControlName="token"
+        class="px-3 py-2 rounded border border-(--border-default) bg-(--bg-primary)"
+        [attr.aria-invalid]="form.controls.token.invalid && form.controls.token.touched"
+        aria-describedby="token-help"
+      />
+    </label>
+    <p id="token-help" class="text-xs text-(--text-secondary)">
+      The token is only ever sent to your own server and is never stored by this page.
+    </p>
+
+    @if (error()) {
+      <p role="alert" class="text-sm text-(--accent-red)">{{ error() }}</p>
+    }
+
+    <button
+      type="submit"
+      class="px-4 py-2 rounded bg-(--accent-blue) text-white disabled:opacity-50"
+      [disabled]="submitting()"
+    >
+      {{ submitting() ? 'Signing in…' : 'Sign in' }}
+    </button>
+  </form>
+</main>

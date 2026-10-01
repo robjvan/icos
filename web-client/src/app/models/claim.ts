@@ -37,6 +37,11 @@ export interface Claim {
   /** Most recent supporting evidence reference (a candidate id). */
   readonly lastSurfacedAt: string;
   readonly origin: ClaimOrigin;
+  /**
+   * M10e negation marker (mirrors core). True when the belief denies
+   * its own triple. Affirmation and negation coexist as rival rows.
+   */
+  readonly negated: boolean;
   readonly evidence: readonly ClaimEvidence[];
   readonly entities: readonly string[];
   readonly promotion: string;
@@ -111,4 +116,21 @@ export function categoryFromKind(kind: MemoryCandidateKind): ClaimCategory {
     default:
       return 'fact';
   }
+}
+
+/**
+ * Render a claim's object with its negation marker: affirmed rows
+ * read `"X"`, negated rows `not "X"`. Affirmed vs negated rivals
+ * share triple text — without the marker they render identically,
+ * which is the Phase 5 item-4 bug. Pure function, one tested place.
+ */
+export function claimObjectLabel(claim: Pick<Claim, 'object' | 'negated'>): string {
+  return claim.negated ? `not "${claim.object}"` : `"${claim.object}"`;
+}
+
+/** Full belief statement with the negation marker included. */
+export function claimStatement(
+  claim: Pick<Claim, 'subject' | 'predicate' | 'object' | 'negated'>,
+): string {
+  return `${claim.subject} ${claim.predicate} ${claimObjectLabel(claim)}`;
 }

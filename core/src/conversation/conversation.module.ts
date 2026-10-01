@@ -20,6 +20,7 @@ import { LlmMemoryCandidateExtractor } from '../memory/llm-memory-candidate-extr
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
 import { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { AssociativeRecall } from '../memory/associative-recall';
+import { ClaimHistoryRepository } from '../memory/claim-history.repository';
 import { ClaimIndex } from '../memory/claim-index';
 import { ClaimRepository } from '../memory/claim.repository';
 import { KbBridge, NullKbBridge } from '../memory/kb-bridge';
@@ -27,13 +28,23 @@ import { MemoryDatabaseService } from '../memory/memory-database.service';
 import { PromotionJournalRepository } from '../memory/promotion-journal.repository';
 import { PromotionService } from '../memory/promotion.service';
 import { ProspectiveItemRepository } from '../memory/prospective-item.repository';
+import { MaintenanceService } from '../memory/maintenance.service';
+import { McpClientFactory } from '../mcp/mcp-client';
+import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { McpController } from '../mcp/mcp.controller';
+import { McpToolBridge } from '../mcp/mcp-tool-bridge.service';
+import { SdkMcpClientFactory } from '../mcp/sdk-mcp-client';
+import { FOREIGN_TOOL_SOURCE } from '../tools/tool-registry';
 import { RankService } from '../memory/rank.service';
+import { SourceReliabilityRepository } from '../memory/source-reliability.repository';
 import { RecallService } from '../memory/recall.service';
 import { RecallTraceStore } from '../memory/recall-trace.store';
 import { RuvectorClaimIndex } from '../memory/ruvector-claim-index';
 import { SqliteClaimRepository } from '../memory/sqlite-claim.repository';
+import { SqliteClaimHistoryRepository } from '../memory/sqlite-claim-history.repository';
 import { SqliteLexicalClaimIndex } from '../memory/sqlite-lexical-claim-index';
 import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-item.repository';
+import { SqliteSourceReliabilityRepository } from '../memory/sqlite-source-reliability.repository';
 import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
 import { SessionDatabaseService } from '../session/session-database.service';
@@ -47,6 +58,7 @@ import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { CandidatesController } from './candidates.controller';
 import { ClaimsController } from './claims.controller';
+import { MaintenanceController } from './maintenance.controller';
 import { ProspectiveController } from './prospective.controller';
 import { RecallController } from './recall.controller';
 import { PromotionsController } from './promotions.controller';
@@ -66,6 +78,8 @@ const toolExecutionServiceProvider = {
     registry: ToolRegistry,
     llm: LlmClient,
     approvals: ApprovalRepository,
+    approvalService: ApprovalService,
+    mcp: McpConnectionService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -75,6 +89,8 @@ const toolExecutionServiceProvider = {
       approvals,
       {},
       llm,
+      approvalService,
+      mcp,
     ),
   inject: [
     ToolExecutionRepository,
@@ -82,6 +98,8 @@ const toolExecutionServiceProvider = {
     ToolRegistry,
     LlmClient,
     ApprovalRepository,
+    ApprovalService,
+    McpConnectionService,
   ],
 };
 
@@ -92,6 +110,7 @@ const toolExecutionServiceProvider = {
     SessionsController,
     CandidatesController,
     ClaimsController,
+    MaintenanceController,
     ProspectiveController,
     RecallController,
     PromotionsController,
@@ -99,6 +118,7 @@ const toolExecutionServiceProvider = {
     ClarificationsController,
     SkillsController,
     HealthController,
+    McpController,
   ],
   providers: [
     coreConfigProvider,
@@ -121,8 +141,16 @@ const toolExecutionServiceProvider = {
       useClass: SqlitePromotionJournalRepository,
     },
     {
+      provide: ClaimHistoryRepository,
+      useClass: SqliteClaimHistoryRepository,
+    },
+    {
       provide: ProspectiveItemRepository,
       useClass: SqliteProspectiveItemRepository,
+    },
+    {
+      provide: SourceReliabilityRepository,
+      useClass: SqliteSourceReliabilityRepository,
     },
     {
       provide: ClaimIndex,
@@ -137,6 +165,17 @@ const toolExecutionServiceProvider = {
     RecallService,
     RankService,
     RecallTraceStore,
+    MaintenanceService,
+    {
+      provide: McpClientFactory,
+      useClass: SdkMcpClientFactory,
+    },
+    McpConnectionService,
+    McpToolBridge,
+    {
+      provide: FOREIGN_TOOL_SOURCE,
+      useExisting: McpToolBridge,
+    },
     PromotionService,
     {
       provide: MemoryCandidateExtractor,

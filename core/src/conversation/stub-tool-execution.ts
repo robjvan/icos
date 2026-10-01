@@ -1,5 +1,6 @@
 import type { StreamSink } from '../llm/llm.client';
 import type { LlmResult, LlmToolRequest } from '../llm/llm.protocol';
+import type { ForeignToolName } from '../tools/tool-registry';
 import type {
   AgentRun,
   AgentRunRepository,
@@ -137,6 +138,78 @@ export function pendingRenameRecord(
     final: { state: 'not_required' },
     executionToken: null,
     ownership: 'none',
+  };
+}
+
+/** Foreign (MCP) doubles for the M13c loop matrix. */
+
+export function foreignProposal(
+  args: Record<string, unknown> = { path: '/x' },
+  name: ForeignToolName = 'mcp_files_read',
+): Extract<LlmResult, { kind: 'tool_calls' }> {
+  const rawArguments = JSON.stringify(args);
+  return {
+    kind: 'tool_calls',
+    content: null,
+    model: 'm',
+    toolCalls: [
+      { id: 'model-call-foreign', name, version: 1, rawArguments, args },
+    ],
+  };
+}
+
+export function pendingForeignRecord(
+  input: ToolExecutionInput,
+  options: {
+    name?: ForeignToolName;
+    server?: string;
+    tool?: string;
+    args?: Record<string, unknown>;
+  } = {},
+): ToolExecutionRecord {
+  const name = options.name ?? 'mcp_files_read';
+  const server = options.server ?? 'files';
+  const tool = options.tool ?? 'read';
+  return {
+    requestId: input.requestId,
+    sessionId: input.sessionId,
+    input,
+    invocationId: 'inv-foreign-1',
+    approvalId: 'appr-foreign-1',
+    state: 'awaiting_approval',
+    validation: {
+      ok: true,
+      request: {
+        name,
+        version: 1,
+        sessionId: input.sessionId,
+        args: options.args ?? { path: '/x' },
+        foreign: { server, tool },
+      },
+    },
+    execution: null,
+    final: { state: 'not_required' },
+    executionToken: null,
+    ownership: 'none',
+  };
+}
+
+export function foreignSuccessRecord(
+  input: ToolExecutionInput,
+  text = 'file says hi',
+): ToolExecutionRecord {
+  const pending = pendingForeignRecord(input);
+  return {
+    ...pending,
+    state: 'succeeded',
+    execution: {
+      ok: true,
+      mcp: { server: 'files', tool: 'read', text },
+    },
+    final: {
+      state: 'succeeded',
+      result: { kind: 'text', content: text, model: 'm' },
+    },
   };
 }
 

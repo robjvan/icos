@@ -32,7 +32,7 @@
       @for (result of results(); track result.id) {
         <li>
           <button type="button" (click)="openClaim(result.id)">
-            <span class="statement">{{ result.subject }} {{ result.predicate }} {{ result.object }}</span>
+            <span class="statement">{{ result.subject }} {{ result.predicate }} @if (result.negated) {<span>not </span>}"{{ result.object }}"</span>
             <span class="mono score">{{ result.score }}</span>
           </button>
         </li>
@@ -81,9 +81,30 @@
             <app-status-badge [state]="claim.status" [label]="claim.status" />
             <span class="category mono">{{ claim.category }} · {{ claim.origin }}</span>
           </span>
-          <span class="statement">{{ claim.subject }} {{ claim.predicate }} {{ claim.object }}</span>
+          <span class="statement">{{ claim.subject }} {{ claim.predicate }} @if (claim.negated) {<span>not </span>}"{{ claim.object }}"</span>
           <span class="meta mono">conf {{ claim.confidence }} · obs {{ claim.timesObserved }}</span>
         </button>
+        @if (pairViews().get(claim.id); as pair) {
+          <p class="pair">
+            <span class="pair-label">
+              @if (pair.view.direction === 'contradicted-by') {
+                contradicted by
+              } @else {
+                contradicts
+              }
+            </span>
+            @if (pair.counterpart !== null) {
+              <button type="button" class="link" (click)="openClaim(pair.counterpart.id)">
+                {{ pair.counterpart.subject }} {{ pair.counterpart.predicate }} @if (pair.counterpart.negated) {<span>not </span>}"{{ pair.counterpart.object }}"
+              </button>
+            } @else {
+              <span class="mono">claim {{ pair.view.counterpartId.slice(0, 8) }} (not in this list)</span>
+            }
+            @if (pair.question !== null) {
+              <span class="question-cue">· open question</span>
+            }
+          </p>
+        }
       </li>
     } @empty {
       @if (error() === null) {
@@ -95,11 +116,47 @@
   @if (selected() !== null) {
     <article class="claim-detail" [attr.aria-label]="'Claim ' + selected()!.id">
       <div class="claim-detail-header">
-        <h3>{{ selected()!.subject }} {{ selected()!.predicate }} {{ selected()!.object }}</h3>
+        <h3>{{ selected()!.subject }} {{ selected()!.predicate }} @if (selected()!.negated) {<span>not </span>}"{{ selected()!.object }}"</h3>
         <span class="grow"></span>
         <button type="button" (click)="closeClaim()">Close</button>
       </div>
       <p><app-status-badge [state]="selected()!.status" [label]="selected()!.status" /></p>
+      @if (selectedPair() !== null) {
+        <section class="pair-block" aria-label="Contradiction">
+          <h4>Contradiction</h4>
+          <p>
+            @if (selectedPair()!.view.direction === 'contradicted-by') {
+              Contradicted by
+            } @else {
+              Contradicts
+            }
+            @if (selectedPair()!.counterpart !== null) {
+              <button
+                type="button"
+                class="link"
+                (click)="openClaim(selectedPair()!.counterpart!.id)"
+              >
+                {{ selectedPair()!.counterpart!.subject }}
+                {{ selectedPair()!.counterpart!.predicate }}
+                @if (selectedPair()!.counterpart!.negated) {<span>not </span>}"{{
+                  selectedPair()!.counterpart!.object
+                }}"
+              </button>
+            } @else {
+              <span class="mono"
+                >claim {{ selectedPair()!.view.counterpartId.slice(0, 8) }} (not in
+                this list)</span
+              >
+            }
+          </p>
+          @if (selectedPair()!.question !== null) {
+            <p class="question">
+              <span class="question-cue">Open question:</span>
+              {{ selectedPair()!.question!.suggestedQuestion }}
+            </p>
+          }
+        </section>
+      }
       <dl class="provenance">
         <div>
           <dt>first asserted (candidate)</dt>

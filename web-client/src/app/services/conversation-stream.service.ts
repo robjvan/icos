@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import { mutationHeaders } from '../auth/credentials';
 import { parseStreamBlock, splitStreamBlocks } from '../models/stream-event';
 import type { StreamEvent } from '../models/stream-event';
 import { CoreApiService } from './core-api.service';
@@ -56,8 +57,9 @@ export class ConversationStreamService {
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: mutationHeaders(),
         body: JSON.stringify(body),
+        credentials: 'include',
         ...(signal ? { signal } : {}),
       });
     } catch (error) {

@@ -48,7 +48,10 @@ import { SessionStore } from './session.store';
 import {
   closedTextRecord,
   executingRecord,
+  foreignProposal,
+  foreignSuccessRecord,
   invalidRecord,
+  pendingForeignRecord,
   pendingRenameRecord,
   renameProposal,
   searchProposal,
@@ -62,6 +65,13 @@ import {
 function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
+    authEnabled: false,
+    authDirPath: '/tmp/icos-test-auth-unused',
+    authSessionTtlMs: 2592000000,
+    authCookieSecure: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'test-model',
@@ -83,6 +93,13 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
+    mcpEnabled: false,
+    mcpServersPath: '',
+    mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
@@ -171,6 +188,7 @@ function setup(
   ) => Promise<
     import('../tools/tool-execution.repository').ToolExecutionRecord
   >,
+  registry: ToolRegistry = new ToolRegistry(),
 ) {
   const repository = new FakeSessionRepository();
   const store = new SessionStore(repository, config);
@@ -228,7 +246,6 @@ function setup(
   const skills = new SkillService(config);
   const tools = stubToolExecution();
   if (consumeImpl) tools.consume.mockImplementation(consumeImpl);
-  const registry = new ToolRegistry();
   const agentRuns = stubAgentRuns();
   const proposeCandidates = jest.fn<Promise<unknown[]>, [MemoryCandidate[]]>(
     () => Promise.resolve([]),
@@ -272,6 +289,7 @@ function setup(
         gated: [],
         lensExcluded: [],
         demoted: [],
+        reliability: null,
         familiar: [],
         duplicates: [],
         vanished: [],
@@ -744,6 +762,289 @@ describe('ConversationService', () => {
         { role: 'user', content: 'find teal' },
         { role: 'assistant', content: 'teal found' },
       ]);
+    });
+  });
+
+  describe('foreign tool turns (M13c)', () => {
+    const foreignArgsSchema = {
+      type: 'object' as const,
+      additionalProperties: false as const,
+      required: ['path'] as readonly string[],
+      properties: {
+        path: { type: 'string' },
+      } as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+    };
+
+    const foreignDescriptor = {
+      name: 'mcp_files_read',
+      description: 'Read a file',
+      approval: 'required' as const,
+      argsSchema: foreignArgsSchema,
+    };
+
+    function foreignRegistry(
+      unavailable: {
+        server: string;
+        state: 'disabled' | 'failed';
+        reason?: string;
+      }[] = [],
+      live = true,
+    ): ToolRegistry {
+      return new ToolRegistry({
+        listForeign: () => (live ? [foreignDescriptor] : []),
+        lookupForeign: (name: string) =>
+          live && name === foreignDescriptor.name
+            ? {
+                ...foreignDescriptor,
+                server: 'files',
+                tool: 'read',
+              }
+            : undefined,
+        unavailableForeign: () => unavailable,
+      });
+    }
+
+    function foreignInput(requestId: string): ToolExecutionInput {
+      return {
+        requestId,
+        sessionId: 's-1',
+        context: [{ role: 'user', content: 'read it' }],
+        allowedTools: ['mcp_files_read'],
+        proposal: foreignProposal(),
+      };
+    }
+
+    function approvedForeign(): ToolExecutionRecord {
+      return {
+        ...pendingForeignRecord(foreignInput('req-9')),
+        state: 'succeeded',
+        execution: {
+          ok: true,
+          mcp: { server: 'files', tool: 'read', text: 'file says hi' },
+        },
+        final: { state: 'pending' },
+      };
+    }
+
+    it('offers live foreign tools with their approval policy', async () => {
+      const { service, chatWithTools, tools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal()),
+        undefined,
+        undefined,
+        undefined,
+        foreignRegistry(),
+      );
+
+      const result = await service.converse('read it');
+
+      expect(result.status).toBe('ok');
+      const sent = chatWithTools.mock.calls[0][0];
+      expect(sent.tools.map((tool) => tool.name)).toContain('mcp_files_read');
+      expect(String(sent.messages[0].content)).toContain(
+        'mcp_files_read (pauses for human approval and ends your turn)',
+      );
+      const consumed = tools.consume.mock.calls[0][0];
+      expect(consumed.allowedTools).toContain('mcp_files_read');
+    });
+
+    it('parks foreign proposals under their own name with no writes', async () => {
+      const { service, repository, extract, tools } = setup(
+        testConfig(),
+        () => Promise.resolve(foreignProposal()),
+        undefined,
+        undefined,
+        (input) => Promise.resolve(pendingForeignRecord(input)),
+        foreignRegistry(),
+      );
+
+      const result = await service.converse('read it');
+
+      expect(result.status).toBe('approval_required');
+      expect(result.reply).toContain('mcp_files_read');
+      expect(result.tool).toEqual({
+        invocationId: 'inv-foreign-1',
+        name: 'mcp_files_read',
+      });
+      expect(result.approval).toEqual({
+        approvalId: 'appr-foreign-1',
+        invocationId: 'inv-foreign-1',
+        tool: 'mcp_files_read',
+        args: { path: '/x' },
+      });
+      expect(await repository.getMessages(result.sessionId)).toHaveLength(0);
+      await flushMicrotasks();
+      expect(extract).not.toHaveBeenCalled();
+      expect(tools.claimTranscript).not.toHaveBeenCalled();
+    });
+
+    it('chains a foreign step into a text answer with server provenance', async () => {
+      let proposals = 0;
+      const { service, repository, chatWithTools } = setup(
+        testConfig(),
+        () =>
+          Promise.resolve(
+            proposals++ === 0
+              ? foreignProposal()
+              : textProposal('file says hi'),
+          ),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : foreignSuccessRecord(input),
+          ),
+        foreignRegistry(),
+      );
+
+      const result = await service.converse('read it');
+
+      expect(result.status).toBe('ok');
+      expect(result.reply).toBe('file says hi');
+      expect(result.tool).toEqual({
+        invocationId: 'inv-foreign-1',
+        name: 'mcp_files_read',
+      });
+      // The second proposal saw the foreign step with its provenance.
+      expect(chatWithTools).toHaveBeenCalledTimes(2);
+      const second = chatWithTools.mock.calls[1][0];
+      const tail = second.messages.slice(-2);
+      expect(tail[0]).toMatchObject({
+        role: 'assistant',
+        toolCalls: [{ id: 'inv-foreign-1', name: 'mcp_files_read' }],
+      });
+      expect(tail[1]).toMatchObject({ role: 'tool', callId: 'inv-foreign-1' });
+      expect(JSON.parse(String(tail[1].content))).toMatchObject({
+        ok: true,
+        mcp: { server: 'files', tool: 'read' },
+      });
+      expect(await repository.getMessages(result.sessionId)).toEqual([
+        { role: 'user', content: 'read it' },
+        { role: 'assistant', content: 'file says hi' },
+      ]);
+    });
+
+    it('resumes granted foreign tools instead of ending', async () => {
+      const { service, repository, agentRuns, tools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal('read and reported')),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : foreignSuccessRecord(input),
+          ),
+        foreignRegistry(),
+      );
+      agentRuns.findByRequest.mockReturnValue(testRun());
+      tools.resume.mockImplementation(() => Promise.resolve(approvedForeign()));
+
+      const result = await service.resumeTurn('req-9', 's-1');
+
+      expect(result.status).toBe('ok');
+      expect(result.reply).toBe('read and reported');
+      expect(agentRuns.markTerminal).toHaveBeenCalledWith(
+        'run-9',
+        'completed',
+        { reason: 'final_answer', toolSteps: 1 },
+      );
+      expect(await repository.getMessages('s-1')).toEqual([
+        { role: 'user', content: 'read it' },
+        { role: 'assistant', content: 'read and reported' },
+      ]);
+    });
+
+    it('denies foreign tools through the identical terminal path', async () => {
+      const { service, repository, agentRuns, tools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal('leaving the file alone')),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : foreignSuccessRecord(input),
+          ),
+        foreignRegistry(),
+      );
+      agentRuns.findByRequest.mockReturnValue(testRun());
+      tools.resume.mockImplementation(() =>
+        Promise.resolve({
+          ...pendingForeignRecord(foreignInput('req-9')),
+          state: 'rejected',
+        }),
+      );
+
+      const result = await service.resumeTurn('req-9', 's-1');
+
+      expect(result.status).toBe('ok');
+      expect(result.outcome).toBeUndefined();
+      expect(result.reply).toBe('leaving the file alone');
+      expect(await repository.getMessages('s-1')).toEqual([
+        { role: 'user', content: 'read it' },
+        { role: 'assistant', content: 'leaving the file alone' },
+      ]);
+    });
+
+    it('declares dead servers while offering only live tools', async () => {
+      const { service, chatWithTools, tools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal()),
+        undefined,
+        undefined,
+        undefined,
+        foreignRegistry(
+          [{ server: 'files', state: 'failed', reason: 'refused' }],
+          false,
+        ),
+      );
+
+      await service.converse('read it');
+
+      const sent = chatWithTools.mock.calls[0][0];
+      expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
+        'session.rename',
+        'session.search',
+      ]);
+      expect(String(sent.messages[0].content)).toContain(
+        'Unavailable (do not propose):',
+      );
+      expect(String(sent.messages[0].content)).toContain(
+        'mcp_files_* (server "files" failed: refused)',
+      );
+      const consumed = tools.consume.mock.calls[0][0];
+      expect(consumed.allowedTools).toEqual([
+        'session.search',
+        'session.rename',
+      ]);
+    });
+
+    it('names unvalidated executions by proposal, never a native default', async () => {
+      const { service } = setup(
+        testConfig(),
+        () => Promise.resolve(foreignProposal()),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve({
+            ...foreignSuccessRecord(input),
+            validation: {
+              ok: false,
+              failure: { code: 'unpermitted_tool' },
+            },
+          }),
+        foreignRegistry(),
+      );
+
+      const result = await service.converse('read it');
+
+      expect(result.status).toBe('ok');
+      expect(result.tool).toMatchObject({ name: 'mcp_files_read' });
     });
   });
 
@@ -1996,6 +2297,7 @@ describe('ConversationService', () => {
           surfaces: ['lexical' as const],
           disposition: 'recalled' as const,
           demoted: false,
+          reliability: null,
           reasons: ['test recall'],
         },
       ],
@@ -2003,6 +2305,7 @@ describe('ConversationService', () => {
         gated: [],
         lensExcluded: [],
         demoted: [],
+        reliability: null,
         familiar: [],
         duplicates: [],
         vanished: [],
@@ -2161,6 +2464,7 @@ describe('ConversationService', () => {
       surfaces: ['lexical' as const],
       disposition: 'recalled' as const,
       demoted: false,
+      reliability: null,
       reasons: [],
     });
 
@@ -2168,6 +2472,7 @@ describe('ConversationService', () => {
       gated: [],
       lensExcluded: [],
       demoted: [],
+      reliability: null,
       familiar: [],
       duplicates: [],
       vanished: [],

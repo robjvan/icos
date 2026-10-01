@@ -1,23 +1,47 @@
 # ICOS v3 INDEX
 
 ```shell
-icos/ # Root of project.
-├── .icos/ # Working files for the instance.
+icos/   # Root of project.
+├── .reference/             # Reference files - plans, legacy code, etc.
+│     ├── notes/            # Subsystem planning notes.
+│     ├── plans/            # Implementation plans.
+│     │     ├── closed/     # Plan files that have been completed.
+│     │     └── evidence/   # Evidence files captured after each milestone.
+│     │
+│     └── status.md         # Live project status tracking.
 │
-├── .reference/ # Reference files - plans, legacy code, etc.
-│     ├── notes/ # Subsystem planning notes.
-│     └── plans/ # Implementation plans.
-│           └── evidence/ # Evidence files captured after each milestone.
+├── bin/        # Launch script helper files.
+│     └── dmr   # Compose override shorthand for the DMR variant.
 │
-├── core/ # Core subsytem.
-│     ├── Dockerfile # Dev server image for compose.
-│     └── .env.sample # Authoritative runtime configuration template.
+├── core/                   # Core subsystem.
+│     ├── ...               # Other miscellaneous project files.
+│     ├── src/              # Project files.
+│     ├── test/             # Project test files.
+│     ├── Dockerfile        # Server image for compose.
+│     ├── .dmr.env.sample   # Runtime configuration template for using Docker Model Runner.
+│     └── .env.sample       # Authoritative runtime configuration template.
 │
-├── docs/ # User-facing documents.
-│     └── docs/EULA.md # End-user License Agreement.
+├── docs/                       # User-facing documents.
+│     ├── skills/               # Sample skills.
+│     │     ├── ...             # Other sample skill files.
+│     │     └── icos-v3-stack/  # Skill containing ICOS v3 stack knowledge and guidance.
+│     │         └── SKILL.md   # Skill file.
+│     │
+│     ├── skill-blueprint.md    # Template for new skill creation.
+│     └── tool-blueprint.md     # Template for new tool creation.
 │
-├── docker-compose.yml # Supported launch path (icos-v3-core service).
-├── AGENTS.md # Project-level Agent rules.
-├── INDEX.md # Project index.
-└── README.md # Project-level README document.
+├── web-client/         # Web-based frontend client.
+│     ├── ...           # Other miscellaneous project files.
+│     ├── public/       # Public asset files (images, etc.).
+│     ├── src/          # Project files.
+│     └── Dockerfile    # Web client image for compose.
+│
+├── .gitignore              # Files to avoid committing to Git.
+├── AGENTS.md               # Project-level Agent rules.
+├── COMMERCIAL-LICENSE.md   # Commercial use license.
+├── docker-compose-dmr.yml  # Compose configuration for adding DMR.
+├── docker-compose.yml      # Core Compose configuration.
+├── INDEX.md                # Project index.
+├── LICENSE.md              # Non-commercial use license.
+└── README.md               # Project-level README document.
 ```

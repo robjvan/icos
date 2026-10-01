@@ -2,6 +2,7 @@ import type { CoreConfig } from '../config';
 import { NoopPublisher } from './noop.publisher';
 import { REALTIME_EVENTS_PATH, RealtimeGateway } from './realtime.gateway';
 import { RealtimePublisher } from './realtime.publisher';
+import type { AuthService } from '../auth/auth.service';
 import {
   isRealtimeEvent,
   realtimeEvent,
@@ -11,6 +12,13 @@ import {
 function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
   return {
     port: 3000,
+    host: '127.0.0.1',
+    corsAllowedOrigins: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+    exposeAcknowledged: false,
+    authEnabled: false,
+    authDirPath: '/tmp/icos-test-auth-unused',
+    authSessionTtlMs: 2592000000,
+    authCookieSecure: false,
     provider: 'ollama',
     llmBaseUrl: 'http://localhost:11434/v1',
     llmModel: 'm',
@@ -32,6 +40,13 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     memoryRecallExcludeOrigins: [],
     memoryRecallMaxBandTokens: 800,
     memoryRecallTimeoutMs: 5000,
+    memoryMaintenanceEnabled: true,
+    memoryMaintenanceIntervalMs: 3600000,
+    memoryAgentDampening: 0.5,
+    mcpEnabled: false,
+    mcpServersPath: '',
+    mcpTimeoutMs: 30000,
+    mcpReconnectBackoffMs: 60000,
     vectorDbPath: '/tmp/icos-test-claims-vector.db',
     skillsDirPath: '/tmp/icos-test-skills-missing',
     skillsEnabled: true,
@@ -48,6 +63,11 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     realtimeAllowedOrigins: ['*'],
     ...overrides,
   };
+}
+
+/** Gateway tests exercise routing/broadcast, not auth (disabled). */
+function stubAuth(): AuthService {
+  return { enabled: false, verify: () => null } as unknown as AuthService;
 }
 
 describe('realtime-event', () => {
@@ -82,7 +102,7 @@ describe('NoopPublisher', () => {
 
 describe('RealtimeGateway', () => {
   it('never throws from publish when no server is attached', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     expect(() =>
       gateway.publish(realtimeEvent('approval.created', { approvalId: 'a1' })),
     ).not.toThrow();
@@ -90,7 +110,7 @@ describe('RealtimeGateway', () => {
   });
 
   it('drops malformed events instead of broadcasting them', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     expect(() =>
       gateway.publish({ v: 1, type: 'mutate', at: 't' } as never),
     ).not.toThrow();
@@ -102,7 +122,7 @@ describe('RealtimeGateway', () => {
   });
 
   it('routes session-scoped events only to subscribed sockets', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     const internals = gateway as unknown as {
       subscriptions: Map<object, { sessionId?: string }>;
       broadcast(event: RealtimeEvent): void;
@@ -144,7 +164,7 @@ describe('RealtimeGateway', () => {
   });
 
   it('drops saturated consumers instead of buffering unbounded', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     const internals = gateway as unknown as {
       subscriptions: Map<object, { sessionId?: string }>;
       broadcast(event: RealtimeEvent): void;
@@ -173,7 +193,7 @@ describe('RealtimeGateway', () => {
   });
 
   it('closes unknown client messages instead of acting on them (D3)', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     const internals = gateway as unknown as {
       handleClientMessage(
         socket: { close: (code: number, reason: string) => void },
@@ -192,7 +212,7 @@ describe('RealtimeGateway', () => {
 
 describe('RealtimePublisher boundary', () => {
   it('gateway implements the publisher interface', () => {
-    const gateway = new RealtimeGateway(testConfig());
+    const gateway = new RealtimeGateway(testConfig(), stubAuth());
     expect(gateway).toBeInstanceOf(RealtimePublisher);
     gateway.onModuleDestroy();
   });
