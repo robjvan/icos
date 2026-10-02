@@ -43,5 +43,6 @@ icos/   # Root of project.
 ├── docker-compose.yml      # Core Compose configuration.
 ├── INDEX.md                # Project index.
 ├── LICENSE.md              # Non-commercial use license.
-└── README.md               # Project-level README document.
+├── README.md               # Project-level README document.
+└── USAGE.md                # Setup, configuration, and operation.
 ```
