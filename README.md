@@ -1,4 +1,4 @@
-# ICOS v3
+# ICOS
 
 <center>
 
@@ -27,17 +27,17 @@
 
 ## What is ICOS?
 
-**ICOS** (**I**SABEL **C**ognitive **O**perating **S**ystem) v3 is a from-scratch cognitive agent runtime built to investigate a simple question:
+**ICOS** (**I**SABEL **C**ognitive **O**perating **S**ystem) is a from-scratch cognitive agent runtime built to investigate a simple question:
 
 > **What is the minimum architecture required to give an agent persistent memory, useful knowledge, and meaningful agency?**
 
-ICOS v3 is not a wrapper around an existing agent framework.
+ICOS is not a wrapper around an existing agent framework.
 
 **The runtime is the harness.**
 
 The agent loop, interaction layer, model boundary, session persistence, memory systems, skills, and future autonomous capabilities are being developed as parts of one deliberately small system.
 
-The goal is not to reproduce a biological model of cognition. Instead, ICOS v3 is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
+The goal is not to reproduce a biological model of cognition. Instead, ICOS is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
 
 > **Trying it out?** Start with **[USAGE.md](USAGE.md)** (setup, configuration,
 > and running the stack). Before exposing it beyond your machine, read
@@ -45,9 +45,19 @@ The goal is not to reproduce a biological model of cognition. Instead, ICOS v3 i
 
 ---
 
-## Why v3?
+## Lineage
 
-ISABEL v2 explored a much more elaborate approach to cognitive architecture, incorporating biologically inspired mechanisms including persistent identity, multiple memory systems, state modulation, autonomous action selection, knowledge structures, and more.
+ICOS is the third generation of a personal cognitive-architecture research
+line — hence "v3", which refers to the *generation*, not to ICOS's own
+version. ICOS is the first release under its own name.
+
+| Generation | Name       |                                                |
+| :--------: | :--------- | :--------------------------------------------- |
+|    v1      | **AURORA** |                                                |
+|    v2      | **ISABEL** | A large, biologically inspired architecture.   |
+|    v3      | **ICOS**   | **ISABEL Cognitive Operating System**.         |
+
+ISABEL (v2) explored a much more elaborate approach to cognitive architecture, incorporating biologically inspired mechanisms including persistent identity, multiple memory systems, state modulation, autonomous action selection, knowledge structures, and more.
 
 That work was valuable, but it also exposed a problem:
 
@@ -55,7 +65,7 @@ That work was valuable, but it also exposed a problem:
 
 When an agent changed its behaviour, it became increasingly difficult to determine whether the change came from a particular mechanism or from its interaction with everything surrounding it.
 
-ICOS v3 takes the opposite approach.
+ICOS takes the opposite approach.
 
 Start small.
 
@@ -71,7 +81,7 @@ Keep the system understandable.
 
 ## Design Goals
 
-ICOS v3 is being built around a few principles:
+ICOS is being built around a few principles:
 
 ### Small enough to understand
 
@@ -146,7 +156,7 @@ Development is active and the architecture is expected to change substantially a
 
 ## Milestones
 
-ICOS v3 is being developed as a sequence of increasingly capable experiments.
+ICOS is being developed as a sequence of increasingly capable experiments.
 
 |  Milestone   | Question                                                                      |
 | :----------: | :---------------------------------------------------------------------------- |
@@ -239,7 +249,7 @@ experimental evidence behind each milestone.
 ```text
 core/                   # ICOS runtime (NestJS)
 web-client/             # Angular web client
-docker-compose.yml      # Supported launch path (icos-v3-core service)
+docker-compose.yml      # Supported launch path (core service)
 docker-compose-dmr.yml  # DMR override: models served in-stack (see bin/dmr)
 bin/dmr                 # Shorthand for the DMR variant
 docs/                   # User-facing docs (security, blueprints, sample skills)
@@ -256,7 +266,7 @@ As the project grows, this section will be expanded to document significant arch
 
 ## Research Direction
 
-ICOS v3 is ultimately intended to support experiments around agent behaviour and architecture.
+ICOS is ultimately intended to support experiments around agent behaviour and architecture.
 
 Some of the questions motivating future development include:
 
@@ -276,7 +286,7 @@ The architecture is therefore a means to an end.
 
 ## Project Status
 
-ICOS v3 is an active personal research and software project.
+ICOS is an active personal research and software project.
 
 It is **not production software** and should be considered experimental.
 
@@ -288,7 +298,7 @@ The repository's milestone plans and evidence are intended to make those changes
 
 ## Contributing
 
-ICOS v3 is primarily a personal research project and is not currently seeking additional maintainers.
+ICOS is primarily a personal research project and is not currently seeking additional maintainers.
 
 That said, the project is public and feedback is welcome.
 
@@ -300,7 +310,7 @@ Questions are particularly useful when they challenge an assumption behind the a
 
 ## License
 
-ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
+ICOS is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
 
 Commercial use requires a separate license.
 
@@ -310,11 +320,11 @@ See [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) for details.
 
 ## Related Research
 
-ICOS v3 is the continuation of research previously conducted under the ISABEL name.
+ICOS is the continuation of research previously conducted under the ISABEL name.
 
 The v2 work explored increasingly complex biologically inspired cognitive architecture.
 
-ICOS v3 deliberately takes a different methodological approach: **start with a minimal architecture and reintroduce capabilities incrementally.**
+ICOS deliberately takes a different methodological approach: **start with a minimal architecture and reintroduce capabilities incrementally.**
 
 The objective is not to build the most elaborate agent architecture possible.
 

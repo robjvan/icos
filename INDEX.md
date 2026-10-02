@@ -1,4 +1,4 @@
-# ICOS v3 INDEX
+# ICOS INDEX
 
 ```shell
 icos/   # Root of project.
@@ -24,7 +24,7 @@ icos/   # Root of project.
 ├── docs/                       # User-facing documents.
 │     ├── skills/               # Sample skills.
 │     │     ├── ...             # Other sample skill files.
-│     │     └── icos-v3-stack/  # Skill containing ICOS v3 stack knowledge and guidance.
+│     │     └── icos-v3-stack/  # Skill containing ICOS stack knowledge and guidance.
 │     │         └── SKILL.md   # Skill file.
 │     │
 │     ├── skill-blueprint.md    # Template for new skill creation.

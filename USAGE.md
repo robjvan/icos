@@ -1,6 +1,6 @@
-# ICOS v3 — Usage Guide
+# ICOS — Usage Guide
 
-How to configure, run, and operate ICOS v3. For what the project *is* and
+How to configure, run, and operate ICOS. For what the project *is* and
 *why* it is built this way, see the [README](README.md).
 
 - [Deployment target](#deployment-target)
@@ -63,8 +63,8 @@ checklist: **[docs/security.md](docs/security.md)**.
 ## Install
 
 ```sh
-git clone https://git.exilelogic.ca/robjvan/icos-v3.git
-cd icos-v3
+git clone https://git.exilelogic.ca/robjvan/icos.git
+cd icos
 ```
 
 No `npm install` is needed for the Docker path — the image build handles
@@ -187,7 +187,7 @@ docker compose -f docker-compose.yml -f docker-compose-dmr.yml up --build -d
 bin/dmr up -d --build
 ```
 
-Once `icos-v3-core` is healthy, open **http://localhost:4200** (or
+Once `core` is healthy, open **http://localhost:4200** (or
 `http://<host>:4200` from another machine you have deliberately exposed it
 to). Give the stack a minute after first boot: models download once (GBs) and
 the vector index rebuilds before recall is at full strength.

@@ -1,4 +1,4 @@
-# ICOS v3 — DMR override file (Docker Model Runner backend).
+# ICOS — DMR override file (Docker Model Runner backend).
 #
 # NOT a standalone stack: it only holds the deltas versus
 # docker-compose.yml (same service names, so values merge/replace).

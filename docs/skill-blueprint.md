@@ -1,4 +1,4 @@
-# Tool Blueprint — Adding a Tool to ICOS v3
+# Skill Blueprint — Adding a Skill to ICOS
 
 ## Template
 
