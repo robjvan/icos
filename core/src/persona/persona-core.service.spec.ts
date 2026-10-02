@@ -27,7 +27,11 @@ const CORE_V2 = [
   '- Never exfiltrate credentials.',
 ].join('\n');
 
-function testConfig(dir: string, corePath: string): CoreConfig {
+function testConfig(
+  dir: string,
+  corePath: string,
+  required = false,
+): CoreConfig {
   return {
     port: 3000,
     host: '127.0.0.1',
@@ -47,6 +51,7 @@ function testConfig(dir: string, corePath: string): CoreConfig {
     memoryDbPath: join(dir, 'memories-unused.sqlite'),
     personaDbPath: join(dir, 'persona.sqlite'),
     personaCorePath: corePath,
+    personaCoreRequired: required,
     legacyDbPath: join(dir, 'legacy-missing.sqlite'),
     memoryExtractionEnabled: true,
     memoryProvider: 'ollama',
@@ -89,18 +94,16 @@ describe('PersonaCoreService', () => {
   let corePath = '';
   const services: DatabaseService[] = [];
 
-  const setup = async (coreContent?: string) => {
+  const setup = async (coreContent?: string, required = false) => {
     if (coreContent !== undefined) {
       writeFileSync(corePath, coreContent);
     }
-    const db = new PersonaDatabaseService(testConfig(dir, corePath));
+    const config = testConfig(dir, corePath, required);
+    const db = new PersonaDatabaseService(config);
     db.onModuleInit();
     services.push(db);
     const repository = new SqlitePersonaRepository(db);
-    const service = new PersonaCoreService(
-      testConfig(dir, corePath),
-      repository,
-    );
+    const service = new PersonaCoreService(config, repository);
     await service.onModuleInit();
     return { repository, service };
   };
@@ -192,5 +195,22 @@ describe('PersonaCoreService', () => {
     );
     expect(audit).toHaveLength(1);
     expect(audit[0].severity).toBe('warning');
+  });
+
+  it('boots when the core is required and present', async () => {
+    const { service } = await setup(CORE_V1, true);
+    expect(service.isLoaded()).toBe(true);
+  });
+
+  it('refuses to boot when the core is required but missing', async () => {
+    const config = testConfig(dir, corePath, true);
+    const db = new PersonaDatabaseService(config);
+    db.onModuleInit();
+    services.push(db);
+    const service = new PersonaCoreService(
+      config,
+      new SqlitePersonaRepository(db),
+    );
+    await expect(service.onModuleInit()).rejects.toThrow(/required/);
   });
 });

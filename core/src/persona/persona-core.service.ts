@@ -31,6 +31,7 @@ import {
 export class PersonaCoreService implements OnModuleInit {
   private readonly logger = new Logger(PersonaCoreService.name);
   private readonly path: string;
+  private readonly required: boolean;
   private snapshot: {
     loaded: boolean;
     hash: string | null;
@@ -53,10 +54,19 @@ export class PersonaCoreService implements OnModuleInit {
   ) {
     this.path =
       config.personaCorePath ?? join(homedir(), '.icos', 'persona', 'core.md');
+    this.required = config.personaCoreRequired ?? true;
   }
 
   async onModuleInit(): Promise<void> {
-    await this.reload();
+    const status = await this.reload();
+    if (this.required && !status.loaded) {
+      throw new Error(
+        'Refusing to start: the core persona is required but not available. ' +
+          `path=${this.path} reason=${status.reason ?? 'unknown'}. ` +
+          'Provide a valid core file at PERSONA_CORE_PATH, or set ' +
+          'PERSONA_CORE_REQUIRED=false to allow a degraded (dev/throwaway) boot.',
+      );
+    }
   }
 
   /** Re-read the core file. Read-only; safe to call at any time. */

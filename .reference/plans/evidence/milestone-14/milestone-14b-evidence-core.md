@@ -76,3 +76,27 @@ compromised process still cannot write it.
   entry ids + content to test against.
 - The container read-only bind for the core directory is an M14h/ops
   concern; the code-side guarantee (no write path) holds regardless.
+
+## Addendum — fail-closed boot (2026-10-02)
+
+Confirmed with the operator: a missing or invalid core now **aborts
+startup** by default. Without a core there is no reference frame, so
+drift (M15) and hallucination (M15.5) detection would be half-correct;
+running anyway is worse than refusing.
+
+- **`PERSONA_CORE_REQUIRED`** (default `true`): `PersonaCoreService
+  .onModuleInit` awaits `reload()` and, when required and `loaded` is
+  false, throws a precise error (path + reason + both remedies).
+  `PERSONA_CORE_REQUIRED=false` is the documented dev/throwaway escape
+  hatch. `reload()` itself remains non-throwing for runtime use.
+- The e2e app config sets `personaCoreRequired: false` (it runs without
+  an authored core).
+- `.env.sample` documents the flag and the default.
+- Container note: because `~` resolves to `/root` inside the container,
+  `PERSONA_DB_PATH` / `PERSONA_CORE_PATH` must be host-absolute and match
+  the `~/.icos` bind mount, exactly like `SESSION_DB_PATH` /
+  `MEMORY_DB_PATH`. Documented in the sample; set in the local `core/.env`.
+
+**Verification (addendum):** 888 unit green (3 new: required-present
+boots, required-missing refuses, config default + escape hatch) and 59
+e2e green; `tsc`/`eslint` clean.

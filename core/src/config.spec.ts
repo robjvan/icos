@@ -78,9 +78,21 @@ describe('loadConfig', () => {
       join(homedir(), '.icos/data/sessions.db'),
     );
     expect(config.memoryDbPath).toBe(join(homedir(), '.icos/data/memories.db'));
+    expect(config.personaDbPath).toBe(join(homedir(), '.icos/data/persona.db'));
+    expect(config.personaCorePath).toBe(
+      join(homedir(), '.icos/persona/core.md'),
+    );
     expect(config.legacyDbPath).toBe(
       resolve(process.cwd(), './data/core.sqlite'),
     );
+  });
+
+  it('requires the core persona by default, with a dev escape hatch', () => {
+    expect(loadConfig({ LLM_MODEL: 'm' }).personaCoreRequired).toBe(true);
+    expect(
+      loadConfig({ LLM_MODEL: 'm', PERSONA_CORE_REQUIRED: 'false' })
+        .personaCoreRequired,
+    ).toBe(false);
   });
 
   it('resolves database path overrides absolutely', () => {

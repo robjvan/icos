@@ -88,6 +88,13 @@ export interface CoreConfig {
    */
   personaCorePath?: string;
   /**
+   * M14b fail-closed boot: when true (the default), a missing or invalid
+   * core persona aborts startup rather than running half-grounded. Set
+   * false only for dev/throwaway instances. Optional on the type for the
+   * same reason as `personaDbPath`.
+   */
+  personaCoreRequired?: boolean;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -299,6 +306,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',
     ),
+    personaCoreRequired: parseBoolean(env.PERSONA_CORE_REQUIRED, true),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

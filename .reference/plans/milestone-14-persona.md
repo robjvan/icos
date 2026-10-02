@@ -151,8 +151,12 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14b-evidence-core.md
 - [x] Boot computes and records the core sha256; a hash change is an
       audited human act (`persona_core_changed`, severity `info`), not
       drift.
-- [x] Missing or invalid core → **loud degraded boot**, never a
-      fabricated identity (`loaded: false` + reason).
+- [x] Missing or invalid core → **fail-closed boot** by default
+      (`PERSONA_CORE_REQUIRED=true`): ICOS refuses to start rather than
+      run half-grounded, since drift and hallucination checks need a
+      reference frame. `false` is the documented dev/throwaway escape
+      hatch. `loaded: false` + reason is still surfaced when not
+      required; identity is never fabricated.
 - [x] Core is exposed read-only (status + `GET /core/persona/core`,
       admin-only); entries carry a literal `immutable: true`. Band
       ordering lands in M14d.

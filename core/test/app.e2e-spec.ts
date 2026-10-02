@@ -188,6 +188,10 @@ describe('Conversation (e2e)', () => {
         maxHistory: 50,
         sessionDbPath,
         memoryDbPath,
+        // e2e runs without an authored core: use the documented
+        // dev/throwaway escape hatch rather than fail-closed boot.
+        personaCorePath: join(dir, 'core-unused.md'),
+        personaCoreRequired: false,
         legacyDbPath: legacyDbPath ?? join(dir, 'legacy-missing.sqlite'),
         memoryExtractionEnabled: true,
         memoryProvider: 'ollama',
