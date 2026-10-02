@@ -217,22 +217,27 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14e-evidence-candida
 - [x] No code path from extraction to a persona record except through
       review.
 
-# [ ] M14f — Review / Curation
+# [x] M14f — Review / Curation (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14f-evidence-review.md`.
 
-- [ ] Outcomes: `approve_to_identity`, `approve_to_user_model`,
+- [x] Outcomes: `approve_to_identity`, `approve_to_user_model`,
       `approve_to_relationship`, `reject`, `archive_as_transient`,
       `needs_more_evidence`.
-- [ ] Every review writes a `persona_drift_log` entry (append-only).
-- [ ] `protected` evolving records require explicit review to
-      overwrite; previous value retained in the log.
-- [ ] A core-contradicting candidate **cannot be applied** by any
-      outcome; review surfaces the conflict and refuses.
-- [ ] Corrigibility rule encoded: revision improves truth and
-      continuity; it is not identity failure.
-- [ ] Review is admin-only (reuses M6/S2 auth + roles); it is never
-      exposed as an agent tool.
+- [x] Every review writes a `persona_drift_log` entry (append-only),
+      with outcome, severity, reason, and before/after values.
+- [x] `protected` evolving records require explicit review to overwrite
+      (the store enforces the reviewer); the previous value is retained
+      on the record and in the drift log.
+- [x] A core-contradicting candidate **cannot be applied** by any
+      approval outcome; review surfaces the conflict and refuses, logging
+      `core_contradiction` at `critical`.
+- [x] Corrigibility rule encoded: `reason` is required and recorded;
+      revision is recorded, never punished.
+- [x] Review is admin-only (`@RequireRole('admin')`, CSRF-gated by the
+      global guard) at `POST /core/persona/candidates/:id/review`, with a
+      pending list at `GET /core/persona/candidates`. It is never exposed
+      as an agent tool.
 
 # [ ] M14g — Web-Client Persona Review
 

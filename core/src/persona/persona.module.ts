@@ -5,6 +5,7 @@ import { PersonaCandidateStager } from './persona-candidate-stager.service';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
 import { PersonaGroundingService } from './persona-grounding.service';
+import { PersonaReviewService } from './persona-review.service';
 import { PersonaSeedImportService } from './persona-seed-import.service';
 import { PersonaRepository } from './persona.repository';
 import { SqlitePersonaRepository } from './sqlite-persona.repository';
@@ -30,6 +31,7 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaSeedImportService,
     PersonaGroundingService,
     PersonaCandidateStager,
+    PersonaReviewService,
   ],
   exports: [
     PersonaDatabaseService,
@@ -38,6 +40,7 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaSeedImportService,
     PersonaGroundingService,
     PersonaCandidateStager,
+    PersonaReviewService,
   ],
 })
 export class PersonaModule {}

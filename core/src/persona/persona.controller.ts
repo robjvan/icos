@@ -1,13 +1,17 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaGroundingService } from './persona-grounding.service';
+import { PersonaReviewService } from './persona-review.service';
 import { PersonaSeedImportService } from './persona-seed-import.service';
+import { PersonaReviewDto } from './dto/persona-review.dto';
 import { PersonaSeedImportDto } from './dto/persona-seed.dto';
 import type {
+  PersonaCandidate,
   PersonaCoreEntry,
   PersonaCoreStatus,
   PersonaGroundingStatus,
+  PersonaReviewResult,
   PersonaSeedImportResult,
 } from './persona.types';
 
@@ -22,6 +26,7 @@ export class PersonaController {
     private readonly core: PersonaCoreService,
     private readonly seeds: PersonaSeedImportService,
     private readonly grounding: PersonaGroundingService,
+    private readonly review: PersonaReviewService,
   ) {}
 
   /**
@@ -32,6 +37,34 @@ export class PersonaController {
   @Get('core')
   getCore(): PersonaCoreView {
     return { ...this.core.getStatus(), entries: this.core.getEntries() };
+  }
+
+  /** Grounding result + provenance bundle (M14d). Admin-only, read-only. */
+  @RequireRole('admin')
+  @Get('grounding')
+  getGrounding(): Promise<PersonaGroundingStatus> {
+    return this.grounding.status();
+  }
+
+  /** Pending persona candidates awaiting review (M14f). Admin-only. */
+  @RequireRole('admin')
+  @Get('candidates')
+  async getPendingCandidates(): Promise<{ candidates: PersonaCandidate[] }> {
+    return { candidates: await this.review.listPending() };
+  }
+
+  /**
+   * Apply a review outcome (M14f). Admin-only, CSRF-gated by the global
+   * guard. A candidate contradicting the immutable core is refused.
+   */
+  @RequireRole('admin')
+  @Post('candidates/:id/review')
+  @HttpCode(200)
+  reviewCandidate(
+    @Param('id') candidateId: string,
+    @Body() dto: PersonaReviewDto,
+  ): Promise<PersonaReviewResult> {
+    return this.review.review(candidateId, dto);
   }
 
   /**
@@ -45,12 +78,5 @@ export class PersonaController {
     @Body() dto: PersonaSeedImportDto,
   ): Promise<PersonaSeedImportResult> {
     return this.seeds.import(dto);
-  }
-
-  /** Grounding result + provenance bundle (M14d). Admin-only, read-only. */
-  @RequireRole('admin')
-  @Get('grounding')
-  getGrounding(): Promise<PersonaGroundingStatus> {
-    return this.grounding.status();
   }
 }

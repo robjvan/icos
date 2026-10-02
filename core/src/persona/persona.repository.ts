@@ -8,6 +8,7 @@ import type {
   PersonaRelationship,
   PersonaUserFact,
   StagePersonaCandidateInput,
+  UpdatePersonaCandidateReviewInput,
   UpsertPersonaRelationshipInput,
   UpsertPersonaUserFactInput,
 } from './persona.types';
@@ -62,6 +63,11 @@ export abstract class PersonaRepository {
     userId: string,
     limit?: number,
   ): Promise<PersonaCandidate[]>;
+
+  /** Record a review outcome on a staged candidate (M14f). */
+  abstract updateCandidateReview(
+    input: UpdatePersonaCandidateReviewInput,
+  ): Promise<PersonaCandidate>;
 
   /** Append-only drift/audit entry. Never rewritten by the store. */
   abstract logDrift(input: LogPersonaDriftInput): Promise<PersonaDriftEntry>;

@@ -313,3 +313,39 @@ export interface PersonaGroundingStatus {
   result: PersonaGroundingResult;
   bundle: PersonaGroundingBundle;
 }
+
+/** Review outcomes for a staged persona candidate (M14f). */
+export type PersonaReviewOutcome =
+  | 'approve_to_identity'
+  | 'approve_to_user_model'
+  | 'approve_to_relationship'
+  | 'reject'
+  | 'archive_as_transient'
+  | 'needs_more_evidence';
+
+export interface PersonaReviewInput {
+  outcome: PersonaReviewOutcome;
+  reviewedBy: string;
+  reason: string;
+}
+
+export interface PersonaReviewResult {
+  candidateId: string;
+  outcome: PersonaReviewOutcome;
+  applied: boolean;
+  refused: boolean;
+  refusalReason?: string;
+  target?: 'persona_record' | 'persona_user_model' | 'persona_relationship';
+  targetId?: string;
+  driftLogId: string;
+  conflictWithCoreEntryId?: string;
+}
+
+export interface UpdatePersonaCandidateReviewInput {
+  candidateId: string;
+  outcome: PersonaReviewOutcome;
+  reviewedBy: string;
+  reason: string;
+  occurredAt?: string;
+  metadata?: Record<string, unknown>;
+}

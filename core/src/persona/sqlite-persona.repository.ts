@@ -22,6 +22,7 @@ import type {
   PersonaSensitivity,
   PersonaUserFact,
   StagePersonaCandidateInput,
+  UpdatePersonaCandidateReviewInput,
   UpsertPersonaRelationshipInput,
   UpsertPersonaUserFactInput,
 } from './persona.types';
@@ -608,6 +609,41 @@ export class SqlitePersonaRepository extends PersonaRepository {
       )
       .all(userId, this.capLimit(limit)) as PersonaDriftRow[];
     return rows.map(mapDrift);
+  }
+
+  async updateCandidateReview(
+    input: UpdatePersonaCandidateReviewInput,
+  ): Promise<PersonaCandidate> {
+    const existing = this.getCandidateRow(input.candidateId);
+    if (!existing) {
+      throw new Error(`Persona candidate not found: ${input.candidateId}`);
+    }
+    const now = input.occurredAt ?? nowIso();
+    const status =
+      input.outcome === 'needs_more_evidence' ? 'pending' : 'reviewed';
+    const metadata = {
+      ...(parseJsonObject(existing.metadata_json) ?? {}),
+      ...(input.metadata ?? {}),
+    };
+
+    this.database
+      .prepare(
+        `UPDATE persona_candidates
+         SET status = ?, review_outcome = ?, review_reason = ?,
+             reviewed_by = ?, reviewed_at = ?, metadata_json = ?
+         WHERE candidate_id = ?`,
+      )
+      .run(
+        status,
+        input.outcome,
+        input.reason,
+        input.reviewedBy,
+        now,
+        stringify(metadata),
+        input.candidateId,
+      );
+
+    return mapCandidate(this.getCandidateRow(input.candidateId)!);
   }
 
   async getCoreState(): Promise<PersonaCoreState | null> {
