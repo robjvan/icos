@@ -100,6 +100,10 @@ export interface CoreConfig {
    * the type; `loadConfig` always populates it.
    */
   personaSeedRoot?: string;
+  /** M14d grounding bundle cap: max entries in the persona band. */
+  personaGroundingEntryLimit?: number;
+  /** M14d grounding bundle cap: approximate character budget for the band. */
+  personaGroundingCharacterBudget?: number;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -314,6 +318,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     ),
     personaCoreRequired: parseBoolean(env.PERSONA_CORE_REQUIRED, true),
     personaSeedRoot: resolvePath(env.PERSONA_SEED_ROOT, '~/.icos/seeds'),
+    personaGroundingEntryLimit: parsePositiveInt(
+      env.PERSONA_GROUNDING_ENTRY_LIMIT,
+      12,
+      'PERSONA_GROUNDING_ENTRY_LIMIT',
+    ),
+    personaGroundingCharacterBudget: parsePositiveInt(
+      env.PERSONA_GROUNDING_CHARACTER_BUDGET,
+      6000,
+      'PERSONA_GROUNDING_CHARACTER_BUDGET',
+    ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

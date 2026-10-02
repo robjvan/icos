@@ -180,24 +180,27 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14c-evidence-seed.md
       a seed target. Exposed admin-only at `POST /core/persona/seeds/import`.
 - [x] Deferred (recorded, not built): portable JSON package import.
 
-# [ ] M14d — Grounding Check + Context Band
+# [x] M14d — Grounding Check + Context Band (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14d-evidence-grounding.md`.
 
-- [ ] Grounding result: `coreLoaded`, `identityGrounded`,
-      `userKnown`, `relationshipCurrent`, `overallScore`,
-      `needsWarmup`, `details`. Core is a **hard gate**; the
-      remaining weights are deliberate, not `score < 1`.
-- [ ] Grounding bundle: core entries first (immutable), then
-      evolving (protected-first, then confidence, then recency),
-      under an entry limit **and** a character budget, with an
-      explicit truncation notice.
-- [ ] Rendered as a labelled, provenance-tagged band
-      (`<persona_grounding>`), injected by the M11 context builder
-      as its **own band** — never mixed with memory bands.
-- [ ] Status + inspection endpoint.
-- [ ] Empty/weak persona returns `needsWarmup: true`, never a fake
-      identity.
+- [x] Grounding result: `coreLoaded`, `identityGrounded`, `userKnown`,
+      `relationshipCurrent`, `overallScore`, `needsWarmup`, `details`.
+      Core is a **hard gate**; weights are deliberate (0.4 core / 0.2
+      strong identity / 0.2 user / 0.2 fresh relationship) with a
+      documented warm-up threshold, not `score < 1`.
+- [x] Grounding bundle: core entries first (immutable), then evolving
+      (protected-first, then confidence, then recency), under an entry
+      limit **and** a character budget, with an explicit truncation
+      notice.
+- [x] Rendered as a labelled, provenance-tagged `<persona_grounding>`
+      band, injected by the M11 context builder as its **own** system
+      block ahead of the memory band — never mixed. Null on a miss
+      (byte-identical pre-M14 context).
+- [x] Status + inspection endpoint: `GET /core/persona/grounding`
+      (admin-only).
+- [x] Empty/weak persona returns `needsWarmup: true` with reasons, never
+      a fabricated identity.
 
 # [ ] M14e — Candidate Staging
 

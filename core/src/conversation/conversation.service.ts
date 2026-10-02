@@ -28,6 +28,8 @@ import { ClaimRepository } from '../memory/claim.repository';
 import { PromotionService } from '../memory/promotion.service';
 import { compareRecalled } from '../memory/comparison';
 import { buildKbBand } from '../memory/prompt-bands';
+import { PersonaGroundingService } from '../persona/persona-grounding.service';
+import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import { applyBandBudget } from '../memory/prompt-bands';
 import { RankService } from '../memory/rank.service';
 import { RecallService } from '../memory/recall.service';
@@ -216,6 +218,7 @@ export class ConversationService {
     private readonly rank: RankService,
     private readonly traces: RecallTraceStore,
     private readonly claims: ClaimRepository,
+    private readonly personaGrounding: PersonaGroundingService,
     private readonly realtime: RealtimePublisher,
   ) {}
 
@@ -1560,12 +1563,15 @@ export class ConversationService {
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
     const pairs = this.tools.recentPairs(sessionId, MAX_TOOL_PAIRS);
     const recalled = await this.recallTurn(sessionId, message);
-    const textMessages = this.prepareMessages(
-      history,
-      message,
-      skills,
-      recalled.bands,
+    // Persona grounding rides its own band, ahead of memory. Null when
+    // there is nothing to ground (byte-identical context on a miss).
+    const personaBand = await this.personaGrounding.band(
+      DEFAULT_PERSONA_USER_ID,
     );
+    const textMessages = this.prepareMessages(history, message, skills, {
+      ...recalled.bands,
+      personaBand,
+    });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = textMessages[textMessages.length - 1];

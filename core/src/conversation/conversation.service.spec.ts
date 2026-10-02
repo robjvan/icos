@@ -33,6 +33,7 @@ import type {
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import {
   MAX_ITERATIONS,
@@ -318,6 +319,9 @@ function setup(
       rank,
       traces,
       claims,
+      {
+        band: () => Promise.resolve(null),
+      } as unknown as PersonaGroundingService,
       new NoopPublisher(),
     ),
     repository,

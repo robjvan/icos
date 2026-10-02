@@ -1,11 +1,13 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
 import { PersonaCoreService } from './persona-core.service';
+import { PersonaGroundingService } from './persona-grounding.service';
 import { PersonaSeedImportService } from './persona-seed-import.service';
 import { PersonaSeedImportDto } from './dto/persona-seed.dto';
 import type {
   PersonaCoreEntry,
   PersonaCoreStatus,
+  PersonaGroundingStatus,
   PersonaSeedImportResult,
 } from './persona.types';
 
@@ -19,6 +21,7 @@ export class PersonaController {
   constructor(
     private readonly core: PersonaCoreService,
     private readonly seeds: PersonaSeedImportService,
+    private readonly grounding: PersonaGroundingService,
   ) {}
 
   /**
@@ -42,5 +45,12 @@ export class PersonaController {
     @Body() dto: PersonaSeedImportDto,
   ): Promise<PersonaSeedImportResult> {
     return this.seeds.import(dto);
+  }
+
+  /** Grounding result + provenance bundle (M14d). Admin-only, read-only. */
+  @RequireRole('admin')
+  @Get('grounding')
+  getGrounding(): Promise<PersonaGroundingStatus> {
+    return this.grounding.status();
   }
 }

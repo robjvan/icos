@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import type { CoreConfig } from '../config';
 import { CommandDispatcher } from '../commands/command-dispatcher';
 import { DisplayPreferenceStore } from '../commands/display-preferences';
@@ -163,6 +164,7 @@ async function setup(
     {} as unknown as RankService,
     new RecallTraceStore(),
     {} as unknown as ClaimRepository,
+    { band: () => Promise.resolve(null) } as unknown as PersonaGroundingService,
     new NoopPublisher(),
   );
   return {

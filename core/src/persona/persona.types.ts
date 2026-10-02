@@ -270,3 +270,46 @@ export interface PersonaSeedImportResult {
   candidateIds: string[];
   warnings: string[];
 }
+
+/** Grounding evaluation result (M14d). Core is a hard gate. */
+export interface PersonaGroundingResult {
+  coreLoaded: boolean;
+  identityGrounded: boolean;
+  userKnown: boolean;
+  relationshipCurrent: boolean;
+  identityRecordCount: number;
+  userFactCount: number;
+  /** Hours since the relationship state was written; -1 when absent. */
+  relationshipStateAgeHours: number;
+  overallScore: number;
+  needsWarmup: boolean;
+  details: string[];
+}
+
+/** One provenance-bearing line of the grounding bundle. */
+export interface PersonaGroundingEntry {
+  id: string;
+  layer: 'core' | 'identity' | 'user';
+  category: string;
+  content: string;
+  confidence: number;
+  protected: boolean;
+  immutable: boolean;
+  source: string;
+  updatedAt: string;
+}
+
+export interface PersonaGroundingBundle {
+  userId: string;
+  generatedAt: string;
+  entries: PersonaGroundingEntry[];
+  relationship: PersonaRelationship | null;
+  /** Prompt-ready, provenance-tagged band. */
+  promptText: string;
+  truncated: boolean;
+}
+
+export interface PersonaGroundingStatus {
+  result: PersonaGroundingResult;
+  bundle: PersonaGroundingBundle;
+}
