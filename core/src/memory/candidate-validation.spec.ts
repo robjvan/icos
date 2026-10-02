@@ -66,7 +66,7 @@ describe('validateCandidates', () => {
       kind: 'project',
       subject: 'user',
       predicate: 'working_on',
-      object: 'ICOS v3',
+      object: 'ICOS',
       confidence: 0.99,
       importance: 0.91,
       stability: 0.95,
