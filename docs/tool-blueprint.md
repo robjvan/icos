@@ -1,4 +1,4 @@
-# Tool Blueprint — Adding a Tool to ICOS v3
+# Tool Blueprint — Adding a Tool to ICOS
 
 Fill in Part 1, hand this file plus the completed blueprint to an agent,
 and point it at Part 2. Tools are code, not config: the catalog is a

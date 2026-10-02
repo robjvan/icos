@@ -1,4 +1,4 @@
-# Commercial License — ICOS v3
+# Commercial License — ICOS
 
 The software in this repository is offered free for **Noncommercial Purposes** under the
 [PolyForm Noncommercial License 1.0.0](./LICENSE).
@@ -10,7 +10,7 @@ This software is **not** offered under a free license for **commercial use**.
 Any use intended for or directed toward commercial advantage or monetary compensation —
 including but not limited to:
 
-- embedding ICOS v3 or any of its components in a product or service you sell;
+- embedding ICOS or any of its components in a product or service you sell;
 - offering it as part of a Software-as-a-Service (SaaS) offering;
 - using it to perform work for a paying client or employer;
 - redistributing it, in whole or in part, for a fee.

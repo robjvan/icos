@@ -1,9 +1,9 @@
-# ICOS v3
+# ICOS
 
 <center>
 
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
-![Updated](https://img.shields.io/badge/Updated-2026%2F09%30-CBA701)
+![Updated](https://img.shields.io/badge/Updated-2026%2F10%2F02-CBA701)
 ![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.13.0-red)
@@ -27,23 +27,37 @@
 
 ## What is ICOS?
 
-**ICOS** (**I**SABEL **C**ognitive **O**perating **S**ystem) v3 is a from-scratch cognitive agent runtime built to investigate a simple question:
+**ICOS** (**I**SABEL **C**ognitive **O**perating **S**ystem) is a from-scratch cognitive agent runtime built to investigate a simple question:
 
 > **What is the minimum architecture required to give an agent persistent memory, useful knowledge, and meaningful agency?**
 
-ICOS v3 is not a wrapper around an existing agent framework.
+ICOS is not a wrapper around an existing agent framework.
 
 **The runtime is the harness.**
 
 The agent loop, interaction layer, model boundary, session persistence, memory systems, skills, and future autonomous capabilities are being developed as parts of one deliberately small system.
 
-The goal is not to reproduce a biological model of cognition. Instead, ICOS v3 is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
+The goal is not to reproduce a biological model of cognition. Instead, ICOS is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
+
+> **Trying it out?** Start with **[USAGE.md](USAGE.md)** (setup, configuration,
+> and running the stack). Before exposing it beyond your machine, read
+> **[docs/security.md](docs/security.md)**.
 
 ---
 
-## Why v3?
+## Lineage
 
-ISABEL v2 explored a much more elaborate approach to cognitive architecture, incorporating biologically inspired mechanisms including persistent identity, multiple memory systems, state modulation, autonomous action selection, knowledge structures, and more.
+ICOS is the third generation of a personal cognitive-architecture research
+line — hence "v3", which refers to the *generation*, not to ICOS's own
+version. ICOS is the first release under its own name.
+
+| Generation | Name       |                                                |
+| :--------: | :--------- | :--------------------------------------------- |
+|    v1      | **AURORA** |                                                |
+|    v2      | **ISABEL** | A large, biologically inspired architecture.   |
+|    v3      | **ICOS**   | **ISABEL Cognitive Operating System**.         |
+
+ISABEL (v2) explored a much more elaborate approach to cognitive architecture, incorporating biologically inspired mechanisms including persistent identity, multiple memory systems, state modulation, autonomous action selection, knowledge structures, and more.
 
 That work was valuable, but it also exposed a problem:
 
@@ -51,7 +65,7 @@ That work was valuable, but it also exposed a problem:
 
 When an agent changed its behaviour, it became increasingly difficult to determine whether the change came from a particular mechanism or from its interaction with everything surrounding it.
 
-ICOS v3 takes the opposite approach.
+ICOS takes the opposite approach.
 
 Start small.
 
@@ -67,7 +81,7 @@ Keep the system understandable.
 
 ## Design Goals
 
-ICOS v3 is being built around a few principles:
+ICOS is being built around a few principles:
 
 ### Small enough to understand
 
@@ -99,8 +113,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M13 are complete, and the security-hardening milestone (S1–S6) is
-complete.**
+**M1–M13 are complete, and the security-hardening milestone (S1–S6) is complete.**
 
 The current system provides:
 
@@ -128,11 +141,10 @@ The current system provides:
   temporal navigation)
 - Contradiction transparency in the web client (paired belief links,
   negation markers, parked-question surfacing)
-- MCP client support (consumes standard Model Context Protocol
-  servers: namespaced tools bridged into the agent loop, approval-
-  gated execution with durable records, resources and prompt
-  templates behind a read-only fetch surface, hand-edited catalog
-  with no-restart reload and a per-server health surface)
+- MCP client support (consumes standard Model Context Protocol servers:
+  namespaced tools bridged into the agent loop, approval-gated execution
+  with durable records, resources and prompt templates behind a
+  read-only fetch surface, no-restart catalog reload, per-server health)
 - Security posture (loopback-by-default binding, authentication with a
   bootstrap token, an encrypted secret vault, and an LLM provider
   registry selected at runtime with key references resolved through the
@@ -144,10 +156,10 @@ Development is active and the architecture is expected to change substantially a
 
 ## Milestones
 
-ICOS v3 is being developed as a sequence of increasingly capable experiments.
+ICOS is being developed as a sequence of increasingly capable experiments.
 
 |  Milestone   | Question                                                                      |
-| :----------: | ----------------------------------------------------------------------------- |
+| :----------: | :---------------------------------------------------------------------------- |
 |    **M1**    | _Can it talk?_                                                                |
 |    **M2**    | _Can it stream?_                                                              |
 |    **M3**    | _Can it remember what happened?_                                              |
@@ -172,193 +184,15 @@ ICOS v3 is being developed as a sequence of increasingly capable experiments.
 | **Deferred** | **_Episodic consolidation:_** _Can experiences be abstracted into knowledge?_ |
 | **Deferred** | **_Source synchronization:_** _Can knowledge stay aligned with the world?_    |
 
-Each milestone is tracked in:
-
-```text
-.reference/plans/
-```
-
-Verification evidence is maintained in:
-
-```text
-.reference/plans/evidence/
-```
+Each milestone is tracked in `.reference/plans/` (plans and evidence), with
+completed plans under `.reference/plans/closed/` and their verification under
+`.reference/plans/evidence/`.
 
 The intent is for the repository to document the development process rather than simply present the final architecture.
 
 ---
 
-# Getting Started
-
-## Deployment target
-
-The supported deployment target is a **Docker container**, defined by
-`docker-compose.yml` and `core/Dockerfile`.
-
-Run it wherever suits you: your local machine, or any host on your local
-network (publish port `3000` accordingly). Bare-metal `npm run start` remains
-available for local development, but Docker is the expected way to launch and
-play with the stack.
-
-> **Security first.** ICOS binds to `127.0.0.1` and publishes only to
-> loopback by default, and requires a login. **Put TLS in front before
-> exposing it** — session cookies are `Secure`, so they need HTTPS. See
-> [docs/security.md](docs/security.md).
-
-## Requirements
-
-- **Docker** with **Docker Compose** — the supported way to run the stack.
-  Give Docker **at least 4 GB of memory** (Docker Desktop → Settings →
-  Resources). The web-client image compiles the Angular app during
-  `docker compose build`, which needs ~1.5 GB; on a 2 GB Docker host the
-  build fails with esbuild `JS heap out of memory` errors.
-- **8 GB VRAM minimum** if you serve models through the Docker Model
-  Runner (memory + chat models share one GPU budget; below this the
-  runner evicts or degrades models).
-- **Node.js 24.13.0** and **npm 11.6.2** — only needed for local development
-  outside Docker.
-- An OpenAI-compatible LLM endpoint (local or remote; see below).
-
-The model itself does not need to run on the same machine.
-
----
-
-## Installation
-
-Clone the repository:
-
-```sh
-git clone https://git.exilelogic.ca/robjvan/icos-v3.git
-cd icos-v3
-```
-
-No `npm install` is needed for the Docker path — the image build handles
-dependencies.
-
----
-
-## Configuration
-
-ICOS v3 uses environment variables for runtime configuration.
-
-Create a local environment file from the provided example:
-
-```sh
-cp core/.env.sample core/.env
-```
-
-Open `core/.env` and configure the LLM provider and other required settings.
-
-For example:
-
-```env
-# LLM
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_API_KEY=ollama
-LLM_MODEL=<your-model>
-
-# Application
-PORT=3000
-```
-
-The exact variables and defaults may change as development continues, so **`core/.env.sample` is the authoritative configuration reference**.
-
-> **Do not commit your `core/.env` file.** It is intended for local configuration and may contain credentials.
-
-> **Docker networking note:** inside the container, `localhost` refers to the
-> container itself, not your machine. If your LLM runs on the Docker host
-> (e.g. local Ollama), point `LLM_BASE_URL` at `http://host.docker.internal:<port>/v1`
-> or your host's LAN address. Remote provider URLs work unchanged.
-
----
-
-## Run ICOS (Docker — recommended)
-
-New users without a local model setup should start here: **one command,
-zero sidecars.** The Docker Model Runner serves the memory model (and,
-eventually, the chat model) inside the compose stack — no Ollama daemon,
-no separate model downloads, no extra terminals.
-
-From the repository root:
-
-```sh
-docker compose -f docker-compose.yml -f docker-compose-dmr.yml up --build -d
-# shorthand: bin/dmr up -d --build
-```
-
-Once the `icos-v3-core` service is healthy, open:
-
-```text
-http://localhost:4200
-```
-
-(Or `http://<host>:4200` when running on another machine on your network.)
-
-The development chat interface should be available there. Give the stack
-a minute after first boot: models download once (GBs) and the vector
-index rebuilds before recall is at full strength.
-
-Stop with `docker compose -f docker-compose.yml -f docker-compose-dmr.yml down`
-(shorthand: `bin/dmr down`). Bring the stack down before starting the
-other variant — both bind the same host ports.
-
-> **DMR status: in testing.** The compose file, model refs, and VRAM
-> behaviour are still being validated. It works today; treat sharp
-> edges as expected.
-
----
-
-## Run ICOS with your own models (Docker)
-
-If you already run Ollama, llama.cpp, or a remote provider, use the
-default compose file and point Core at your endpoints:
-
-```sh
-docker compose up --build -d
-```
-
-Configure `LLM_*` / `MEMORY_*` in `core/.env` (see Configuration
-below). Inside the container, `localhost` means the container itself —
-use `http://host.docker.internal:<port>/v1` for host-local models.
-
----
-
-## Run ICOS locally (legacy, without Docker)
-
-For bare-metal development (self-configured Ollama + `npm` + `ng serve`):
-
-```sh
-cd core
-npm install
-npm run start
-```
-
-Then open `http://localhost:4200` as above.
-
-This path still works but is no longer the recommended way to try the
-stack — prefer the DMR variant unless you have a reason not to.
-
----
-
-## Development Mode
-
-For development with automatic reload:
-
-```sh
-npm run start:dev
-```
-
-Run the test suite with:
-
-```sh
-npm test
-```
-
-> Available scripts may change as the project develops. Run `npm run` to see the current project commands.
-
----
-
-# Architecture
+## Architecture
 
 At its current stage, ICOS intentionally has a small architecture.
 
@@ -407,42 +241,32 @@ Some components shown above represent planned capabilities rather than fully imp
 
 ---
 
-# Repository Structure
+## Repository Structure
 
-The project is organized around the runtime and its experimental evidence.
+The project is organized around the runtime, the web client, and the
+experimental evidence behind each milestone.
 
 ```text
-core/                   # ICOS runtime
-  Dockerfile            # Dev server image for docker-compose use
-  ...                   # Project files
-
-web-cient/
-  Dockerfile            # Dev web client image for docker-compose use
-  ...                   # Project files
-
-docker-compose.yml      # Supported launch path (icos-v3-core service)
-docker-compose-dmr.yml  # DMR override: same stack, models served in-stack
-                        # (usage: -f docker-compose.yml -f docker-compose-dmr.yml,
-                        #  or bin/dmr; in testing)
+core/                   # ICOS runtime (NestJS)
+web-client/             # Angular web client
+docker-compose.yml      # Supported launch path (core service)
+docker-compose-dmr.yml  # DMR override: models served in-stack (see bin/dmr)
 bin/dmr                 # Shorthand for the DMR variant
-
-.reference/
-  plans/                # Milestone plans
-  plans/evidence/       # Verification and live-run evidence
-
-docs/security.md        # Exposure, TLS, secrets posture
-
-LICENSE                 # PolyForm Noncommercial License
-COMMERCIAL-LICENSE.md   # Commercial licensing information
+docs/                   # User-facing docs (security, blueprints, sample skills)
+.reference/             # Plans, evidence, and planning notes
+INDEX.md                # Full repository map
+USAGE.md                # Setup, configuration, and operation
 ```
+
+See **[INDEX.md](INDEX.md)** for the complete annotated map.
 
 As the project grows, this section will be expanded to document significant architectural boundaries and development conventions.
 
 ---
 
-# Research Direction
+## Research Direction
 
-ICOS v3 is ultimately intended to support experiments around agent behaviour and architecture.
+ICOS is ultimately intended to support experiments around agent behaviour and architecture.
 
 Some of the questions motivating future development include:
 
@@ -460,9 +284,9 @@ The architecture is therefore a means to an end.
 
 ---
 
-# Project Status
+## Project Status
 
-ICOS v3 is an active personal research and software project.
+ICOS is an active personal research and software project.
 
 It is **not production software** and should be considered experimental.
 
@@ -472,9 +296,9 @@ The repository's milestone plans and evidence are intended to make those changes
 
 ---
 
-# Contributing
+## Contributing
 
-ICOS v3 is primarily a personal research project and is not currently seeking additional maintainers.
+ICOS is primarily a personal research project and is not currently seeking additional maintainers.
 
 That said, the project is public and feedback is welcome.
 
@@ -484,9 +308,9 @@ Questions are particularly useful when they challenge an assumption behind the a
 
 ---
 
-# License
+## License
 
-ICOS v3 is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
+ICOS is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
 
 Commercial use requires a separate license.
 
@@ -496,11 +320,11 @@ See [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) for details.
 
 ## Related Research
 
-ICOS v3 is the continuation of research previously conducted under the ISABEL name.
+ICOS is the continuation of research previously conducted under the ISABEL name.
 
 The v2 work explored increasingly complex biologically inspired cognitive architecture.
 
-ICOS v3 deliberately takes a different methodological approach: **start with a minimal architecture and reintroduce capabilities incrementally.**
+ICOS deliberately takes a different methodological approach: **start with a minimal architecture and reintroduce capabilities incrementally.**
 
 The objective is not to build the most elaborate agent architecture possible.
 

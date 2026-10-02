@@ -6,9 +6,9 @@
 
 - Runtime, memory primitives, tools, execution, orchestration.
 
-**M10–M15: Can we make an agent that knows things reliably?**
+**M10–M15.5: Can we make an agent that knows things reliably?**
 
-- Epistemic memory, retrieval, revision, provenance, drift, verification.
+- Epistemic memory, retrieval, revision, provenance, identity, drift, verification.
 
 **M16–M21: Can we put that agent into an environment?**
 
@@ -24,7 +24,7 @@
   observe → measure → hypothesize → experiment → evaluate → propose change → verify → deploy/rollback.
   ```
 
-**M27 onward starts asking the really nasty questions:**
+**M27 onward starts asking the really interesting questions:**
 
 - _Does cognition have to belong to one model?_
 - _Does an agent have to live on one machine?_
@@ -33,6 +33,8 @@
 - _Can experience become knowledge?_
 - _Can knowledge gaps generate research?_
 - _What exactly constitutes continuity when the model, hardware, software, and even instance change?_
+
+**_M37 onward gets weird..._**
 
 ---
 
@@ -85,83 +87,95 @@
   - [x] ~~Three scopes — session-pinned, one-shot, turn-contextual — delimited injection, observability~~
   - [x] ~~Evidence: `milestone-7a/7b/7c-evidence-skills.md`; live Isabel discovers `icos-v3-stack`~~
 
-- [ ] **M8: Tool Integration**
-  - [ ] Tool contracts
-  - [ ] Model tool-call protocol
-  - [ ] Bounded execution
-  - [ ] Approval and persistence
-  - [ ] Invocation ledger
-  - [ ] Durable call / result pairing
-  - [ ] Idempotency and duplicate-call handling
-  - [ ] Failure and unknown-outcome handling
-  - [ ] Verification
+- [x] ~~**M8: Tool Integration**~~
+  - [x] ~~Tool contracts~~
+  - [x] ~~Model tool-call protocol~~
+  - [x] ~~Bounded execution~~
+  - [x] ~~Approval and persistence~~
+  - [x] ~~Invocation ledger~~
+  - [x] ~~Durable call / result pairing~~
+  - [x] ~~Idempotency and duplicate-call handling~~
+  - [x] ~~Failure and unknown-outcome handling~~
+  - [x] ~~Verification~~
 
-- [ ] **M9: Agent Orchestration**
-  - [ ] Agent run state
-  - [ ] Tool selection and planning
-  - [ ] Observation → action loop
-  - [ ] Termination criteria
-  - [ ] Execution budgets
-  - [ ] Failure and recovery
-  - [ ] Approval-aware planning
-  - [ ] Loop / repetition protection
-  - [ ] Cancellation and restart semantics
-  - [ ] End-to-end verification
+- [x] ~~**M9: Agent Orchestration**~~
+  - [x] ~~Agent run state~~
+  - [x] ~~Tool selection and planning~~
+  - [x] ~~Observation → action loop~~
+  - [x] ~~Termination criteria~~
+  - [x] ~~Execution budgets~~
+  - [x] ~~Failure and recovery~~
+  - [x] ~~Approval-aware planning~~
+  - [x] ~~Loop / repetition protection~~
+  - [x] ~~Cancellation and restart semantics~~
+  - [x] ~~End-to-end verification~~
 
-- [ ] **M10: Build the Epistemic Memory**
-  - [ ] Epistemic claim model
-  - [ ] Evidence → claim processing
-  - [ ] Claim identity / deduplication
-  - [ ] Provenance and evidence tracing
-  - [ ] Contradiction / reinforcement
-  - [ ] Epistemic storage model
-  - [ ] RuVector substrate
-  - [ ] Epistemic memory verification
+- [x] ~~**M10: Build the Epistemic Memory**~~
+  - [x] ~~Epistemic claim model~~
+  - [x] ~~Evidence → claim processing~~
+  - [x] ~~Claim identity / deduplication~~
+  - [x] ~~Provenance and evidence tracing~~
+  - [x] ~~Contradiction / reinforcement~~
+  - [x] ~~Epistemic storage model~~
+  - [x] ~~RuVector substrate~~
+  - [x] ~~Epistemic memory verification~~
 
-- [ ] **M11: Memory Retrieval / Application**
-  - [ ] Contextual recall
-  - [ ] Memory ranking
-  - [ ] Cross-memory comparison
-  - [ ] Memory-aware context construction
-  - [ ] Retrieval budgeting
-  - [ ] Retrieval failure / uncertainty handling
-  - [ ] Retrieval evaluation
+- [x] ~~**M11: Memory Retrieval / Application**~~
+  - [x] ~~Contextual recall~~
+  - [x] ~~Memory ranking~~
+  - [x] ~~Cross-memory comparison~~
+  - [x] ~~Memory-aware context construction~~
+  - [x] ~~Retrieval budgeting~~
+  - [x] ~~Retrieval failure / uncertainty handling~~
+  - [x] ~~Retrieval evaluation~~
 
-- [ ] **M12: Memory Dynamics**
-  - [ ] Consolidation
-  - [ ] Supersession
-  - [ ] Decay / forgetting
-  - [ ] Temporal reasoning
-  - [ ] Belief revision
-  - [ ] Source reliability
-  - [ ] Memory dynamics evaluation
+- [x] ~~**M12: Memory Dynamics**~~
+  - [x] ~~Consolidation~~
+  - [x] ~~Supersession~~
+  - [x] ~~Decay / forgetting~~
+  - [x] ~~Temporal reasoning~~
+  - [x] ~~Belief revision~~
+  - [x] ~~Source reliability~~
+  - [x] ~~Memory dynamics evaluation~~
 
-- [ ] **M13: MCP Server Support**
-  - [ ] MCP server boundary
-  - [ ] Tool exposure
-  - [ ] Resource / context exposure
-  - [ ] MCP identity / permissions
-  - [ ] Approval / execution integration
-  - [ ] MCP verification
+- [x] ~~**M13: MCP Server Support**~~
+  - [x] ~~MCP server boundary~~
+  - [x] ~~Tool exposure~~
+  - [x] ~~Resource / context exposure~~
+  - [x] ~~MCP identity / permissions~~
+  - [x] ~~Approval / execution integration~~
+  - [x] ~~MCP verification~~
 
 - [ ] **M14: Persistent Persona Maintenance**
-  - [ ] Persona model
+  - [ ] Immutable core persona (file-backed, read-only, integrity-pinned, no write path)
+  - [ ] Evolving persona model (identity / user / relationship)
   - [ ] Persona provenance
-  - [ ] Persona update / maintenance
+  - [ ] Persona seed import and update / maintenance
+  - [ ] Grounding check and session-start context band
+  - [ ] Candidate staging (memory proposes, persona adjudicates)
+  - [ ] Reviewed curation (protected records, corrigibility)
+  - [ ] Isolation invariant (identity sealed from memory, core sealed from the system)
   - [ ] Model-independent persona persistence
-  - [ ] Persona consistency / adaptation
   - [ ] Persona recovery
+  - [ ] Persona review UI
   - [ ] Persona verification
 
-- [ ] **M15: Drift Detection and Hallucination Mitigation**
-  - [ ] Define observable failure modes
+- [ ] **M15: Drift Detection and Reporting**
+  - [ ] Define observable drift failure modes
   - [ ] Establish behavioral / epistemic baselines
+  - [ ] Structural drift (core / protected contradiction, staleness, repeated pressure, low grounding)
   - [ ] Distributional drift detection
     - [ ] Evaluate Wasserstein distance and simpler alternatives
+  - [ ] Cumulative drift across review cycles
+  - [ ] Finding reconciliation / de-duplication
+  - [ ] Drift reporting surface
+  - [ ] Evaluation
 
+- [ ] **M15.5: Hallucination Mitigation**
+  - [ ] Define observable hallucination failure modes
   - [ ] Claim / evidence consistency checking
-  - [ ] Secondary-model verification
-  - [ ] Mitigation strategies
+  - [ ] Secondary-model verification (provider-agnostic)
+  - [ ] Mitigation strategies (flag / re-ground / defer / refuse)
   - [ ] False-positive / false-negative analysis
   - [ ] Evaluation
 
@@ -453,3 +467,62 @@
   - [ ] Introduce new capabilities without breaking established invariants
   - [ ] Maintain an explicit research frontier
   - [ ] Define the next generation of ICOS
+
+- [ ] **M37: Advanced Perception**
+  - [ ] Persistent visual perception
+  - [ ] Person / object recognition
+  - [ ] Spatial relationship understanding
+  - [ ] Activity / behavior recognition
+  - [ ] Multimodal identity cues
+  - [ ] Biometric perception?
+  - [ ] Face recognition / identity verification?
+  - [ ] Privacy-preserving local inference?
+  - [ ] Perception confidence and uncertainty
+  - [ ] Persistent perceptual memory
+  - [ ] Vision → epistemic memory integration
+
+- [ ] **M38: Building-Scale Environment Control**
+  - [ ] Building device registry
+  - [ ] HVAC / climate control
+  - [ ] Lighting
+  - [ ] Access control
+  - [ ] Cameras / security systems
+  - [ ] Power monitoring and control
+  - [ ] Appliances / machinery
+  - [ ] Environmental sensors
+  - [ ] Unified building state model
+  - [ ] Cross-system automation
+  - [ ] Physical action authorization
+  - [ ] Safety interlocks
+  - [ ] Human override
+  - [ ] Building-wide event processing
+  - [ ] Local operation during network failure
+  - [ ] Building-scale autonomous management?
+
+- [ ] **M39: Mobile Embodiment**
+  - [ ] Mobile platform integration
+  - [ ] Autonomous navigation
+  - [ ] Dynamic obstacle avoidance
+  - [ ] Spatial mapping
+  - [ ] Person-aware navigation
+  - [ ] Physical task execution
+  - [ ] Charging / energy management
+  - [ ] Docking / autonomous recovery
+  - [ ] Mobile sensor platform
+  - [ ] Environment → action → observation loop
+  - [ ] Persistent physical-world state
+  - [ ] Human / robot interaction
+  - [ ] Autonomous operation boundaries
+
+- [ ] **M40: Vehicle Embodiment**
+  - [ ] Vehicle platform integration?
+  - [ ] Drive-by-wire interface?
+  - [ ] Vehicle sensor integration
+  - [ ] Autonomous vehicle state model
+  - [ ] Mobile compute / edge inference
+  - [ ] Vehicle ↔ building ↔ ICOS coordination
+  - [ ] Transformable mechanical platform?
+  - [ ] Physical configuration state
+  - [ ] Transformation planning and verification
+  - [ ] Mechanical safety interlocks
+  - [ ] Human override

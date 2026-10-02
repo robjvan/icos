@@ -1,6 +1,6 @@
-# ICOS v3 — Agent Rules
+# ICOS — Agent Rules
 
-This repository is the ICOS v3 cognitive stack (see `README.md`). It is an experimental
+This repository is the ICOS cognitive stack (see `README.md`). It is an experimental
 platform, not a commercial product.
 
 ## Ground rules
@@ -16,7 +16,7 @@ platform, not a commercial product.
 - Deployment target is a **Docker container** (`docker-compose.yml` +
   `core/Dockerfile`). Whether it runs on localhost or on the local network is
   up to the user — never assume bare-metal deployment. Keep the compose path
-  working: `docker compose up --build` should launch a healthy `icos-v3-core`.
+  working: `docker compose up --build` should launch a healthy `core`.
 - Provider-agnostic: never hard-code a provider. All LLM access goes through the
   OpenAI-compatible interface. Remember `localhost` inside the container is the
   container itself — document `host.docker.internal` / LAN addresses where
@@ -29,7 +29,7 @@ platform, not a commercial product.
 - `.reference/plans/` — milestone plans and design notes.
 - `.reference/plans/evidence/` — verification evidence for closed milestones.
 - `docs/` — user-facing documents.
-- `docker-compose.yml` — supported launch path (`icos-v3-core` service).
+- `docker-compose.yml` — supported launch path (`core` service).
 - `core/Dockerfile` — dev server image used by compose.
 - `core/.env.sample` — authoritative runtime configuration reference.
 - `INDEX.md` / `README.md` — project map and overview.

@@ -1,0 +1,38 @@
+# Keep host build artifacts out of the image. `COPY . .` runs *after*
+# `npm install` in the Dockerfile, so without this it overwrites the
+# Linux node_modules installed in the image with the host's macOS
+# binaries — notably better-sqlite3 and other native modules, which are
+# Mach-O and fail to load on Linux (musl/glibc) containers.
+node_modules
+dist
+build
+coverage
+.nyc_output
+*.tsbuildinfo
+
+# Local-only runtime data. The live data root is bind-mounted from the
+# host (~/.icos); this in-repo dir is a leftover local SQLite default.
+data
+.temp
+.tmp
+pids
+*.pid
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Secrets / local environment. Runtime config is supplied by compose
+# `env_file: ./core/.env`, so secrets must never be baked into layers.
+.env
+.dmr.env
+
+# VCS / editor / OS noise
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
