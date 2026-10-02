@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { coreConfigProvider } from '../config';
 import { PersonaController } from './persona.controller';
+import { PersonaCandidateStager } from './persona-candidate-stager.service';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
 import { PersonaGroundingService } from './persona-grounding.service';
@@ -28,6 +29,7 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaCoreService,
     PersonaSeedImportService,
     PersonaGroundingService,
+    PersonaCandidateStager,
   ],
   exports: [
     PersonaDatabaseService,
@@ -35,6 +37,7 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaCoreService,
     PersonaSeedImportService,
     PersonaGroundingService,
+    PersonaCandidateStager,
   ],
 })
 export class PersonaModule {}

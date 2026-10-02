@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
 import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import type { CoreConfig } from '../config';
 import { CommandDispatcher } from '../commands/command-dispatcher';
@@ -165,6 +166,9 @@ async function setup(
     new RecallTraceStore(),
     {} as unknown as ClaimRepository,
     { band: () => Promise.resolve(null) } as unknown as PersonaGroundingService,
+    {
+      stageFromMemoryCandidates: () => Promise.resolve(0),
+    } as unknown as PersonaCandidateStager,
     new NoopPublisher(),
   );
   return {

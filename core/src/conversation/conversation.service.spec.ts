@@ -33,6 +33,7 @@ import type {
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ConversationService } from './conversation.service';
+import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
 import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import {
@@ -322,6 +323,9 @@ function setup(
       {
         band: () => Promise.resolve(null),
       } as unknown as PersonaGroundingService,
+      {
+        stageFromMemoryCandidates: () => Promise.resolve(0),
+      } as unknown as PersonaCandidateStager,
       new NoopPublisher(),
     ),
     repository,

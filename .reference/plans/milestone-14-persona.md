@@ -202,19 +202,20 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14d-evidence-groundi
 - [x] Empty/weak persona returns `needsWarmup: true` with reasons, never
       a fabricated identity.
 
-# [ ] M14e — Candidate Staging
+# [x] M14e — Candidate Staging (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14e-evidence-candidates.md`.
 
-- [ ] Memory extraction (M4/M10) may stage identity-relevant
-      observations as `persona_candidates`. **Stage only.**
-- [ ] Candidate fields: observation, category, confidence,
-      proposed target layer, `source`, `source_turn_id`, `claim_id`,
-      `session_id`.
-- [ ] Idempotent by deterministic ID; re-observing the same claim
-      does not duplicate.
-- [ ] No code path from extraction to a persona record except
-      through review.
+- [x] Memory extraction (M4) stages identity-relevant observations as
+      `persona_candidates`. **Stage only.**
+- [x] Candidate fields: observation, category, confidence, proposed
+      target layer, `source`, `source_turn_id`, `claim_id`, `session_id`.
+      Staged from memory candidates, so `claim_id` is null for now — the
+      column is reserved for a future claim-sourced path (M10).
+- [x] Idempotent by deterministic ID; re-observing the same triple does
+      not duplicate, and a reviewed candidate is not resurrected.
+- [x] No code path from extraction to a persona record except through
+      review.
 
 # [ ] M14f — Review / Curation
 
