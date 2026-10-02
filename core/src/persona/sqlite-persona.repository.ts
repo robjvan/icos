@@ -13,6 +13,7 @@ import type {
   PersonaCandidateCategory,
   PersonaCandidateStatus,
   PersonaCategory,
+  PersonaCoreState,
   PersonaDriftEntry,
   PersonaDriftSeverity,
   PersonaProposedTarget,
@@ -172,6 +173,15 @@ interface PersonaDriftRow {
   created_at: string;
 }
 
+interface PersonaCoreStateRow {
+  path: string;
+  hash: string | null;
+  entry_count: number;
+  loaded: number;
+  reason: string | null;
+  updated_at: string;
+}
+
 function mapRecord(row: PersonaRecordRow): PersonaRecord {
   return {
     recordId: row.record_id,
@@ -260,6 +270,17 @@ function mapDrift(row: PersonaDriftRow): PersonaDriftEntry {
     reviewedAt: nullableString(row.reviewed_at),
     metadata: parseJsonObject(row.metadata_json),
     createdAt: row.created_at,
+  };
+}
+
+function mapCoreState(row: PersonaCoreStateRow): PersonaCoreState {
+  return {
+    path: row.path,
+    hash: nullableString(row.hash),
+    entryCount: row.entry_count,
+    loaded: row.loaded === 1,
+    reason: nullableString(row.reason),
+    updatedAt: row.updated_at,
   };
 }
 
@@ -597,6 +618,37 @@ export class SqlitePersonaRepository extends PersonaRepository {
       )
       .all(userId, this.capLimit(limit)) as PersonaDriftRow[];
     return rows.map(mapDrift);
+  }
+
+  async getCoreState(): Promise<PersonaCoreState | null> {
+    const row = this.database
+      .prepare('SELECT * FROM persona_core_state WHERE id = 1')
+      .get() as PersonaCoreStateRow | undefined;
+    return row ? mapCoreState(row) : null;
+  }
+
+  async saveCoreState(state: PersonaCoreState): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO persona_core_state (
+           id, path, hash, entry_count, loaded, reason, updated_at
+         ) VALUES (1, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           path = excluded.path,
+           hash = excluded.hash,
+           entry_count = excluded.entry_count,
+           loaded = excluded.loaded,
+           reason = excluded.reason,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        state.path,
+        state.hash,
+        state.entryCount,
+        state.loaded ? 1 : 0,
+        state.reason,
+        state.updatedAt,
+      );
   }
 
   async ping(): Promise<void> {

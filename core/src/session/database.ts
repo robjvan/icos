@@ -650,6 +650,19 @@ ON persona_drift_log(user_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_persona_drift_unresolved
 ON persona_drift_log(user_id, reviewed, change_type);
+
+-- M14b: the last core-persona load, for change detection across boots.
+-- A single row. The core *entries* are never stored — the core is a
+-- read-only file; only its hash and status are remembered here.
+CREATE TABLE IF NOT EXISTS persona_core_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    path TEXT NOT NULL,
+    hash TEXT,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    loaded INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    updated_at TEXT NOT NULL
+);
 `;
 
 const SCHEMAS: Record<
@@ -697,6 +710,7 @@ const SCHEMAS: Record<
       'persona_relationship',
       'persona_candidates',
       'persona_drift_log',
+      'persona_core_state',
     ],
     triggers: [],
   },

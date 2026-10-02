@@ -201,3 +201,45 @@ export interface LogPersonaDriftInput {
   metadata?: Record<string, unknown>;
   occurredAt?: string;
 }
+
+/** The five immutable-core categories. */
+export type PersonaCoreCategory =
+  | 'ethical_grounding'
+  | 'core_belief'
+  | 'safety_boundary'
+  | 'non_negotiable'
+  | 'agentic_character';
+
+/**
+ * A parsed immutable-core entry. Never stored, never mutated, never
+ * reviewable — the core is a read-only file (M14b). `immutable` is a
+ * literal `true` so the type itself forbids a mutable variant.
+ */
+export interface PersonaCoreEntry {
+  entryId: string;
+  category: PersonaCoreCategory;
+  content: string;
+  immutable: true;
+}
+
+/** Read-only status of the core persona, for grounding and the UI. */
+export interface PersonaCoreStatus {
+  loaded: boolean;
+  path: string;
+  hash: string | null;
+  entryCount: number;
+  /** When this status was last evaluated (load attempt time). */
+  evaluatedAt: string;
+  reason?: string;
+  changedSinceLastLoad: boolean;
+}
+
+/** Persisted record of the last core load, for change detection. */
+export interface PersonaCoreState {
+  path: string;
+  hash: string | null;
+  entryCount: number;
+  loaded: boolean;
+  reason: string | null;
+  updatedAt: string;
+}

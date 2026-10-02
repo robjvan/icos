@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { coreConfigProvider } from '../config';
+import { PersonaController } from './persona.controller';
+import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
 import { PersonaRepository } from './persona.repository';
 import { SqlitePersonaRepository } from './sqlite-persona.repository';
@@ -11,14 +13,18 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
  * persona store is isolated from memory, not another memory repository.
  */
 @Module({
+  controllers: [PersonaController],
   providers: [
     coreConfigProvider,
+    // Order matters for lifecycle: the database opens, then the core
+    // loader reads its file and records the load in that database.
     PersonaDatabaseService,
     {
       provide: PersonaRepository,
       useClass: SqlitePersonaRepository,
     },
+    PersonaCoreService,
   ],
-  exports: [PersonaDatabaseService, PersonaRepository],
+  exports: [PersonaDatabaseService, PersonaRepository, PersonaCoreService],
 })
 export class PersonaModule {}

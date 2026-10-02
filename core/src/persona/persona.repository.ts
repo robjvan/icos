@@ -2,6 +2,7 @@ import type {
   CreatePersonaRecordInput,
   LogPersonaDriftInput,
   PersonaCandidate,
+  PersonaCoreState,
   PersonaDriftEntry,
   PersonaRecord,
   PersonaRelationship,
@@ -69,6 +70,14 @@ export abstract class PersonaRepository {
     userId: string,
     limit?: number,
   ): Promise<PersonaDriftEntry[]>;
+
+  /**
+   * Last recorded core-persona load (path, hash, status), for change
+   * detection across boots. The core *entries* are never stored.
+   */
+  abstract getCoreState(): Promise<PersonaCoreState | null>;
+
+  abstract saveCoreState(state: PersonaCoreState): Promise<void>;
 
   /** Cheap liveness probe for health checks. */
   abstract ping(): Promise<void>;

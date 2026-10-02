@@ -82,6 +82,12 @@ export interface CoreConfig {
    */
   personaDbPath?: string;
   /**
+   * M14b immutable core persona: a human-authored, read-only Markdown
+   * file. ICOS has no write path to it. Optional on the type for the
+   * same reason as `personaDbPath`; `loadConfig` always populates it.
+   */
+  personaCorePath?: string;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -289,6 +295,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     sessionDbPath: resolvePath(env.SESSION_DB_PATH, '~/.icos/data/sessions.db'),
     memoryDbPath: resolvePath(env.MEMORY_DB_PATH, '~/.icos/data/memories.db'),
     personaDbPath: resolvePath(env.PERSONA_DB_PATH, '~/.icos/data/persona.db'),
+    personaCorePath: resolvePath(
+      env.PERSONA_CORE_PATH,
+      '~/.icos/persona/core.md',
+    ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

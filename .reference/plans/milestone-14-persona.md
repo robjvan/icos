@@ -135,27 +135,30 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14a-evidence-model.m
       existing M1–M13 tables. Verified: the persona file contains
       only persona tables.
 
-# [ ] M14b — Immutable Core Persona
+# [x] M14b — Immutable Core Persona (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14b-evidence-core.md`.
 
-- [ ] Core is **file-backed**: `PERSONA_CORE_PATH` (default
-      `~/.icos/persona/core.md`), parsed at boot.
-- [ ] Categories: `ethical_grounding`, `core_belief`,
+- [x] Core is **file-backed**: `PERSONA_CORE_PATH` (default
+      `~/.icos/persona/core.md`), parsed read-only at boot; a shipped
+      template lives at `core/persona/core.example.md`.
+- [x] Categories: `ethical_grounding`, `core_belief`,
       `safety_boundary`, `non_negotiable`, `agentic_character`.
-- [ ] **No write path exists.** Audit and prove: no
-      `fs.write*`/`fs.append*`, no `UPDATE`/`DELETE`/`INSERT` that
-      targets core, no API/tool that mutates it. Recommended
-      deployment: bind the core directory read-only into the
-      container.
-- [ ] Boot computes and records the core sha256; a hash change is an
-      audited human act (`persona_core_changed`), not drift.
-- [ ] Missing or invalid core → **loud degraded boot**, never a
-      fabricated identity; grounding caps its score accordingly.
-- [ ] Core is exposed read-only (status + API) and injected first in
-      every grounding band, marked `immutable`.
-- [ ] A candidate contradicting any core entry is `critical` and
-      non-applicable (enforced in M14f).
+- [x] **No write path exists.** Proven: no file-write call anywhere in
+      the persona subsystem, no mutation of core entries, no API/tool
+      that changes it — only `readFileSync`. Read-only-mount guidance
+      documented in `.env.sample`.
+- [x] Boot computes and records the core sha256; a hash change is an
+      audited human act (`persona_core_changed`, severity `info`), not
+      drift.
+- [x] Missing or invalid core → **loud degraded boot**, never a
+      fabricated identity (`loaded: false` + reason).
+- [x] Core is exposed read-only (status + `GET /core/persona/core`,
+      admin-only); entries carry a literal `immutable: true`. Band
+      ordering lands in M14d.
+- [x] Core entries expose stable ids + content so a candidate
+      contradicting one is `critical` and non-applicable (enforcement
+      lands in M14f).
 
 # [ ] M14c — Seed Import (Evolving Baseline)
 
