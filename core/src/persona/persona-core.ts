@@ -1,4 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createId } from './persona-ids';
+import {
+  hasTemplatePlaceholder,
+  splitMarkdownSections,
+  statementsIn,
+} from './persona-markdown';
 import type { PersonaCoreCategory, PersonaCoreEntry } from './persona.types';
 
 /**
@@ -21,11 +26,6 @@ export const PERSONA_CORE_CATEGORIES: readonly PersonaCoreCategory[] = [
   'non_negotiable',
   'agentic_character',
 ];
-
-interface MarkdownSection {
-  heading: string;
-  body: string;
-}
 
 export interface ParsedPersonaCore {
   entries: PersonaCoreEntry[];
@@ -66,7 +66,7 @@ export function parsePersonaCore(
   const warnings: string[] = [];
   const entries: PersonaCoreEntry[] = [];
 
-  for (const section of splitSections(markdown)) {
+  for (const section of splitMarkdownSections(markdown)) {
     const category = coreCategoryForHeading(section.heading);
     if (!category) {
       continue;
@@ -96,87 +96,4 @@ export function parsePersonaCore(
   }
 
   return { entries, warnings };
-}
-
-function splitSections(markdown: string): MarkdownSection[] {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-  const sections: MarkdownSection[] = [];
-  let heading = '';
-  let body: string[] = [];
-  const flush = () => {
-    if (heading) {
-      // Retain empty sections too: a recognized-but-empty category is a
-      // warning, not a silent omission.
-      sections.push({ heading, body: body.join('\n').trim() });
-    }
-    body = [];
-  };
-
-  for (const line of lines) {
-    const match = line.match(/^#{1,3}\s+(.+?)\s*$/);
-    if (match) {
-      flush();
-      heading = cleanMarkdown(match[1]);
-    } else {
-      body.push(line);
-    }
-  }
-  flush();
-  return sections;
-}
-
-function statementsIn(body: string): string[] {
-  const statements: string[] = [];
-  let paragraph: string[] = [];
-  const flush = () => {
-    const content = cleanMarkdown(paragraph.join(' '));
-    if (content) {
-      statements.push(content);
-    }
-    paragraph = [];
-  };
-
-  for (const rawLine of body.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line === '---') {
-      flush();
-      continue;
-    }
-    if (/^```/.test(line)) {
-      continue;
-    }
-    const bullet = line.match(/^[-*+]\s+(.+)$/);
-    if (bullet) {
-      flush();
-      const content = cleanMarkdown(bullet[1]);
-      if (content) {
-        statements.push(content);
-      }
-      continue;
-    }
-    paragraph.push(line.replace(/^>\s?/, ''));
-  }
-  flush();
-  return statements.filter((statement) => statement.length >= 8);
-}
-
-function cleanMarkdown(value: string): string {
-  return value
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/__(.*?)__/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function hasTemplatePlaceholder(content: string): boolean {
-  return /\[(?:agent name|value\s*\d*|one sentence|direction\s*\d*|describe|current self|fill|your)/i.test(
-    content,
-  );
-}
-
-function createId(prefix: string, value: string): string {
-  const digest = createHash('sha256').update(value).digest('hex');
-  return `${prefix}-${digest.slice(0, 24)}`;
 }

@@ -164,23 +164,21 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14b-evidence-core.md
       contradicting one is `critical` and non-applicable (enforcement
       lands in M14f).
 
-# [ ] M14c — Seed Import (Evolving Baseline)
+# [x] M14c — Seed Import (Evolving Baseline) (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14c-evidence-seed.md`.
 
-- [ ] Markdown section→policy parser (port of the v2 seed importer):
+- [x] Markdown section→policy parser (a port of the v2 seed importer):
       headings map to category / sensitivity / protected / layer.
-- [ ] Guarded seed root (`PERSONA_SEED_ROOT`): relative paths only,
-      `realpath` containment, `.md` only, bounded file count.
-- [ ] Idempotent by content hash; unchanged imports write nothing
-      and emit nothing.
-- [ ] Unresolved template placeholders are skipped, never persisted.
-- [ ] A changed seed updates only its own untouched `seeded`
-      baseline; anything else is **staged as a candidate**, never an
-      overwrite.
-- [ ] The import target is the **evolving tier only**. The core is
-      never a seed target.
-- [ ] Deferred (recorded, not built): portable JSON package import.
+- [x] Guarded seed root (`PERSONA_SEED_ROOT`): relative paths only,
+      `realpath` containment, `.md` only, at most 20 files per import.
+- [x] Idempotent by content hash; an unchanged import writes nothing.
+- [x] Unresolved template placeholders are skipped, never persisted.
+- [x] A changed seed updates only its own untouched `seeded` baseline;
+      anything else is **staged as a candidate**, never an overwrite.
+- [x] The import target is the **evolving tier only**. The core is never
+      a seed target. Exposed admin-only at `POST /core/persona/seeds/import`.
+- [x] Deferred (recorded, not built): portable JSON package import.
 
 # [ ] M14d — Grounding Check + Context Band
 

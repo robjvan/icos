@@ -243,3 +243,30 @@ export interface PersonaCoreState {
   reason: string | null;
   updatedAt: string;
 }
+
+/** Seed source kinds accepted by the persona seed importer (M14c). */
+export type PersonaSeedSourceKind = 'persona' | 'soul';
+
+export interface PersonaSeedSourceInput {
+  /** Path relative to `PERSONA_SEED_ROOT`. */
+  path: string;
+  kind: PersonaSeedSourceKind;
+}
+
+export interface PersonaSeedImportResult {
+  userId: string;
+  agentId: string;
+  seedRoot: string;
+  importedAt: string;
+  dryRun: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  conflictsStaged: number;
+  skipped: number;
+  sourceFiles: string[];
+  recordIds: string[];
+  changedRecordIds: string[];
+  candidateIds: string[];
+  warnings: string[];
+}

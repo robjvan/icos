@@ -82,6 +82,7 @@ describe('loadConfig', () => {
     expect(config.personaCorePath).toBe(
       join(homedir(), '.icos/persona/core.md'),
     );
+    expect(config.personaSeedRoot).toBe(join(homedir(), '.icos/seeds'));
     expect(config.legacyDbPath).toBe(
       resolve(process.cwd(), './data/core.sqlite'),
     );

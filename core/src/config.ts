@@ -95,6 +95,12 @@ export interface CoreConfig {
    */
   personaCoreRequired?: boolean;
   /**
+   * M14c seed import root: the only directory persona seed imports may
+   * read from (relative Markdown paths, realpath-confined). Optional on
+   * the type; `loadConfig` always populates it.
+   */
+  personaSeedRoot?: string;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -307,6 +313,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       '~/.icos/persona/core.md',
     ),
     personaCoreRequired: parseBoolean(env.PERSONA_CORE_REQUIRED, true),
+    personaSeedRoot: resolvePath(env.PERSONA_SEED_ROOT, '~/.icos/seeds'),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

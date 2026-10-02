@@ -2,8 +2,8 @@
    async is contractual (repository returns Promises);
    better-sqlite3 itself is synchronous. */
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { createId } from './persona-ids';
 import { PersonaDatabaseService } from './persona-database.service';
 import { PersonaRepository } from './persona.repository';
 import type {
@@ -33,16 +33,6 @@ const DEFAULT_CANDIDATE_CONFIDENCE = 0.65;
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-/**
- * Deterministic id from content. Deterministic (not random) so staging
- * and repeated seed imports are idempotent: the same observation always
- * maps to the same row instead of duplicating.
- */
-function createId(prefix: string, value: string): string {
-  const digest = createHash('sha256').update(value).digest('hex');
-  return `${prefix}-${digest.slice(0, 24)}`;
 }
 
 function stringify(value: unknown): string | null {
