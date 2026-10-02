@@ -18,16 +18,18 @@
 - [x] M10: Build the epistemic memory
 - [x] M11: Memory retrieval / application
 - [x] M12: Memory dynamics
+- [x] M13: MCP server support
 
 ## Designed
+
+- [ ] M14: Persistent persona maintenance
+- [ ] M15: Drift detection and reporting
+- [ ] M15.5: Hallucination mitigation
 
 ## Planned
 
 > _See `full-roadmap-extended.md` for full details._
 
-- [ ] M13: MCP server support
-- [ ] M14: Persistent persona maintenance
-- [ ] M15: Drift detection and hallucination mitigation
 - [ ] M16: External communication integrations
 - [ ] M17: Autonomous agency and action execution
 - [ ] M18: External sensory reintegration

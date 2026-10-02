@@ -23,3 +23,5 @@ session-*.md
 # Brainstorming documents
 .reference/notes/memory-system-feedback.md
 .reference/notes/tools-out-of-context.md
+.reference/notes/self-coding/
+.reference/legacy
