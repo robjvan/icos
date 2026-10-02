@@ -70,11 +70,12 @@ can promote a candidate into the core.
 
 ## Identity is isolated from memory
 
-Persona tables live in the same SQLite file as the rest of ICOS but
-are a separate, protected namespace. The invariant to prove: **if a
-memory store is tampered with, no persona record and no core entry
-changes.** Memory has no write handle to persona; the reverse is not
-required (persona may cite memory provenance).
+Persona lives in its **own SQLite database file**, separate from the
+memory stores at the filesystem level as well as the table level. The
+invariant to prove: **if a memory store is tampered with, no persona
+record and no core entry changes.** Memory has no write handle to
+persona; the reverse is not required (persona may cite memory
+provenance by plain column, never a cross-database foreign key).
 
 ## The core has no write path — by construction
 
@@ -111,25 +112,28 @@ deferred.
 
 ---
 
-# [ ] M14a — Persona Model + Stores
+# [x] M14a — Persona Model + Stores (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14a-evidence-model.md`.
 
-- [ ] New `core/src/persona/` module. `persona.repository.ts` over
-      `node:sqlite` (same DB, `DatabaseSync`, WAL), mirroring the
-      proven v2 repository shape.
-- [ ] Tables: `persona_records` (identity/self layer),
+- [x] New `core/src/persona/` module. `persona.repository.ts` over
+      `better-sqlite3`, in its own `persona.db` file (separate from the
+      `sessions` and `memories` files), mirroring the proven v2
+      repository shape.
+- [x] Tables: `persona_records` (identity/self layer),
       `persona_user_model`, `persona_relationship` (singleton),
       `persona_candidates`, `persona_drift_log`.
-- [ ] Provenance on every row: `source`, `source_turn_id`,
+- [x] Provenance on every row: `source`, `source_turn_id`,
       `claim_id` (nullable link into M10 claims), `confidence`,
       `sensitivity`, `protected`, `reviewed_by`, timestamps,
       `metadata_json`.
-- [ ] Deterministic sha256-prefixed IDs so staging is idempotent.
-- [ ] `protected` here means "explicit review required to
-      overwrite" (evolving tier only; the core is not a DB row).
-- [ ] Migration-safe schema creation; new tables never touch
-      existing M1–M13 tables.
+- [x] Deterministic sha256-prefixed IDs so staging is idempotent.
+- [x] `protected` here means "explicit review required to
+      overwrite" (evolving tier only; the core is not a DB row);
+      enforced at the store.
+- [x] Migration-safe schema creation; new tables never touch
+      existing M1–M13 tables. Verified: the persona file contains
+      only persona tables.
 
 # [ ] M14b — Immutable Core Persona
 

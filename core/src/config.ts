@@ -74,6 +74,14 @@ export interface CoreConfig {
   sessionDbPath: string;
   memoryDbPath: string;
   /**
+   * M14 persona store: curated identity / user / relationship records,
+   * staged candidates, and the drift log. A separate file from the
+   * memory stores by design — identity is isolated from memory.
+   * Optional in the type (tests and callers that never open it may omit
+   * it); `loadConfig` always populates it.
+   */
+  personaDbPath?: string;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -280,6 +288,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     maxHistory: parsePositiveInt(env.MAX_HISTORY, 50, 'MAX_HISTORY'),
     sessionDbPath: resolvePath(env.SESSION_DB_PATH, '~/.icos/data/sessions.db'),
     memoryDbPath: resolvePath(env.MEMORY_DB_PATH, '~/.icos/data/memories.db'),
+    personaDbPath: resolvePath(env.PERSONA_DB_PATH, '~/.icos/data/persona.db'),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has
