@@ -1,12 +1,14 @@
-# ICOS
-
 <div align="center">
 
-![Status](https://img.shields.io/badge/Status-WIP-orange)
+<img src=".reference/plans/brand/icos-app-icon.svg" height=180px>
+<br><br>
+
+# ICOS
+
 ![Commits](https://img.shields.io/github/commit-activity/t/robjvan/icos?logo=github)
 ![LastCommit](https://img.shields.io/github/last-commit/robjvan/icos?color=CBA701&logo=github)
 
-![Tests](https://img.shields.io/badge/Tests-Passing-green?logo=jest)
+![Tests](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
 ![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7%-green?logo=jest)
 ![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9%-green?logo=jest)
 
