@@ -4,9 +4,11 @@ import type {
   PersonaCandidate,
   PersonaCoreState,
   PersonaDriftEntry,
+  PersonaDriftTrend,
   PersonaRecord,
   PersonaRelationship,
   PersonaUserFact,
+  RecordPersonaDriftTrendInput,
   StagePersonaCandidateInput,
   UpdatePersonaCandidateReviewInput,
   UpsertPersonaRelationshipInput,
@@ -90,6 +92,16 @@ export abstract class PersonaRepository {
     subjectId: string,
     changeType: string,
   ): Promise<number>;
+
+  /** Append a semantic-trend row for a record (review cycle auto-numbered). */
+  abstract recordDriftTrend(
+    input: RecordPersonaDriftTrendInput,
+  ): Promise<PersonaDriftTrend>;
+
+  abstract listDriftTrends(
+    recordId: string,
+    limit?: number,
+  ): Promise<PersonaDriftTrend[]>;
 
   /**
    * Last recorded core-persona load (path, hash, status), for change

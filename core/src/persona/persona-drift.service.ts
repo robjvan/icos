@@ -5,16 +5,20 @@ import { PersonaCoreService } from './persona-core.service';
 import {
   PERSONA_DRIFT_DEFAULTS,
   PERSONA_DRIFT_SEVERITY,
+  semanticDriftSeverity,
   type PersonaFailureMode,
 } from './persona-drift';
 import { statementsContradict } from './persona-contradiction';
+import { PersonaEmbedder } from './persona-embedder.service';
 import { PersonaGroundingService } from './persona-grounding.service';
 import { PersonaRepository } from './persona.repository';
+import { compareContent, embeddingCosine } from './persona-semantic';
 import { tokenOverlap } from './persona-similarity';
 import {
   DEFAULT_PERSONA_USER_ID,
   type PersonaCandidate,
   type PersonaDriftEntry,
+  type PersonaDriftSeverity,
 } from './persona.types';
 
 /**
@@ -39,6 +43,7 @@ export class PersonaDriftService {
     private readonly repository: PersonaRepository,
     private readonly core: PersonaCoreService,
     private readonly grounding: PersonaGroundingService,
+    private readonly embedder: PersonaEmbedder,
   ) {}
 
   /**
@@ -227,6 +232,91 @@ export class PersonaDriftService {
     }
   }
 
+  /**
+   * Semantic drift for a record whose content changed (M15c). Records a
+   * trend row every cycle, and raises a `semantic_drift` finding at/above
+   * the configured floor. Identical content is a no-op. The real embedding
+   * cosine is used as the direction signal when available; otherwise the
+   * token-distribution triad drives it.
+   */
+  async evaluateSemanticChange(
+    recordId: string,
+    previousContent: string,
+    nextContent: string,
+    userId: string = DEFAULT_PERSONA_USER_ID,
+  ): Promise<PersonaDriftEntry | null> {
+    const comparison = compareContent(previousContent, nextContent);
+    if (comparison.identical) {
+      return null;
+    }
+
+    const vectorCosine = await this.embeddingCosineOf(
+      previousContent,
+      nextContent,
+    );
+    // Embeddings are the primary direction signal when available — they
+    // see through synonyms, where the lexical triad cannot. The triad and
+    // baselines are still reported for the "which measure earns its place"
+    // comparison. Without embeddings the token distribution drives.
+    const signal = vectorCosine !== null ? 1 - vectorCosine : comparison.signal;
+    const floor =
+      this.config.personaSemanticDriftFloor ??
+      PERSONA_DRIFT_DEFAULTS.semanticDriftFloor;
+    const severity = semanticDriftSeverity(
+      signal,
+      this.config.personaSemanticCriticalFloor ??
+        PERSONA_DRIFT_DEFAULTS.semanticCriticalFloor,
+    );
+
+    await this.repository.recordDriftTrend({
+      recordId,
+      cosine: comparison.cosine,
+      wasserstein: comparison.wasserstein,
+      entropy: comparison.entropy,
+      tokenOverlap: comparison.tokenOverlap,
+      editRatio: comparison.editRatio,
+      embeddingCosine: vectorCosine,
+      signal,
+      severity,
+    });
+
+    if (signal < floor) {
+      return null;
+    }
+    const embeddingNote =
+      vectorCosine !== null ? `, embedding ${vectorCosine.toFixed(3)}` : '';
+    return this.logOnce(
+      userId,
+      `record:${recordId}`,
+      'semantic_drift',
+      nextContent,
+      `Semantic drift signal ${signal.toFixed(3)} (cosine ${comparison.cosine.toFixed(3)}, wasserstein ${comparison.wasserstein.toFixed(3)}, entropy ${comparison.entropy.toFixed(2)}${embeddingNote}).`,
+      {
+        recordId,
+        signal,
+        cosine: comparison.cosine,
+        wasserstein: comparison.wasserstein,
+        entropy: comparison.entropy,
+        embeddingCosine: vectorCosine,
+      },
+      severity,
+    );
+  }
+
+  private async embeddingCosineOf(
+    previous: string,
+    next: string,
+  ): Promise<number | null> {
+    const [left, right] = await Promise.all([
+      this.embedder.embed(previous),
+      this.embedder.embed(next),
+    ]);
+    if (!left || !right) {
+      return null;
+    }
+    return embeddingCosine(left, right);
+  }
+
   private async logOnce(
     userId: string,
     subjectId: string,
@@ -234,6 +324,7 @@ export class PersonaDriftService {
     newValue: string,
     reason: string,
     metadata?: Record<string, unknown>,
+    severity: PersonaDriftSeverity = PERSONA_DRIFT_SEVERITY[mode],
   ): Promise<PersonaDriftEntry | null> {
     if (await this.repository.hasUnresolvedDrift(userId, subjectId, mode)) {
       return null;
@@ -241,15 +332,13 @@ export class PersonaDriftService {
     const entry = await this.repository.logDrift({
       userId,
       subjectId,
-      severity: PERSONA_DRIFT_SEVERITY[mode],
+      severity,
       changeType: mode,
       newValue,
       reason,
       metadata,
     });
-    this.logger.log(
-      `Drift ${mode} (${PERSONA_DRIFT_SEVERITY[mode]}) on ${subjectId}`,
-    );
+    this.logger.log(`Drift ${mode} (${severity}) on ${subjectId}`);
     return entry;
   }
 }

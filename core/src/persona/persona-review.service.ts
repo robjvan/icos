@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { statementsContradict } from './persona-contradiction';
 import { PersonaCoreService } from './persona-core.service';
+import { PersonaDriftService } from './persona-drift.service';
 import { PersonaRepository } from './persona.repository';
 import type {
   PersonaCandidate,
@@ -51,6 +52,7 @@ export class PersonaReviewService {
   constructor(
     private readonly repository: PersonaRepository,
     private readonly core: PersonaCoreService,
+    private readonly drift: PersonaDriftService,
   ) {}
 
   async review(
@@ -206,12 +208,43 @@ export class PersonaReviewService {
       },
       occurredAt,
     });
+    if (existing) {
+      await this.recordSemanticChange(
+        record.recordId,
+        existing.content,
+        candidate.observation,
+        candidate.userId,
+      );
+    }
     return {
       target: 'persona_record',
       targetId: record.recordId,
       previousValue: existing?.content,
       newValue: candidate.observation,
     };
+  }
+
+  /** M15c: semantic drift for an updated record. Fail-soft. */
+  private async recordSemanticChange(
+    recordId: string,
+    previousContent: string,
+    nextContent: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.drift.evaluateSemanticChange(
+        recordId,
+        previousContent,
+        nextContent,
+        userId,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Semantic drift evaluation failed for ${recordId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   private async applyUserModel(

@@ -341,6 +341,35 @@ export interface PersonaReviewResult {
   conflictWithCoreEntryId?: string;
 }
 
+/** A persisted semantic-trend row for a record (M15c). */
+export interface PersonaDriftTrend {
+  id: number;
+  recordId: string;
+  reviewCycle: number;
+  cosine: number;
+  wasserstein: number;
+  entropy: number;
+  tokenOverlap: number;
+  editRatio: number;
+  embeddingCosine: number | null;
+  signal: number;
+  severity: PersonaDriftSeverity;
+  observedAt: string;
+}
+
+export interface RecordPersonaDriftTrendInput {
+  recordId: string;
+  cosine: number;
+  wasserstein: number;
+  entropy: number;
+  tokenOverlap: number;
+  editRatio: number;
+  embeddingCosine?: number | null;
+  signal: number;
+  severity: PersonaDriftSeverity;
+  occurredAt?: string;
+}
+
 export interface UpdatePersonaCandidateReviewInput {
   candidateId: string;
   outcome: PersonaReviewOutcome;

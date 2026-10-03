@@ -10,6 +10,7 @@ import type { CoreConfig } from '../config';
 import { DatabaseService } from '../session/database.service';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
+import type { PersonaDriftService } from './persona-drift.service';
 import { PersonaReviewService } from './persona-review.service';
 import { SqlitePersonaRepository } from './sqlite-persona.repository';
 
@@ -93,7 +94,10 @@ describe('PersonaReviewService', () => {
     const repository = new SqlitePersonaRepository(db);
     const coreService = new PersonaCoreService(config, repository);
     await coreService.onModuleInit();
-    const review = new PersonaReviewService(repository, coreService);
+    const drift = {
+      evaluateSemanticChange: () => Promise.resolve(null),
+    } as unknown as PersonaDriftService;
+    const review = new PersonaReviewService(repository, coreService, drift);
     return { repository, core: coreService, review };
   };
 

@@ -108,20 +108,24 @@ Evidence: `.reference/plans/evidence/milestone-15/milestone-15b-evidence-structu
 - [x] `logOnce` de-duplication on unresolved `(subject, change_type)` and
       `resolve` when the condition clears; pressure reconciled per cluster.
 
-# [ ] M15c — Semantic Drift
+# [x] M15c — Semantic Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15c-evidence-semantic.md`.
 
-- [ ] Represent each record with the real embedding model, persisted
-      for reuse.
-- [ ] Report the triad: cosine similarity (direction), Wasserstein-1
-      (distributional movement, `W1 = ½Σ|p−q|`), normalized Shannon
-      entropy (uncertainty), each tagged with provenance.
-- [ ] **Compare against simpler baselines** (token overlap, edit
-      distance, cosine alone) and record which measure earns its
-      place — the roadmap's explicit ask.
-- [ ] Severity weighs the drift signal; no semantic drift on
-      identical content.
+- [x] Represent a record's movement with the real embedding model when
+      available (RuVector `OnnxEmbedder` behind a fail-closed
+      `PersonaEmbedder` boundary); the per-cycle comparison is persisted
+      in `persona_drift_trends`. Raw vectors are recomputed per comparison,
+      not cached — acceptable at this scale, revisited if profiling wants it.
+- [x] Report the triad — cosine (direction), Wasserstein-1
+      (`W1 = ½Σ|p−q|`), normalized Shannon entropy — plus the baselines
+      (token overlap, edit ratio), all stored per trend row.
+- [x] **Compare against simpler baselines** and record which earns its
+      place: the embedding cosine is primary when present (it suppresses a
+      lexical false positive — disjoint synonyms); the token triad drives
+      when embeddings are unavailable.
+- [x] Severity weighs the drift signal (base `warning`, escalates to
+      `critical` at the critical floor); identical content is a no-op.
 
 # [ ] M15d — Cumulative Drift
 

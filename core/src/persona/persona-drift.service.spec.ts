@@ -7,6 +7,7 @@ import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
 import { PERSONA_DRIFT_SEVERITY } from './persona-drift';
 import { PersonaDriftService } from './persona-drift.service';
+import type { PersonaEmbedder } from './persona-embedder.service';
 import { PersonaGroundingService } from './persona-grounding.service';
 import { SqlitePersonaRepository } from './sqlite-persona.repository';
 
@@ -81,7 +82,7 @@ describe('PersonaDriftService', () => {
   let corePath = '';
   const services: DatabaseService[] = [];
 
-  const open = async (core = CORE) => {
+  const open = async (core = CORE, embedder?: PersonaEmbedder) => {
     writeFileSync(corePath, core);
     const config = testConfig(dir, corePath);
     const db = new PersonaDatabaseService(config);
@@ -95,11 +96,13 @@ describe('PersonaDriftService', () => {
       repository,
       coreService,
     );
+    const activeEmbedder = embedder ?? { embed: () => Promise.resolve(null) };
     const drift = new PersonaDriftService(
       config,
       repository,
       coreService,
       grounding,
+      activeEmbedder,
     );
     return { repository, core: coreService, grounding, drift };
   };
@@ -261,5 +264,52 @@ describe('PersonaDriftService', () => {
       (entry) => !entry.reviewed,
     );
     expect(unresolved).toHaveLength(0);
+  });
+
+  it('raises semantic drift for a real meaning shift and records a trend', async () => {
+    const { repository, drift } = await open();
+    const finding = await drift.evaluateSemanticChange(
+      'record-1',
+      'Be honest about uncertainty.',
+      'Prefer comfortable reassurance over truth.',
+    );
+    expect(finding).toMatchObject({ changeType: 'semantic_drift' });
+    const trends = await repository.listDriftTrends('record-1');
+    expect(trends).toHaveLength(1);
+    expect(trends[0]).toMatchObject({ reviewCycle: 1, embeddingCosine: null });
+    expect(trends[0].signal).toBeGreaterThan(0.5);
+  });
+
+  it('lets the embedding cosine suppress a lexical false positive', async () => {
+    const embed = (text: string): Promise<number[] | null> => {
+      // Synonyms share an embedding even though no token overlaps.
+      const table: Record<string, number[]> = {
+        happy: [1, 0],
+        joyful: [1, 0],
+        sad: [0, 1],
+      };
+      return Promise.resolve(table[text] ?? null);
+    };
+    const { repository, drift } = await open(CORE, { embed });
+
+    // Same meaning, disjoint tokens: the embedding keeps the signal at 0.
+    expect(
+      await drift.evaluateSemanticChange('r1', 'happy', 'joyful'),
+    ).toBeNull();
+    const trend = (await repository.listDriftTrends('r1'))[0];
+    expect(trend.embeddingCosine).toBeCloseTo(1, 6);
+    expect(trend.signal).toBeCloseTo(0, 6);
+
+    // Opposite meaning: the embedding raises the signal above the floor.
+    const finding = await drift.evaluateSemanticChange('r1', 'happy', 'sad');
+    expect(finding).toMatchObject({ changeType: 'semantic_drift' });
+  });
+
+  it('treats identical content as a no-op', async () => {
+    const { repository, drift } = await open();
+    expect(
+      await drift.evaluateSemanticChange('r1', 'Same text.', 'Same text.'),
+    ).toBeNull();
+    expect(await repository.listDriftTrends('r1')).toHaveLength(0);
   });
 });

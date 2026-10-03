@@ -112,6 +112,10 @@ export interface CoreConfig {
   personaCandidatePressureCount?: number;
   /** M15b: lexical similarity that joins candidates into a pressure cluster. */
   personaCandidatePressureSimilarity?: number;
+  /** M15c: semantic-drift signal at/above which a finding is raised. */
+  personaSemanticDriftFloor?: number;
+  /** M15c: semantic-drift signal at/above which severity is `critical`. */
+  personaSemanticCriticalFloor?: number;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -355,6 +359,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.PERSONA_CANDIDATE_PRESSURE_SIMILARITY,
       0.6,
       'PERSONA_CANDIDATE_PRESSURE_SIMILARITY',
+    ),
+    personaSemanticDriftFloor: parseScore(
+      env.PERSONA_SEMANTIC_DRIFT_FLOOR,
+      0.25,
+      'PERSONA_SEMANTIC_DRIFT_FLOOR',
+    ),
+    personaSemanticCriticalFloor: parseScore(
+      env.PERSONA_SEMANTIC_CRITICAL_FLOOR,
+      0.5,
+      'PERSONA_SEMANTIC_CRITICAL_FLOOR',
     ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),

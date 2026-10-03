@@ -146,5 +146,18 @@ export const PERSONA_DRIFT_DEFAULTS = {
   candidatePressureSimilarity: 0.6,
   groundingWarmupThreshold: 0.6,
   semanticDriftFloor: 0.25,
+  semanticCriticalFloor: 0.5,
   cumulativeMinCycles: 3,
 } as const;
+
+/**
+ * Semantic drift severity. The catalogue supplies the base (`warning`);
+ * an extreme movement escalates to `critical`. This is the one place a
+ * detector may raise above its catalogue severity, and only upward.
+ */
+export function semanticDriftSeverity(
+  signal: number,
+  criticalFloor: number = PERSONA_DRIFT_DEFAULTS.semanticCriticalFloor,
+): PersonaDriftSeverity {
+  return signal >= criticalFloor ? 'critical' : 'warning';
+}

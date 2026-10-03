@@ -26,15 +26,18 @@ const STOP_WORDS = new Set([
   'you',
 ]);
 
-/** Content tokens: lowercased, punctuation-stripped, stop-words removed. */
+/** Content tokens in order, with repeats: lowercased, punctuation removed. */
+export function contentTokenList(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+}
+
+/** Content tokens as a set: lowercased, punctuation-stripped, stop-words removed. */
 export function contentTokens(value: string): Set<string> {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((token) => token.length > 2 && !STOP_WORDS.has(token)),
-  );
+  return new Set(contentTokenList(value));
 }
 
 /**

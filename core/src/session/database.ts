@@ -663,6 +663,26 @@ CREATE TABLE IF NOT EXISTS persona_core_state (
     reason TEXT,
     updated_at TEXT NOT NULL
 );
+
+-- M15c: per-review-cycle semantic trend for a record. One row per content
+-- change, so cumulative direction can be read across cycles (M15d).
+CREATE TABLE IF NOT EXISTS persona_drift_trends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL,
+    review_cycle INTEGER NOT NULL,
+    cosine REAL NOT NULL,
+    wasserstein REAL NOT NULL,
+    entropy REAL NOT NULL,
+    token_overlap REAL NOT NULL,
+    edit_ratio REAL NOT NULL,
+    embedding_cosine REAL,
+    signal REAL NOT NULL,
+    severity TEXT NOT NULL,
+    observed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_persona_drift_trends_record
+ON persona_drift_trends(record_id, review_cycle DESC);
 `;
 
 const SCHEMAS: Record<
@@ -711,6 +731,7 @@ const SCHEMAS: Record<
       'persona_candidates',
       'persona_drift_log',
       'persona_core_state',
+      'persona_drift_trends',
     ],
     triggers: [],
   },
