@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
+import { ApprovalService } from '../approvals/approval.service';
 import { ConversationService } from '../conversation/conversation.service';
+import type { TurnOutcome } from '../conversation/conversation.service';
 import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
 import type { ChannelMessage } from './channel.types';
@@ -33,13 +35,34 @@ export class DiscordIngressService implements OnModuleInit {
     private readonly repository: ChannelRepository,
     private readonly conversation: ConversationService,
     private readonly delivery: ChannelDeliveryService,
+    private readonly approvals: ApprovalService,
   ) {}
+
+  /** approvalId → where its card lives, so a button press can resume. */
+  private readonly approvalCards = new Map<
+    string,
+    {
+      sessionId: string;
+      requestId: string;
+      conversationKey: string;
+      messageId: string | null;
+    }
+  >();
 
   onModuleInit(): void {
     this.adapter.onMessage((message) => {
       void this.handle(message).catch((error: unknown) => {
         this.logger.warn(
           `Discord ingress failed: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      });
+    });
+    this.adapter.onApprovalDecision((decision) => {
+      void this.onApprovalDecision(decision).catch((error: unknown) => {
+        this.logger.warn(
+          `Discord approval decision failed: ${
             error instanceof Error ? error.message : 'unknown error'
           }`,
         );
@@ -156,6 +179,9 @@ export class DiscordIngressService implements OnModuleInit {
         (outcome.reply ?? '').trim() || '…',
         placeholderId,
       );
+      if (outcome.status === 'approval_required') {
+        await this.postApprovalCard(conversationKey, outcome);
+      }
     } catch (error) {
       this.logger.warn(
         `Discord turn failed for ${conversationKey}: ${
@@ -203,6 +229,71 @@ export class DiscordIngressService implements OnModuleInit {
       return result.externalMessageId;
     } catch {
       return null;
+    }
+  }
+
+  /** Post an approval card with buttons and remember it for the decision. */
+  private async postApprovalCard(
+    conversationKey: string,
+    outcome: TurnOutcome,
+  ): Promise<void> {
+    const approval = outcome.approval;
+    if (!approval) return;
+    let detail = '';
+    try {
+      detail = (await this.approvals.get(approval.approvalId)).description;
+    } catch {
+      detail = '';
+    }
+    const content = `🤔 Approval needed — ${detail || approval.tool}`;
+    const messageId = await this.adapter.postApproval(
+      conversationKey,
+      approval.approvalId,
+      content,
+    );
+    this.approvalCards.set(approval.approvalId, {
+      sessionId: outcome.sessionId,
+      requestId: outcome.requestId,
+      conversationKey,
+      messageId,
+    });
+  }
+
+  /** A button press: decide the approval, resume the turn, report back. */
+  private async onApprovalDecision(decision: {
+    approvalId: string;
+    approved: boolean;
+  }): Promise<void> {
+    const card = this.approvalCards.get(decision.approvalId);
+    if (!card) return;
+    try {
+      if (decision.approved) {
+        await this.approvals.approve(decision.approvalId, card.sessionId);
+      } else {
+        await this.approvals.reject(decision.approvalId, card.sessionId);
+      }
+      const outcome = await this.conversation.resumeTurn(
+        card.requestId,
+        card.sessionId,
+      );
+      const reply = (outcome.reply ?? '').trim();
+      if (reply) {
+        await this.repository.enqueueDelivery({
+          channel: 'discord',
+          conversationKey: card.conversationKey,
+          body: reply,
+        });
+        void this.delivery.runOnce().catch(() => undefined);
+      }
+      if (card.messageId) {
+        await this.adapter.editCard(
+          card.conversationKey,
+          card.messageId,
+          decision.approved ? '✅ Approved' : '❌ Rejected',
+        );
+      }
+    } finally {
+      this.approvalCards.delete(decision.approvalId);
     }
   }
 

@@ -9,6 +9,7 @@ import type {
   ConversationService,
   TurnOutcome,
 } from '../conversation/conversation.service';
+import type { ApprovalService } from '../approvals/approval.service';
 import { ChannelDatabaseService } from './channel-database.service';
 import type { ChannelDeliveryService } from './channel-delivery.service';
 import type { DiscordAdapter } from './discord.adapter';
@@ -84,6 +85,35 @@ class FakeAdapter {
     this.threads.push({ channelId, messageId, name });
     return this.threadId;
   }
+  readonly approvalCards: {
+    key: string;
+    approvalId: string;
+    content: string;
+  }[] = [];
+  readonly editedCards: { key: string; id: string; content: string }[] = [];
+  decisionHandler:
+    ((decision: { approvalId: string; approved: boolean }) => void) | null =
+    null;
+  onApprovalDecision(
+    handler: (decision: { approvalId: string; approved: boolean }) => void,
+  ): void {
+    this.decisionHandler = handler;
+  }
+  async postApproval(
+    conversationKey: string,
+    approvalId: string,
+    content: string,
+  ): Promise<string | null> {
+    this.approvalCards.push({ key: conversationKey, approvalId, content });
+    return 'card-1';
+  }
+  async editCard(
+    conversationKey: string,
+    id: string,
+    content: string,
+  ): Promise<void> {
+    this.editedCards.push({ key: conversationKey, id, content });
+  }
 }
 
 function fakeConversation(): {
@@ -110,6 +140,11 @@ describe('DiscordIngressService', () => {
   let database: ChannelDatabaseService;
   let repository: SqliteChannelRepository;
   let adapter: FakeAdapter;
+  let approvals: {
+    get: jest.Mock;
+    approve: jest.Mock;
+    reject: jest.Mock;
+  };
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'icos-ingress-'));
@@ -117,6 +152,11 @@ describe('DiscordIngressService', () => {
     database.onModuleInit();
     repository = new SqliteChannelRepository(database);
     adapter = new FakeAdapter();
+    approvals = {
+      get: jest.fn(() => Promise.resolve({ description: 'a description' })),
+      approve: jest.fn(() => Promise.resolve(undefined)),
+      reject: jest.fn(() => Promise.resolve(undefined)),
+    };
   });
 
   afterEach(() => {
@@ -136,6 +176,7 @@ describe('DiscordIngressService', () => {
       {
         runOnce: jest.fn(async () => 0),
       } as unknown as ChannelDeliveryService,
+      approvals as unknown as ApprovalService,
     );
 
   describe('accept policy', () => {
@@ -331,5 +372,69 @@ describe('DiscordIngressService', () => {
     expect(converse).not.toHaveBeenCalled();
     expect(adapter.sent).toHaveLength(0);
     expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
+  });
+
+  it('posts an approval card with buttons when a turn needs approval', async () => {
+    const converse = jest.fn(async (): Promise<TurnOutcome> => ({
+      status: 'approval_required',
+      sessionId: 'sess-new',
+      requestId: 'req-1',
+      reply: "Tool 'channel.send' needs approval before it can run.",
+      model: 'test-model',
+      approval: {
+        approvalId: 'appr-1',
+        invocationId: 'inv-1',
+        tool: 'channel.send',
+        args: { target: 'operator' },
+      },
+    }));
+    const service = build(testConfig(dir), {
+      converse,
+    } as unknown as ConversationService);
+
+    await service.handle(inbound({ content: 'send a dm' }));
+
+    expect(adapter.approvalCards).toHaveLength(1);
+    expect(adapter.approvalCards[0]?.approvalId).toBe('appr-1');
+    expect(adapter.approvalCards[0]?.content).toContain('Approval needed');
+  });
+
+  it('approves from a button, resumes the turn, and reports back', async () => {
+    const converse = jest.fn(async (): Promise<TurnOutcome> => ({
+      status: 'approval_required',
+      sessionId: 'sess-new',
+      requestId: 'req-1',
+      reply: 'needs approval',
+      model: 'test-model',
+      approval: {
+        approvalId: 'appr-1',
+        invocationId: 'inv-1',
+        tool: 'channel.send',
+        args: {},
+      },
+    }));
+    const resumeTurn = jest.fn(async (): Promise<TurnOutcome> => ({
+      status: 'ok',
+      sessionId: 'sess-new',
+      requestId: 'req-2',
+      reply: 'Sent.',
+      model: 'test-model',
+    }));
+    const service = build(testConfig(dir), {
+      converse,
+      resumeTurn,
+    } as unknown as ConversationService);
+    service.onModuleInit();
+
+    await service.handle(inbound({ content: 'send a dm' }));
+    adapter.decisionHandler?.({ approvalId: 'appr-1', approved: true });
+    for (let i = 0; i < 50 && adapter.editedCards.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(approvals.approve).toHaveBeenCalledWith('appr-1', 'sess-new');
+    expect(resumeTurn).toHaveBeenCalledWith('req-1', 'sess-new');
+    expect(adapter.editedCards[0]?.content).toContain('Approved');
+    expect(await repository.listDeliveries('pending')).toHaveLength(1);
   });
 });

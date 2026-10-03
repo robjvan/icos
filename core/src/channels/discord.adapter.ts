@@ -27,13 +27,13 @@ export const DISCORD_CLIENT_FACTORY = 'DISCORD_CLIENT_FACTORY';
 
 /** The slice of discord.js this adapter uses, kept structural for testing. */
 export interface DiscordMessageHandle {
-  edit(content: string): Promise<unknown>;
+  edit(payload: unknown): Promise<unknown>;
   startThread?(options: { name: string }): Promise<{ id: string }>;
 }
 
 export interface DiscordChannelLike {
   isTextBased(): boolean;
-  send(content: string): Promise<{ id: string }>;
+  send(payload: unknown): Promise<{ id: string }>;
   sendTyping?(): Promise<void>;
   messages?: { fetch(id: string): Promise<DiscordMessageHandle> };
 }
@@ -105,6 +105,9 @@ export class DiscordAdapter
   private messageHandler: DiscordMessageHandler | null = null;
   private selfTag: string | null = null;
   private selfId: string | null = null;
+  private approvalHandler:
+    ((decision: { approvalId: string; approved: boolean }) => void) | null =
+    null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -137,8 +140,9 @@ export class DiscordAdapter
       return;
     }
     try {
-      const { client, readyEvent, messageEvent } = await this.buildClient();
-      this.attach(client, readyEvent, messageEvent);
+      const { client, readyEvent, messageEvent, interactionEvent } =
+        await this.buildClient();
+      this.attach(client, readyEvent, messageEvent, interactionEvent);
       await client.login(token);
       this.client = client;
       this.statusDetail = 'connecting';
@@ -176,6 +180,13 @@ export class DiscordAdapter
   /** Register the inbound message handler (M16d). */
   onMessage(handler: DiscordMessageHandler): void {
     this.messageHandler = handler;
+  }
+
+  /** Register the approval-button handler (M16f). */
+  onApprovalDecision(
+    handler: (decision: { approvalId: string; approved: boolean }) => void,
+  ): void {
+    this.approvalHandler = handler;
   }
 
   /** The bot's own Discord tag (e.g. `NigelAgent#5144`), once ready. */
@@ -272,6 +283,77 @@ export class DiscordAdapter
     }
   }
 
+  /**
+   * Post an approval card with Approve/Reject buttons (M16f). Button ids
+   * are `approve:<id>` / `reject:<id>`; the ingress owns the decision.
+   * Returns the message id, or null when the post fails.
+   */
+  async postApproval(
+    conversationKey: string,
+    approvalId: string,
+    content: string,
+  ): Promise<string | null> {
+    if (!this.client || !this.ready) return null;
+    const target = parseDiscordTargetKey(conversationKey);
+    if (!target) return null;
+    try {
+      const channel = await this.resolveChannel(target);
+      if (!channel || !channel.isTextBased()) return null;
+      const sent = await channel.send({
+        content,
+        components: [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 3,
+                label: 'Approve',
+                custom_id: `approve:${approvalId}`,
+              },
+              {
+                type: 2,
+                style: 4,
+                label: 'Reject',
+                custom_id: `reject:${approvalId}`,
+              },
+            ],
+          },
+        ],
+      });
+      return sent.id ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `Discord approval post failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /** Rewrite an approval card and drop its buttons (after a decision). */
+  async editCard(
+    conversationKey: string,
+    messageId: string,
+    content: string,
+  ): Promise<void> {
+    if (!this.client || !this.ready) return;
+    const target = parseDiscordTargetKey(conversationKey);
+    if (!target) return;
+    try {
+      const channel = await this.resolveChannel(target);
+      const handle = await channel?.messages?.fetch(messageId);
+      await handle?.edit({ content, components: [] });
+    } catch (error) {
+      this.logger.warn(
+        `Discord card edit failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
   /** Fetch the channel for a target; a DM target resolves the user first. */
   private async resolveChannel(
     target: DiscordTarget,
@@ -288,12 +370,14 @@ export class DiscordAdapter
     client: DiscordClientLike;
     readyEvent: string;
     messageEvent: string;
+    interactionEvent: string;
   }> {
     if (this.factory) {
       return {
         client: await this.factory(),
         readyEvent: 'ready',
         messageEvent: 'messageCreate',
+        interactionEvent: 'interactionCreate',
       };
     }
     const mod = await import('discord.js');
@@ -308,6 +392,7 @@ export class DiscordAdapter
       client,
       readyEvent: mod.Events.ClientReady ?? 'ready',
       messageEvent: mod.Events.MessageCreate ?? 'messageCreate',
+      interactionEvent: mod.Events.InteractionCreate ?? 'interactionCreate',
     };
   }
 
@@ -315,6 +400,7 @@ export class DiscordAdapter
     client: DiscordClientLike,
     readyEvent: string,
     messageEvent: string,
+    interactionEvent: string,
   ): void {
     client.once(readyEvent, (readyClient: unknown) => {
       this.ready = true;
@@ -334,6 +420,21 @@ export class DiscordAdapter
       );
     });
     client.on(messageEvent, (raw: unknown) => this.handleRaw(raw));
+    client.on(interactionEvent, (raw: unknown) => this.handleInteraction(raw));
+  }
+
+  private handleInteraction(raw: unknown): void {
+    if (raw === null || typeof raw !== 'object') return;
+    const interaction = raw as {
+      isButton?: () => boolean;
+      customId?: string;
+      deferUpdate?: () => Promise<void>;
+    };
+    if (!interaction.isButton?.()) return;
+    const [action, approvalId] = (interaction.customId ?? '').split(':');
+    if ((action !== 'approve' && action !== 'reject') || !approvalId) return;
+    void interaction.deferUpdate?.();
+    this.approvalHandler?.({ approvalId, approved: action === 'approve' });
   }
 
   private handleRaw(raw: unknown): void {
