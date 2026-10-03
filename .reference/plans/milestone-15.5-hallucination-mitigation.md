@@ -133,6 +133,20 @@ Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5d-evidence-mit
       (`critical` → `refuse`, `warning`/`watch` → `flag`, `info` → `none`);
       the strictest strategy across findings wins.
 
+# [x] M15.5e0 — Turn Integration (complete 2026-10-03)
+
+Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5e-wiring-evidence.md`.
+
+- [x] The mechanism is wired into the turn: the post-turn enrichment audit
+      checks the model's own asserted claims (assistant-sourced extracted
+      triples) through the tiered verifier and turns findings into a logged
+      mitigation. Fire-and-forget and fail-soft, exactly like extraction and
+      promotion. (Blocking pre-send mitigation is a separate later slice.)
+- [x] All hallucination providers (ledger, classifier, both verifiers, the
+      tiered composition, mitigation, guard) are registered in
+      `ConversationModule`, sharing the existing `ClaimRepository` and
+      `MemoryDatabaseService` — no second database connection.
+
 # [ ] M15.5e — Evaluation + Verification
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5e-evidence-verification.md`.
