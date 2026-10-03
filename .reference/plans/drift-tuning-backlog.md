@@ -64,9 +64,12 @@ change". Known failures:
 
 - [ ] Fold `tools/score-drift-corpus.cjs` and the corpus spec into a
       repeatable **roundup run** with the platform-wide verification.
-- [ ] Decide whether the embedding path should be exercised in CI (the
-      native binding does not initialise under ts-jest today; the script
-      runs it under plain node).
+- [x] Exercise the embedding path in the suite: `npm test` runs with
+      `NODE_OPTIONS=--experimental-vm-modules` (the dynamic-`import` flag the
+      ONNX loader needs) and `RUVECTOR_CACHE_DIR=$HOME/.icos/models`, so the
+      real embedder runs in jest when the model is available and **skips
+      gracefully** when it is not. `tools/score-drift-corpus.cjs` remains for
+      the fuller per-measure report.
 
 ## Not in scope here
 

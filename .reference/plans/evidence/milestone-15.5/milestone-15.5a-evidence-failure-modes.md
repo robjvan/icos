@@ -52,10 +52,12 @@ model verification second.
 
 ## Note (from M15e)
 
-The embedding path is unavailable under ts-jest (`A dynamic import callback
-was invoked without --experimental-vm-modules`); M15.5's fixtures must
-therefore be deterministic, with any model-dependent scoring run as a
-plain-node harness, exactly as the M15e corpus scorer does.
+The embedding path needed `NODE_OPTIONS=--experimental-vm-modules` (the
+ONNX loader uses dynamic `import()`). The default `npm test` now sets it, so
+the real embedder runs in the suite when the model is available and skips
+gracefully when it is not — no user-vs-test discrepancy. M15.5 fixtures stay
+deterministic by default; model-dependent scoring can run inline or via the
+plain-node harness.
 
 ## Next
 

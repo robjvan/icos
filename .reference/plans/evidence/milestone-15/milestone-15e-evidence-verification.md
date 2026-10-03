@@ -16,9 +16,10 @@ and state honestly what the method can and cannot do.
   check, prints the precision/recall curve, and asserts invariants
   (parses; bounded signals; recall non-increasing with floor).
 - **`core/tools/score-drift-corpus.cjs`** (real model): the **embedding**
-  curve, run under plain node because RuVector's native binding does not
-  initialise under ts-jest here (the embedder fails closed to `null` in
-  jest).
+  curve. Originally run under plain node because the ONNX loader's dynamic
+  `import()` fails under ts-jest without `--experimental-vm-modules`;
+  **resolved** — the default `npm test` now sets that flag plus
+  `RUVECTOR_CACHE_DIR`, so the embedding curve runs in jest too.
 
 ## Results
 
