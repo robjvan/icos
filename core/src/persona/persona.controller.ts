@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaGroundingService } from './persona-grounding.service';
+import { PersonaQueryService } from './persona-query.service';
+import type { PersonaOverview } from './persona-query.service';
 import { PersonaReviewService } from './persona-review.service';
 import { PersonaSeedImportService } from './persona-seed-import.service';
 import { PersonaReviewDto } from './dto/persona-review.dto';
@@ -10,6 +12,7 @@ import type {
   PersonaCandidate,
   PersonaCoreEntry,
   PersonaCoreStatus,
+  PersonaDriftEntry,
   PersonaGroundingStatus,
   PersonaReviewResult,
   PersonaSeedImportResult,
@@ -27,6 +30,7 @@ export class PersonaController {
     private readonly seeds: PersonaSeedImportService,
     private readonly grounding: PersonaGroundingService,
     private readonly review: PersonaReviewService,
+    private readonly query: PersonaQueryService,
   ) {}
 
   /**
@@ -50,7 +54,21 @@ export class PersonaController {
   @RequireRole('admin')
   @Get('candidates')
   async getPendingCandidates(): Promise<{ candidates: PersonaCandidate[] }> {
-    return { candidates: await this.review.listPending() };
+    return { candidates: await this.query.pending() };
+  }
+
+  /** The evolving tier: identity records, user facts, relationship (M14g). */
+  @RequireRole('admin')
+  @Get('records')
+  getRecords(): Promise<PersonaOverview> {
+    return this.query.overview();
+  }
+
+  /** Drift / audit history, newest first (M14g). Admin-only. */
+  @RequireRole('admin')
+  @Get('drift')
+  async getDrift(): Promise<{ drift: PersonaDriftEntry[] }> {
+    return { drift: await this.query.drift() };
   }
 
   /**

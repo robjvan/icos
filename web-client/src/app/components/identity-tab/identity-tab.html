@@ -1,5 +1,177 @@
-<app-tab-placeholder
-  title="Identity"
-  description="SOUL.md, persona, and system-prompt management."
-  milestone="M14"
-/>
+<section class="identity" aria-label="Identity and persona">
+  <header class="identity-header">
+    <h2>Identity</h2>
+    <span class="count" aria-live="polite">{{ persona.candidates().length }} pending</span>
+    <span class="grow"></span>
+    <label class="reviewer">
+      Reviewer
+      <input
+        type="text"
+        [value]="reviewer()"
+        (input)="setReviewer($any($event.target).value)"
+        aria-label="Reviewer name"
+      />
+    </label>
+    <button type="button" (click)="persona.refresh()" [disabled]="persona.loading()">
+      {{ persona.loading() ? 'Loading…' : 'Refresh' }}
+    </button>
+  </header>
+
+  @if (persona.error() !== null) {
+    <p class="error" role="alert">{{ persona.error() }}</p>
+  }
+  @if (lastResult() !== null) {
+    <p class="status" role="status">{{ lastResult() }}</p>
+  }
+
+  <section class="panel" aria-label="Immutable core">
+    <div class="panel-head">
+      <h3>Core</h3>
+      <span class="readonly-chip">read-only</span>
+      @if (persona.core(); as core) {
+        <span class="hash mono" [title]="core.hash ?? 'no hash recorded'">
+          sha256 {{ shortHash(core.hash) }}
+        </span>
+      }
+    </div>
+    @if (persona.core(); as core) {
+      @if (!core.loaded) {
+        <p class="warn">Core not loaded: {{ core.reason ?? 'unknown' }}</p>
+      }
+      <ul class="entry-list">
+        @for (entry of core.entries; track entry.entryId) {
+          <li class="entry">
+            <span class="tag mono">{{ entry.category }}</span>
+            <span class="immutable mono">immutable</span>
+            <p class="content">{{ entry.content }}</p>
+          </li>
+        } @empty {
+          <li class="empty">No core entries.</li>
+        }
+      </ul>
+    }
+  </section>
+
+  <section class="panel" aria-label="Evolving identity">
+    <h3>Evolving</h3>
+    <h4>Identity records</h4>
+    <ul class="entry-list">
+      @for (record of persona.records(); track record.recordId) {
+        <li class="entry">
+          <span class="tag mono">{{ record.category }}</span>
+          @if (record.protected) {
+            <span class="protected-chip mono">protected</span>
+          }
+          <span class="meta mono">conf {{ confidence(record.confidence) }} · {{ record.source }}</span>
+          <p class="content">{{ record.content }}</p>
+        </li>
+      } @empty {
+        <li class="empty">No identity records yet.</li>
+      }
+    </ul>
+
+    <h4>User facts</h4>
+    <ul class="entry-list">
+      @for (fact of persona.userFacts(); track fact.memoryId) {
+        <li class="entry">
+          <span class="meta mono">{{ fact.source }}</span>
+          <p class="content">{{ fact.content }}</p>
+        </li>
+      } @empty {
+        <li class="empty">No user facts yet.</li>
+      }
+    </ul>
+
+    @if (persona.relationship(); as rel) {
+      <h4>Relationship</h4>
+      <p class="meta mono">
+        trust {{ confidence(rel.trustLevel) }} · temp
+        {{ confidence(rel.emotionalTemperature) }} · updated {{ rel.updatedAt }}
+      </p>
+      <p class="content">
+        {{ rel.recentDevelopments.join(' | ') || 'no recent developments' }}
+      </p>
+    }
+  </section>
+
+  <section class="panel" aria-label="Pending persona candidates">
+    <h3>Pending review</h3>
+    <ul class="candidate-list">
+      @for (candidate of persona.candidates(); track candidate.candidateId) {
+        <li class="candidate">
+          <div class="candidate-head">
+            <span class="tag mono">{{ candidate.category }}</span>
+            <span class="meta mono">
+              conf {{ confidence(candidate.confidence) }} · {{ candidate.source }}
+            </span>
+          </div>
+          <p class="content">{{ candidate.observation }}</p>
+          <p class="meta mono">
+            provenance: session {{ candidate.sessionId ?? '—' }} · turn
+            {{ candidate.sourceTurnId ?? '—' }}
+            @if (candidate.claimId) {
+              · claim {{ candidate.claimId }}
+            }
+          </p>
+          <div class="candidate-actions">
+            <label class="target">
+              Approve to
+              <select
+                [value]="targetFor(candidate)"
+                (change)="setTarget(candidate.candidateId, $any($event.target).value)"
+                [attr.aria-label]="'Approve target for ' + candidate.candidateId"
+              >
+                <option value="persona_record">identity</option>
+                <option value="persona_user_model">user model</option>
+                <option value="persona_relationship">relationship</option>
+              </select>
+            </label>
+            <label class="reason">
+              Reason
+              <input
+                type="text"
+                [value]="reasonFor(candidate.candidateId)"
+                (input)="setReason(candidate.candidateId, $any($event.target).value)"
+                [attr.aria-label]="'Review reason for ' + candidate.candidateId"
+                placeholder="required"
+              />
+            </label>
+            <div class="buttons">
+              <button type="button" (click)="approve(candidate)" [disabled]="!canAct(candidate.candidateId)">
+                Approve
+              </button>
+              <button type="button" class="reject" (click)="reject(candidate)" [disabled]="!canAct(candidate.candidateId)">
+                Reject
+              </button>
+              <button type="button" (click)="archive(candidate)" [disabled]="!canAct(candidate.candidateId)">
+                Archive
+              </button>
+              <button type="button" (click)="needsEvidence(candidate)" [disabled]="!canAct(candidate.candidateId)">
+                Needs evidence
+              </button>
+            </div>
+          </div>
+        </li>
+      } @empty {
+        <li class="empty">No pending candidates.</li>
+      }
+    </ul>
+  </section>
+
+  <section class="panel" aria-label="Drift and audit history">
+    <h3>History</h3>
+    <ul class="entry-list">
+      @for (entry of persona.drift(); track entry.logId) {
+        <li class="entry">
+          <span class="tag mono" [class.sev-critical]="entry.severity === 'critical'">
+            {{ entry.severity }}
+          </span>
+          <span class="meta mono">{{ entry.changeType }} · {{ entry.createdAt }}</span>
+          <p class="content">{{ entry.reason }}</p>
+        </li>
+      } @empty {
+        <li class="empty">No history yet.</li>
+      }
+    </ul>
+  </section>
+</section>

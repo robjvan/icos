@@ -16,6 +16,7 @@ export const CLAIMS_ENDPOINT = '/core/claims';
 export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
 export const HEALTH_ENDPOINT = '/core/health';
+export const PERSONA_ENDPOINT = '/core/persona';
 
 // Management surfaces (security S5).
 export const MCP_ENDPOINT = '/core/mcp';

@@ -8,15 +8,14 @@ import {
 import { statementsContradict } from './persona-contradiction';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaRepository } from './persona.repository';
-import {
-  DEFAULT_PERSONA_USER_ID,
-  type PersonaCandidate,
-  type PersonaCandidateCategory,
-  type PersonaCategory,
-  type PersonaDriftSeverity,
-  type PersonaReviewInput,
-  type PersonaReviewOutcome,
-  type PersonaReviewResult,
+import type {
+  PersonaCandidate,
+  PersonaCandidateCategory,
+  PersonaCategory,
+  PersonaDriftSeverity,
+  PersonaReviewInput,
+  PersonaReviewOutcome,
+  PersonaReviewResult,
 } from './persona.types';
 
 interface AppliedOutcome {
@@ -53,11 +52,6 @@ export class PersonaReviewService {
     private readonly repository: PersonaRepository,
     private readonly core: PersonaCoreService,
   ) {}
-
-  /** Pending candidates awaiting review, newest first. */
-  async listPending(): Promise<PersonaCandidate[]> {
-    return this.repository.listPendingCandidates(DEFAULT_PERSONA_USER_ID);
-  }
 
   async review(
     candidateId: string,

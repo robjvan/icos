@@ -239,17 +239,24 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14f-evidence-review.
       pending list at `GET /core/persona/candidates`. It is never exposed
       as an agent tool.
 
-# [ ] M14g — Web-Client Persona Review
+# [x] M14g — Web-Client Persona Review (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14g-evidence-ui.md`.
 
-- [ ] Persona tab: core (read-only, with its recorded hash),
-      evolving records, pending candidates (provenance +
-      confidence), and drift history.
-- [ ] Review actions wired to M14f; core rows render read-only, no
-      affordance to edit them.
-- [ ] Traceability: one screen answers "why does ICOS believe this,
-      and when did it change?"
+- [x] The existing **Identity** tab (the M14 placeholder) becomes the
+      persona review surface: core (read-only, with its recorded sha256),
+      evolving records + user facts + relationship, pending candidates
+      (observation, category, confidence, provenance), and the drift /
+      audit history.
+- [x] Review actions wired to M14f (approve → identity / user model /
+      relationship, reject, archive, needs-evidence) behind a mandatory
+      reviewer name and reason; core rows render read-only with no edit
+      affordance.
+- [x] Traceability: one screen answers "why does ICOS believe this, and
+      when did it change?" — curated records, provenance, and the
+      append-only history together.
+- [x] Core read endpoints added: `GET /core/persona/records` and
+      `GET /core/persona/drift`.
 
 # [ ] M14h — Verification
 
