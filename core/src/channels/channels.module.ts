@@ -5,6 +5,7 @@ import { CHANNEL_ADAPTERS } from './channel-adapter';
 import { ChannelDatabaseService } from './channel-database.service';
 import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
+import { ChannelSendService } from './channel-send.service';
 import { ChannelsController } from './channels.controller';
 import { DiscordAdapter } from './discord.adapter';
 import { DiscordIngressService } from './discord-ingress.service';
@@ -32,12 +33,14 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
       inject: [DiscordAdapter],
     },
     ChannelDeliveryService,
+    ChannelSendService,
     DiscordIngressService,
   ],
   exports: [
     ChannelDatabaseService,
     ChannelRepository,
     ChannelDeliveryService,
+    ChannelSendService,
     DiscordAdapter,
     DiscordIngressService,
   ],
