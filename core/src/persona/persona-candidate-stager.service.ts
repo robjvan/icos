@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MemoryCandidate } from '../memory/memory-candidate';
+import { PersonaDriftService } from './persona-drift.service';
 import { PersonaRepository } from './persona.repository';
 import {
   DEFAULT_PERSONA_USER_ID,
@@ -46,7 +47,10 @@ interface CandidateTarget {
 export class PersonaCandidateStager {
   private readonly logger = new Logger(PersonaCandidateStager.name);
 
-  constructor(private readonly repository: PersonaRepository) {}
+  constructor(
+    private readonly repository: PersonaRepository,
+    private readonly drift: PersonaDriftService,
+  ) {}
 
   /** Stage identity-relevant observations. Returns how many were staged. */
   async stageFromMemoryCandidates(
@@ -58,7 +62,7 @@ export class PersonaCandidateStager {
       if (!target) {
         continue;
       }
-      await this.repository.stageCandidate({
+      const stagedCandidate = await this.repository.stageCandidate({
         userId: DEFAULT_PERSONA_USER_ID,
         observation: renderObservation(candidate),
         category: target.category,
@@ -79,6 +83,18 @@ export class PersonaCandidateStager {
         },
         occurredAt: candidate.extractedAt,
       });
+      // M15b: structural drift is checked the moment a candidate is
+      // staged. Observes only; fail-soft — a drift error never blocks
+      // staging.
+      try {
+        await this.drift.evaluateCandidate(stagedCandidate);
+      } catch (error) {
+        this.logger.warn(
+          `Drift evaluation failed for ${stagedCandidate.candidateId}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
       staged += 1;
     }
     if (staged > 0) {

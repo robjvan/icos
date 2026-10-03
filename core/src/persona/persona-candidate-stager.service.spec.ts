@@ -5,6 +5,7 @@ import type { CoreConfig } from '../config';
 import type { MemoryCandidate } from '../memory/memory-candidate';
 import { DatabaseService } from '../session/database.service';
 import { PersonaCandidateStager } from './persona-candidate-stager.service';
+import type { PersonaDriftService } from './persona-drift.service';
 import { PersonaDatabaseService } from './persona-database.service';
 import { SqlitePersonaRepository } from './sqlite-persona.repository';
 
@@ -98,7 +99,13 @@ describe('PersonaCandidateStager', () => {
     db.onModuleInit();
     services.push(db);
     const repository = new SqlitePersonaRepository(db);
-    return { repository, stager: new PersonaCandidateStager(repository) };
+    const drift = {
+      evaluateCandidate: () => Promise.resolve([]),
+    } as unknown as PersonaDriftService;
+    return {
+      repository,
+      stager: new PersonaCandidateStager(repository, drift),
+    };
   };
 
   beforeEach(() => {

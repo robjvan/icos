@@ -646,6 +646,36 @@ export class SqlitePersonaRepository extends PersonaRepository {
     return mapCandidate(this.getCandidateRow(input.candidateId)!);
   }
 
+  async hasUnresolvedDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<boolean> {
+    const row = this.database
+      .prepare(
+        `SELECT 1 AS present FROM persona_drift_log
+         WHERE user_id = ? AND subject_id = ? AND change_type = ? AND reviewed = 0
+         LIMIT 1`,
+      )
+      .get(userId, subjectId, changeType) as { present: number } | undefined;
+    return row !== undefined;
+  }
+
+  async resolveDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<number> {
+    const result = this.database
+      .prepare(
+        `UPDATE persona_drift_log
+         SET reviewed = 1, reviewed_at = ?
+         WHERE user_id = ? AND subject_id = ? AND change_type = ? AND reviewed = 0`,
+      )
+      .run(nowIso(), userId, subjectId, changeType);
+    return Number(result.changes);
+  }
+
   async getCoreState(): Promise<PersonaCoreState | null> {
     const row = this.database
       .prepare('SELECT * FROM persona_core_state WHERE id = 1')

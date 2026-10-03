@@ -104,6 +104,14 @@ export interface CoreConfig {
   personaGroundingEntryLimit?: number;
   /** M14d grounding bundle cap: approximate character budget for the band. */
   personaGroundingCharacterBudget?: number;
+  /** M15b: relationship freshness window (hours) before it counts stale. */
+  personaRelationshipFreshHours?: number;
+  /** M15b: overall grounding score below this means "needs warm-up". */
+  personaGroundingWarmupThreshold?: number;
+  /** M15b: pending candidates in a similar cluster that count as pressure. */
+  personaCandidatePressureCount?: number;
+  /** M15b: lexical similarity that joins candidates into a pressure cluster. */
+  personaCandidatePressureSimilarity?: number;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -327,6 +335,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.PERSONA_GROUNDING_CHARACTER_BUDGET,
       6000,
       'PERSONA_GROUNDING_CHARACTER_BUDGET',
+    ),
+    personaRelationshipFreshHours: parsePositiveInt(
+      env.PERSONA_RELATIONSHIP_FRESH_HOURS,
+      48,
+      'PERSONA_RELATIONSHIP_FRESH_HOURS',
+    ),
+    personaGroundingWarmupThreshold: parseScore(
+      env.PERSONA_GROUNDING_WARMUP_THRESHOLD,
+      0.6,
+      'PERSONA_GROUNDING_WARMUP_THRESHOLD',
+    ),
+    personaCandidatePressureCount: parsePositiveInt(
+      env.PERSONA_CANDIDATE_PRESSURE_COUNT,
+      3,
+      'PERSONA_CANDIDATE_PRESSURE_COUNT',
+    ),
+    personaCandidatePressureSimilarity: parseScore(
+      env.PERSONA_CANDIDATE_PRESSURE_SIMILARITY,
+      0.6,
+      'PERSONA_CANDIDATE_PRESSURE_SIMILARITY',
     ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),

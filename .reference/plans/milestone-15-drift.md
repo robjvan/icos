@@ -92,18 +92,21 @@ Evidence: `.reference/plans/evidence/milestone-15/milestone-15a-evidence-failure
       declared for the false-positive matrix, and the default thresholds
       live in one place.
 
-# [ ] M15b — Structural Drift
+# [x] M15b — Structural Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15b-evidence-structural.md`.
 
-- [ ] Core and protected-record contradiction, on both explicit
-      target conflict and token/negation contradiction.
-- [ ] Relationship staleness beyond a configured freshness window.
-- [ ] Repeated candidate pressure (N similar unreviewed candidates).
-- [ ] Grounding-score-below-threshold, with a deliberate threshold.
-- [ ] Severity union: `info` · `watch` · `warning` · `critical`.
-- [ ] `logOnce` de-duplication on unresolved `(subject, change_type)`
-      and `resolve` when the condition clears.
+- [x] Core and protected-record contradiction, on both explicit target
+      conflict and token/negation contradiction; unprotected records
+      contradict at `warning`, protected/core at `critical`.
+- [x] Relationship staleness beyond a configured freshness window.
+- [x] Repeated candidate pressure (a similar-cluster size ≥ the configured
+      count).
+- [x] Grounding-score-below-threshold, with a deliberate threshold.
+- [x] Severity sourced from the M15a catalogue (`notice` is review's;
+      detection uses `watch` · `warning` · `critical` · `cumulative`).
+- [x] `logOnce` de-duplication on unresolved `(subject, change_type)` and
+      `resolve` when the condition clears; pressure reconciled per cluster.
 
 # [ ] M15c — Semantic Drift
 
