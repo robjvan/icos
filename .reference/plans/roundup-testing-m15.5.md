@@ -8,6 +8,9 @@
 > Scheduled between **M15.5** and **M16**. It adds no product capability; it
 > establishes, with evidence, what is actually true about the system before
 > the next layer is built on top of it.
+>
+> **Status: complete 2026-10-03.** Evidence:
+> `.reference/plans/evidence/roundup-testing/roundup-m15.5-evidence.md`.
 
 ## Objective
 
@@ -65,37 +68,37 @@ defer (blocking pre-send mitigation, Linux CUDA verifier, drift tuning).
 
 ## Slices
 
-# [ ] R1 — Baseline (the system is green)
+# [x] R1 — Baseline (the system is green)
 
-- [ ] Unit, e2e, and live suites run clean; record exact counts and versions.
-- [ ] `tsc` and `eslint` clean.
-- [ ] The supported launch path (`docker compose`) builds and boots a healthy
+- [x] Unit, e2e, and live suites run clean; record exact counts and versions.
+- [x] `tsc` and `eslint` clean.
+- [x] The supported launch path (`docker compose`) builds and boots a healthy
       `core`.
-- [ ] Boot-time invariants hold: fail-closed core persona, auth defaults,
+- [x] Boot-time invariants hold: fail-closed core persona, auth defaults,
       vault, migrations.
 
-# [ ] R2 — Ability register (it does what it says)
+# [x] R2 — Ability register (it does what it says)
 
-- [ ] Enumerate every HTTP route and every non-HTTP mechanism.
-- [ ] Map each to the test(s) that prove it; flag anything with no proof.
-- [ ] Live-probe the surfaces that can be exercised locally.
+- [x] Enumerate every HTTP route and every non-HTTP mechanism.
+- [x] Map each to the test(s) that prove it; flag anything with no proof.
+- [x] Live-probe the surfaces that can be exercised locally.
 
-# [ ] R3 — Claim register (it says what is true)
+# [x] R3 — Claim register (it says what is true)
 
-- [ ] Extract every explicit capability/status claim from `README.md`,
+- [x] Extract every explicit capability/status claim from `README.md`,
       `docs/`, `USAGE.md`, `INDEX.md`.
-- [ ] Back each with evidence; verdict per the vocabulary above.
-- [ ] Correct stale/overstated prose.
+- [x] Back each with evidence; verdict per the vocabulary above.
+- [x] Correct stale/overstated prose.
 
-# [ ] R4 — Gap fixes
+# [x] R4 — Gap fixes
 
-- [ ] Fix every **gap** and **overstated** finding (system or prose), each
+- [x] Fix every **gap** and **overstated** finding (system or prose), each
       with a test or an explicit downgrade of the claim.
 
-# [ ] R5 — Roundup evidence
+# [x] R5 — Roundup evidence
 
-- [ ] Commit the registers and the fix list as roundup evidence.
-- [ ] State plainly what remains partial, unverifiable, or deferred.
+- [x] Commit the registers and the fix list as roundup evidence.
+- [x] State plainly what remains partial, unverifiable, or deferred.
 
 ## Definition of Done
 

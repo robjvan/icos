@@ -3,11 +3,11 @@
 <center>
 
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
-![Updated](https://img.shields.io/badge/Updated-2026%2F10%2F02-CBA701)
+![Updated](https://img.shields.io/badge/Updated-2026%2F10%2F03-CBA701)
 ![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
 
-![Node.js](https://img.shields.io/badge/Node.js-24.13.0-red)
-![NPM](https://img.shields.io/badge/npm-11.6.2-CB0200?logo=npm&logoColor=CB0200)
+![Node.js](https://img.shields.io/badge/Node.js-24.x-red)
+![NPM](https://img.shields.io/badge/npm-11.x-CB0200?logo=npm&logoColor=CB0200)
 ![NestJS](https://img.shields.io/badge/NestJS-11.0.1-EA2F59?logo=nestjs&logoColor=EA2F59)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-blue?logo=typescript)
 
@@ -113,7 +113,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M13 are complete, and the security-hardening milestone (S1–S6) is complete.**
+**M1–M15.5 are complete, and the security-hardening milestone (S1–S6) is complete.**
 
 The current system provides:
 
@@ -145,6 +145,16 @@ The current system provides:
   namespaced tools bridged into the agent loop, approval-gated execution
   with durable records, resources and prompt templates behind a
   read-only fetch surface, no-restart catalog reload, per-server health)
+- A persistent persona (an immutable, file-backed core the system cannot
+  rewrite, an evolving reviewed identity / user / relationship layer,
+  grounding into session context, and a review queue in the web client)
+- Drift detection (structural signals plus an honestly-calibrated,
+  advisory semantic signal, with finding reconciliation and a reporting
+  surface)
+- Hallucination mitigation (deterministic claim/evidence consistency
+  checks, optional provider-agnostic secondary-model verification whose
+  disagreement is recorded rather than auto-resolved, and explicit,
+  logged mitigations — never a silent rewrite)
 - Security posture (loopback-by-default binding, authentication with a
   bootstrap token, an encrypted secret vault, and an LLM provider
   registry selected at runtime with key references resolved through the

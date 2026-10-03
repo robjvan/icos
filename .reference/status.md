@@ -1,6 +1,6 @@
 # ICOS v3 Status Tracking
 
-> _Updated Sep 17, 2026_
+> _Updated Oct 3, 2026_
 
 ## Implemented
 
@@ -21,10 +21,9 @@
 - [x] M13: MCP server support
 - [x] M14: Persistent persona maintenance
 - [x] M15: Drift detection and reporting (semantic drift is advisory; tuning deferred)
-
-## Designed
-
-- [ ] M15.5: Hallucination mitigation
+- [x] M15.5: Hallucination mitigation (deterministic checks + optional
+      provider-agnostic verifier, explicit logged mitigations; blocking
+      pre-send mitigation deferred)
 
 ## Planned
 

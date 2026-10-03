@@ -53,7 +53,8 @@ checklist: **[docs/security.md](docs/security.md)**.
 - **8 GB VRAM minimum** if you serve models through the Docker Model Runner
   (memory and chat models share one GPU budget; below this the runner
   evicts or degrades models).
-- **Node.js 24.13.0** and **npm 11.6.2** — only needed for local development
+- **Node.js 24.x** and **npm 11.x** (tested on Node 24.21.0 / npm 11.19.0) —
+  only needed for local development
   outside Docker.
 - An OpenAI-compatible LLM endpoint (local or remote). The model does not
   need to run on the same machine.
@@ -67,8 +68,8 @@ checklist: **[docs/security.md](docs/security.md)**.
 ## Install
 
 ```sh
-git clone https://git.exilelogic.ca/robjvan/icos.git
-cd icos
+git clone https://git.exilelogic.ca/robjvan/icos-v3.git
+cd icos-v3
 ```
 
 No `npm install` is needed for the Docker path — the image build handles
