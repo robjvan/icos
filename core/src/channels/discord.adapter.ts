@@ -16,6 +16,11 @@ import type {
   ChannelSendResult,
 } from './channel-adapter';
 import type { ChannelName } from './channel.types';
+import type {
+  DiscordInbound,
+  DiscordMessageHandler,
+  DiscordMessageLike,
+} from './discord.types';
 
 /** DI token for an injected Discord client factory (tests supply a fake). */
 export const DISCORD_CLIENT_FACTORY = 'DISCORD_CLIENT_FACTORY';
@@ -77,6 +82,7 @@ export class DiscordAdapter
   private client: DiscordClientLike | null = null;
   private ready = false;
   private statusDetail = 'not started';
+  private messageHandler: DiscordMessageHandler | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -109,8 +115,8 @@ export class DiscordAdapter
       return;
     }
     try {
-      const { client, readyEvent } = await this.buildClient();
-      this.attach(client, readyEvent);
+      const { client, readyEvent, messageEvent } = await this.buildClient();
+      this.attach(client, readyEvent, messageEvent);
       await client.login(token);
       this.client = client;
       this.statusDetail = 'connecting';
@@ -145,6 +151,11 @@ export class DiscordAdapter
     return this.ready;
   }
 
+  /** Register the inbound message handler (M16d). */
+  onMessage(handler: DiscordMessageHandler): void {
+    this.messageHandler = handler;
+  }
+
   health(): ChannelHealth {
     return {
       channel: this.name,
@@ -177,17 +188,30 @@ export class DiscordAdapter
   private async buildClient(): Promise<{
     client: DiscordClientLike;
     readyEvent: string;
+    messageEvent: string;
   }> {
     if (this.factory) {
-      return { client: await this.factory(), readyEvent: 'ready' };
+      return {
+        client: await this.factory(),
+        readyEvent: 'ready',
+        messageEvent: 'messageCreate',
+      };
     }
     const mod = await import('discord.js');
     const intents = INTENT_NAMES.map((key) => mod.GatewayIntentBits[key]);
     const client = new mod.Client({ intents }) as unknown as DiscordClientLike;
-    return { client, readyEvent: mod.Events.ClientReady ?? 'ready' };
+    return {
+      client,
+      readyEvent: mod.Events.ClientReady ?? 'ready',
+      messageEvent: mod.Events.MessageCreate ?? 'messageCreate',
+    };
   }
 
-  private attach(client: DiscordClientLike, readyEvent: string): void {
+  private attach(
+    client: DiscordClientLike,
+    readyEvent: string,
+    messageEvent: string,
+  ): void {
     client.once(readyEvent, (readyClient: unknown) => {
       this.ready = true;
       this.statusDetail = 'connected';
@@ -202,6 +226,55 @@ export class DiscordAdapter
         }`,
       );
     });
-    // M16d attaches the inbound MessageCreate handler here.
+    client.on(messageEvent, (raw: unknown) => this.handleRaw(raw));
   }
+
+  private handleRaw(raw: unknown): void {
+    const message = normalizeDiscordMessage(raw);
+    if (message && this.messageHandler) {
+      this.messageHandler(message);
+    }
+  }
+}
+
+/**
+ * Normalize a raw discord.js message into {@link DiscordInbound}, or null
+ * when it is not a message the boundary cares about (bot/system authors,
+ * non-text channels, empty content). Policy (which channels/DMs and users
+ * are accepted) is applied by the ingress, not here.
+ */
+export function normalizeDiscordMessage(raw: unknown): DiscordInbound | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const m = raw as DiscordMessageLike;
+  if (m.author?.bot) return null;
+  const channel = m.channel;
+  if (channel?.isTextBased && !channel.isTextBased()) return null;
+
+  const attachments =
+    m.attachments?.map((a) => ({
+      url: a.url,
+      ...(a.name ? { name: a.name } : {}),
+      ...(a.contentType ? { contentType: a.contentType } : {}),
+      ...(typeof a.size === 'number' ? { sizeBytes: a.size } : {}),
+    })) ?? [];
+  if (!m.content && attachments.length === 0) return null;
+
+  const isThread = channel?.isThread?.() ?? false;
+  const parentChannelId = isThread
+    ? (channel?.parentId ?? m.channelId)
+    : m.channelId;
+  const guildId = m.guildId ?? null;
+
+  return {
+    externalId: m.id,
+    channelId: m.channelId,
+    guildId,
+    isDm: guildId === null,
+    isThread,
+    parentChannelId,
+    channelTopic: channel?.topic ?? null,
+    authorId: m.author?.id ?? 'unknown',
+    content: m.content ?? '',
+    attachments,
+  };
 }

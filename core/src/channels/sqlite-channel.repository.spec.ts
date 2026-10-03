@@ -91,6 +91,19 @@ describe('SqliteChannelRepository', () => {
     expect(messages.map((m) => m.body)).toEqual(['first', 'second', 'third']);
   });
 
+  it('maps a conversation to one session across messages', async () => {
+    const first = await repository.recordMessage({
+      channel: 'discord',
+      direction: 'inbound',
+      conversationKey: 'discord:g1:c1',
+      body: 'a',
+    });
+    expect(await repository.findSessionId('discord:g1:c1')).toBeNull();
+
+    await repository.updateMessageSession(first.id, 'sess-1');
+    expect(await repository.findSessionId('discord:g1:c1')).toBe('sess-1');
+  });
+
   it('enqueues, claims, and marks a delivery sent', async () => {
     const delivery = await repository.enqueueDelivery({
       channel: 'discord',

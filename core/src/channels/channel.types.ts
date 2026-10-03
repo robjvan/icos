@@ -74,7 +74,7 @@ export interface ChannelDelivery {
   channel: ChannelName;
   conversationKey: string;
   body: string;
-  /** The outbound channel_message this delivery belongs to, if any. */
+  /** The channel_message this delivery replies to (an inbound), if any. */
   replyToMessageId: string | null;
   status: ChannelDeliveryStatus;
   attempts: number;

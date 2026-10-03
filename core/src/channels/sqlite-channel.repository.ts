@@ -184,6 +184,24 @@ export class SqliteChannelRepository extends ChannelRepository {
     return rows.map(mapMessage);
   }
 
+  async findSessionId(conversationKey: string): Promise<string | null> {
+    const row = this.database
+      .prepare(
+        `SELECT session_id FROM channel_messages
+         WHERE conversation_key = ? AND session_id IS NOT NULL
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(conversationKey) as { session_id: string | null } | undefined;
+    return row?.session_id ?? null;
+  }
+
+  async updateMessageSession(id: string, sessionId: string): Promise<void> {
+    this.database
+      .prepare('UPDATE channel_messages SET session_id = ? WHERE id = ?')
+      .run(sessionId, id);
+  }
+
   async enqueueDelivery(input: NewChannelDelivery): Promise<ChannelDelivery> {
     const id = randomUUID();
     const now = nowIso();

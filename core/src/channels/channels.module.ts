@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { coreConfigProvider } from '../config';
+import { ConversationModule } from '../conversation/conversation.module';
 import { CHANNEL_ADAPTERS } from './channel-adapter';
 import { ChannelDatabaseService } from './channel-database.service';
 import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
 import { ChannelsController } from './channels.controller';
 import { DiscordAdapter } from './discord.adapter';
+import { DiscordIngressService } from './discord-ingress.service';
 import { SqliteChannelRepository } from './sqlite-channel.repository';
 
 /**
@@ -17,6 +19,7 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
  * (Discord) simply reports unhealthy and never blocks boot.
  */
 @Module({
+  imports: [ConversationModule],
   controllers: [ChannelsController],
   providers: [
     coreConfigProvider,
@@ -29,12 +32,14 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
       inject: [DiscordAdapter],
     },
     ChannelDeliveryService,
+    DiscordIngressService,
   ],
   exports: [
     ChannelDatabaseService,
     ChannelRepository,
     ChannelDeliveryService,
     DiscordAdapter,
+    DiscordIngressService,
   ],
 })
 export class ChannelsModule {}

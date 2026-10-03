@@ -27,6 +27,15 @@ export abstract class ChannelRepository {
     limit?: number,
   ): Promise<ChannelMessage[]>;
 
+  /**
+   * The ICOS session already mapped to a conversation key, if any. Keeps
+   * an external conversation on one durable session across turns.
+   */
+  abstract findSessionId(conversationKey: string): Promise<string | null>;
+
+  /** Attach a session id to a previously recorded message. */
+  abstract updateMessageSession(id: string, sessionId: string): Promise<void>;
+
   abstract enqueueDelivery(input: NewChannelDelivery): Promise<ChannelDelivery>;
 
   abstract getDelivery(id: string): Promise<ChannelDelivery | null>;

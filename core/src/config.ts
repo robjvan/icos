@@ -117,6 +117,17 @@ export interface CoreConfig {
    */
   discordBotToken?: string;
   /**
+   * M16 inbound Discord policy. A guild channel is a chat channel when its
+   * topic contains `<discordStreamMarker> chat` (e.g. `[icos-stream: chat]`),
+   * or when its id (or a thread's parent id) is in `discordAllowedChannelIds`.
+   * Non-empty `discordAllowedUserIds` restricts who is answered; empty means
+   * anyone in an accepted channel. DMs are answered only when allowed.
+   */
+  discordStreamMarker?: string;
+  discordAllowedChannelIds?: string[];
+  discordAllowedUserIds?: string[];
+  discordAllowDirectMessages?: boolean;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -425,6 +436,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       'CHANNEL_SEND_MIN_INTERVAL_MS',
     ),
     discordBotToken: (env.DISCORD_BOT_TOKEN ?? '').trim() || undefined,
+    discordStreamMarker:
+      (env.DISCORD_STREAM_MARKER ?? '').trim() || undefined,
+    discordAllowedChannelIds: parseCsv(env.DISCORD_ALLOWED_CHANNEL_IDS),
+    discordAllowedUserIds: parseCsv(env.DISCORD_ALLOWED_USER_IDS),
+    discordAllowDirectMessages: parseBoolean(env.DISCORD_ALLOW_DMS, true),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',
@@ -681,6 +697,22 @@ function parseKindList(raw: string | undefined): string[] {
     }
   }
   return [...new Set(kinds)];
+}
+
+/**
+ * Comma-separated id list (channel/user ids). Empty/unset returns `[]`.
+ * Trimmed and deduped; values are kept as-typed.
+ */
+function parseCsv(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part !== ''),
+    ),
+  ];
 }
 
 /**

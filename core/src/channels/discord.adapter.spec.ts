@@ -4,7 +4,12 @@
 import type { CoreConfig } from '../config';
 import type { SecretResolver } from '../secrets/secret-resolver';
 import type { DiscordChannelLike, DiscordClientLike } from './discord.adapter';
-import { DiscordAdapter, parseDiscordTargetKey } from './discord.adapter';
+import {
+  DiscordAdapter,
+  normalizeDiscordMessage,
+  parseDiscordTargetKey,
+} from './discord.adapter';
+import type { DiscordInbound } from './discord.types';
 
 class FakeChannel implements DiscordChannelLike {
   readonly sent: string[] = [];
@@ -40,8 +45,20 @@ class FakeClient implements DiscordClientLike {
     this.destroyed = true;
   }
 
-  on(): unknown {
+  private readonly handlers = new Map<
+    string,
+    ((...args: unknown[]) => void)[]
+  >();
+
+  on(event: string, handler: (...args: unknown[]) => void): unknown {
+    const list = this.handlers.get(event) ?? [];
+    list.push(handler);
+    this.handlers.set(event, list);
     return this;
+  }
+
+  emit(event: string, ...args: unknown[]): void {
+    for (const handler of this.handlers.get(event) ?? []) handler(...args);
   }
 
   once(event: string, handler: (...args: unknown[]) => void): unknown {
@@ -170,5 +187,85 @@ describe('DiscordAdapter', () => {
     await expect(adapter.send('discord:g:c', 'x')).rejects.toThrow(
       'not connected',
     );
+  });
+
+  it('normalizes a guild message; ignores bots and empty messages', () => {
+    const normalized = normalizeDiscordMessage({
+      id: 'm1',
+      content: 'hi there',
+      guildId: 'g',
+      channelId: 'c',
+      author: { id: 'u', bot: false },
+      channel: { isTextBased: () => true, topic: '[icos-stream: chat]' },
+      attachments: {
+        map: (fn: (a: { url: string; name?: string }) => unknown) =>
+          [{ url: 'https://x/y.png', name: 'y.png' }].map(fn),
+      },
+    });
+    expect(normalized).toMatchObject({
+      externalId: 'm1',
+      guildId: 'g',
+      isDm: false,
+      isThread: false,
+      parentChannelId: 'c',
+      channelTopic: '[icos-stream: chat]',
+      authorId: 'u',
+      content: 'hi there',
+    });
+    expect(normalized?.attachments).toEqual([
+      { url: 'https://x/y.png', name: 'y.png' },
+    ]);
+
+    expect(
+      normalizeDiscordMessage({
+        id: 'm2',
+        content: 'from a bot',
+        channelId: 'c',
+        author: { id: 'b', bot: true },
+      }),
+    ).toBeNull();
+    expect(
+      normalizeDiscordMessage({
+        id: 'm3',
+        content: '',
+        channelId: 'c',
+        author: { id: 'u' },
+        channel: { isTextBased: () => true },
+      }),
+    ).toBeNull();
+  });
+
+  it('maps a thread message to its parent and emits inbound to the handler', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    const received: DiscordInbound[] = [];
+    adapter.onMessage((message) => received.push(message));
+
+    await adapter.connect();
+    client.emitReady();
+    client.emit('messageCreate', {
+      id: 'm9',
+      content: 'in a thread',
+      guildId: 'g',
+      channelId: 't1',
+      author: { id: 'u' },
+      channel: {
+        isTextBased: () => true,
+        isThread: () => true,
+        parentId: 'c1',
+      },
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      externalId: 'm9',
+      isThread: true,
+      parentChannelId: 'c1',
+      content: 'in a thread',
+    });
   });
 });
