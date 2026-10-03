@@ -7,7 +7,7 @@ import { compareContent, embeddingCosine } from './persona-semantic';
 /**
  * M15e calibration harness.
  *
- * Scores the labelled corpus (`.reference/plans/m15e-statement-pairs.md`)
+ * Scores the labelled corpus (`.reference/notes/m15e-statement-pairs.md`)
  * with the real measures and prints precision/recall/F1 across floors, so
  * the threshold is chosen from data. The lexical measures are
  * deterministic; the embedding pass runs only when the model loads and is
@@ -26,7 +26,7 @@ const CORPUS_PATH = join(
   process.cwd(),
   '..',
   '.reference',
-  'plans',
+  'notes',
   'm15e-statement-pairs.md',
 );
 

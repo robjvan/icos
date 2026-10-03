@@ -18,7 +18,7 @@ const CORPUS = join(
   '..',
   '..',
   '.reference',
-  'plans',
+  'notes',
   'm15e-statement-pairs.md',
 );
 
@@ -68,7 +68,10 @@ function matrix(pairs, floor, score) {
   }
   const precision = tp + fp === 0 ? 0 : tp / (tp + fp);
   const recall = tp + fn === 0 ? 0 : tp / (tp + fn);
-  const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
+  const f1 =
+    precision + recall === 0
+      ? 0
+      : (2 * precision * recall) / (precision + recall);
   return { floor, tp, fp, fn, tn, precision, recall, f1 };
 }
 
@@ -90,7 +93,10 @@ function matrix(pairs, floor, score) {
     await embed(pair.new);
   }
   const score = (pair) =>
-    Math.min(1, Math.max(0, 1 - cosine(cache.get(pair.old), cache.get(pair.new))));
+    Math.min(
+      1,
+      Math.max(0, 1 - cosine(cache.get(pair.old), cache.get(pair.new))),
+    );
 
   console.log(`embedding (1 - cosine, clamped)  n=${pairs.length}`);
   let best = null;

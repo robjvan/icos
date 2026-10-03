@@ -7,7 +7,7 @@
 
 ## Where it stands
 
-On the 21-pair corpus (`.reference/plans/m15e-statement-pairs.md`):
+On the 21-pair corpus (`.reference/notes/m15e-statement-pairs.md`):
 
 | measure | best F1 | precision | recall |
 | --- | --- | --- | --- |
