@@ -78,17 +78,19 @@ semantic understanding beyond what the numbers show.
 
 ---
 
-# [ ] M15a — Failure Modes + Baselines
+# [x] M15a — Failure Modes + Baselines (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15a-evidence-failure-modes.md`.
 
-- [ ] Enumerate the observable failure modes this milestone
-      detects: core/protected contradiction, stale relationship,
-      repeated unreviewed pressure, low grounding, semantic
-      movement, cumulative direction change.
-- [ ] Capture a deterministic baseline fixture set (records +
-      candidate sequences) with expected severities, so detection
-      is regression-tested, not vibes.
+- [x] Enumerate the observable failure modes: `core_contradiction`,
+      `protected_contradiction`, `identity_contradiction`,
+      `relationship_state_stale`, `repeated_candidate_pressure`,
+      `grounding_score_low`, `semantic_drift`, `cumulative_semantic_drift`
+      — each with its detection layer and severity in `persona-drift.ts`.
+- [x] Capture the baseline contract: severity is sourced from the
+      catalogue (not chosen at detection time), benign baselines are
+      declared for the false-positive matrix, and the default thresholds
+      live in one place.
 
 # [ ] M15b — Structural Drift
 
