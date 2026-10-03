@@ -48,6 +48,22 @@ import { SqliteProspectiveItemRepository } from '../memory/sqlite-prospective-it
 import { SqliteSourceReliabilityRepository } from '../memory/sqlite-source-reliability.repository';
 import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-journal.repository';
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
+import { ClaimConsistencyService } from '../hallucination/claim-consistency.service';
+import { ClaimVerifierService } from '../hallucination/claim-verifier.service';
+import { HallucinationController } from '../hallucination/hallucination.controller';
+import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
+import { HallucinationLedgerRepository } from '../hallucination/hallucination-ledger.repository';
+import { HallucinationMitigationService } from '../hallucination/hallucination-mitigation.service';
+import {
+  LlmVerifier,
+  VERIFICATION_CLIENT_FACTORY,
+} from '../hallucination/llm-verifier.service';
+import { SqliteHallucinationLedgerRepository } from '../hallucination/sqlite-hallucination-ledger.repository';
+import {
+  SystemoneVerifier,
+  SYSTEMONE_FETCH,
+} from '../hallucination/systemone-verifier.service';
+import type { LlmEndpointConfig } from '../llm/llm.client';
 import { SessionDatabaseService } from '../session/session-database.service';
 import { SessionRepository } from '../session/session.repository';
 import { SqliteSessionRepository } from '../session/sqlite-session.repository';
@@ -120,6 +136,7 @@ const toolExecutionServiceProvider = {
     SkillsController,
     HealthController,
     McpController,
+    HallucinationController,
   ],
   providers: [
     coreConfigProvider,
@@ -203,6 +220,22 @@ const toolExecutionServiceProvider = {
     ToolExecutionRepository,
     toolExecutionServiceProvider,
     AgentRunRepository,
+    {
+      provide: HallucinationLedgerRepository,
+      useClass: SqliteHallucinationLedgerRepository,
+    },
+    ClaimConsistencyService,
+    SystemoneVerifier,
+    { provide: SYSTEMONE_FETCH, useValue: fetch },
+    LlmVerifier,
+    {
+      provide: VERIFICATION_CLIENT_FACTORY,
+      useFactory: () => (endpoint: LlmEndpointConfig) =>
+        new LlmClient(endpoint),
+    },
+    ClaimVerifierService,
+    HallucinationMitigationService,
+    HallucinationGuardService,
     ConversationService,
     SessionStore,
   ],

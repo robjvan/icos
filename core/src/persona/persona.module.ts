@@ -4,6 +4,11 @@ import { PersonaController } from './persona.controller';
 import { PersonaCandidateStager } from './persona-candidate-stager.service';
 import { PersonaCoreService } from './persona-core.service';
 import { PersonaDatabaseService } from './persona-database.service';
+import { PersonaDriftService } from './persona-drift.service';
+import {
+  PersonaEmbedder,
+  RuvectorPersonaEmbedder,
+} from './persona-embedder.service';
 import { PersonaGroundingService } from './persona-grounding.service';
 import { PersonaQueryService } from './persona-query.service';
 import { PersonaReviewService } from './persona-review.service';
@@ -34,6 +39,8 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaCandidateStager,
     PersonaReviewService,
     PersonaQueryService,
+    PersonaDriftService,
+    { provide: PersonaEmbedder, useClass: RuvectorPersonaEmbedder },
   ],
   exports: [
     PersonaDatabaseService,
@@ -44,6 +51,7 @@ import { SqlitePersonaRepository } from './sqlite-persona.repository';
     PersonaCandidateStager,
     PersonaReviewService,
     PersonaQueryService,
+    PersonaDriftService,
   ],
 })
 export class PersonaModule {}

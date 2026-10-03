@@ -10,8 +10,9 @@ icos/   # Root of project.
 │     │
 │     └── status.md         # Live project status tracking.
 │
-├── bin/        # Launch script helper files.
-│     └── dmr   # Compose override shorthand for the DMR variant.
+├── bin/            # Launch script helper files.
+│     ├── dmr       # Compose override shorthand for the DMR variant.
+│     └── verifier  # Starts the local Jev-style claims verifier (macOS/MLX).
 │
 ├── core/                   # Core subsystem.
 │     ├── ...               # Other miscellaneous project files.
@@ -27,6 +28,8 @@ icos/   # Root of project.
 │     │     └── icos-v3-stack/  # Skill containing ICOS stack knowledge and guidance.
 │     │         └── SKILL.md   # Skill file.
 │     │
+│     ├── model-lineups.md      # Which models to run, and the memory budget.
+│     ├── security.md           # Exposure, TLS, auth, and secrets.
 │     ├── skill-blueprint.md    # Template for new skill creation.
 │     └── tool-blueprint.md     # Template for new tool creation.
 │
@@ -38,6 +41,7 @@ icos/   # Root of project.
 │
 ├── .gitignore              # Files to avoid committing to Git.
 ├── AGENTS.md               # Project-level Agent rules.
+├── ARCHITECTURE.md         # Plain-English architecture and feature guide.
 ├── COMMERCIAL-LICENSE.md   # Commercial use license.
 ├── docker-compose-dmr.yml  # Compose configuration for adding DMR.
 ├── docker-compose.yml      # Core Compose configuration.

@@ -53,18 +53,23 @@ checklist: **[docs/security.md](docs/security.md)**.
 - **8 GB VRAM minimum** if you serve models through the Docker Model Runner
   (memory and chat models share one GPU budget; below this the runner
   evicts or degrades models).
-- **Node.js 24.13.0** and **npm 11.6.2** — only needed for local development
+- **Node.js 24.x** and **npm 11.x** (tested on Node 24.21.0 / npm 11.19.0) —
+  only needed for local development
   outside Docker.
 - An OpenAI-compatible LLM endpoint (local or remote). The model does not
   need to run on the same machine.
+
+> **Which models?** ICOS is provider-agnostic. For the roles, two sensible
+> lineups, and the memory budget, see
+> [docs/model-lineups.md](docs/model-lineups.md).
 
 ---
 
 ## Install
 
 ```sh
-git clone https://git.exilelogic.ca/robjvan/icos.git
-cd icos
+git clone https://git.exilelogic.ca/robjvan/icos-v3.git
+cd icos-v3
 ```
 
 No `npm install` is needed for the Docker path — the image build handles
@@ -197,6 +202,13 @@ bind the same host ports, so bring one down before starting the other.
 
 > **DMR status: in testing.** The compose file, model refs, and VRAM behaviour
 > are still being validated. It works; treat sharp edges as expected.
+
+> **Claims verifier (optional).** The hallucination check uses a local
+> Jev-style decision model when one is reachable. On macOS, `bin/verifier`
+> starts it on the host (MLX) and core reaches it at
+> `host.docker.internal:8765` (the default `HALLUCINATION_DECISION_URL`).
+> With none configured, detection falls back to deterministic
+> claim/evidence checks. See [docs/model-lineups.md](docs/model-lineups.md).
 
 ### Docker with your own models
 
@@ -334,6 +346,7 @@ option for personal remote access.
 | --- | --- |
 | [README](README.md) | What ICOS is, why, design goals, milestones, architecture |
 | [INDEX](INDEX.md) | Annotated repository map |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Plain-English feature guide: what it does, how, verified status, benefits |
 | [docs/security.md](docs/security.md) | Exposure, TLS, authentication, secrets |
 | [docs/skill-blueprint.md](docs/skill-blueprint.md) | How to author a skill |
 | [docs/tool-blueprint.md](docs/tool-blueprint.md) | How to author a tool |

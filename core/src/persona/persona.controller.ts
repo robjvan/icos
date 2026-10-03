@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { RequireRole } from '../auth/decorators';
 import { PersonaCoreService } from './persona-core.service';
+import { PersonaDriftService } from './persona-drift.service';
 import { PersonaGroundingService } from './persona-grounding.service';
 import { PersonaQueryService } from './persona-query.service';
 import type { PersonaOverview } from './persona-query.service';
@@ -31,6 +32,7 @@ export class PersonaController {
     private readonly grounding: PersonaGroundingService,
     private readonly review: PersonaReviewService,
     private readonly query: PersonaQueryService,
+    private readonly drift: PersonaDriftService,
   ) {}
 
   /**
@@ -69,6 +71,18 @@ export class PersonaController {
   @Get('drift')
   async getDrift(): Promise<{ drift: PersonaDriftEntry[] }> {
     return { drift: await this.query.drift() };
+  }
+
+  /**
+   * Run the structural drift audit (M15b): relationship freshness and
+   * grounding score, reconciling findings whose conditions have cleared.
+   * Returns the findings newly raised.
+   */
+  @RequireRole('admin')
+  @Post('drift/audit')
+  @HttpCode(200)
+  async auditDrift(): Promise<{ findings: PersonaDriftEntry[] }> {
+    return { findings: await this.drift.auditGrounding() };
   }
 
   /**

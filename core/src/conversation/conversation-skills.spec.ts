@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
 import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
 import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import type { CoreConfig } from '../config';
@@ -169,6 +170,7 @@ async function setup(
     {
       stageFromMemoryCandidates: () => Promise.resolve(0),
     } as unknown as PersonaCandidateStager,
+    { audit: () => Promise.resolve(0) } as unknown as HallucinationGuardService,
     new NoopPublisher(),
   );
   return {

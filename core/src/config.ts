@@ -2,6 +2,15 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { MEMORY_CANDIDATE_KINDS } from './memory/memory-candidate';
 
+import {
+  DEFAULT_MITIGATION_POSTURE,
+  MITIGATION_STRATEGIES,
+} from './hallucination/hallucination-modes';
+import type {
+  MitigationPosture,
+  MitigationStrategy,
+} from './hallucination/hallucination-modes';
+
 export const CORE_CONFIG = 'CORE_CONFIG';
 
 export interface CoreConfig {
@@ -104,6 +113,34 @@ export interface CoreConfig {
   personaGroundingEntryLimit?: number;
   /** M14d grounding bundle cap: approximate character budget for the band. */
   personaGroundingCharacterBudget?: number;
+  /** M15b: relationship freshness window (hours) before it counts stale. */
+  personaRelationshipFreshHours?: number;
+  /** M15b: overall grounding score below this means "needs warm-up". */
+  personaGroundingWarmupThreshold?: number;
+  /** M15b: pending candidates in a similar cluster that count as pressure. */
+  personaCandidatePressureCount?: number;
+  /** M15b: lexical similarity that joins candidates into a pressure cluster. */
+  personaCandidatePressureSimilarity?: number;
+  /** M15c: semantic-drift signal at/above which a finding is raised. */
+  personaSemanticDriftFloor?: number;
+  /** M15c: semantic-drift signal at/above which severity is `critical`. */
+  personaSemanticCriticalFloor?: number;
+  /** M15d: consecutive elevated cycles that flag cumulative drift. */
+  personaCumulativeMinCycles?: number;
+  /**
+   * M15.5c secondary-model verification. Tiers, preferred first:
+   * - `hallucinationDecisionUrl` — a systemone decision model
+   *   (`POST /v1/systemone`; local Jev or any Jev-compatible server);
+   * - `hallucinationVerifierProvider` — a catalog provider id for an
+   *   OpenAI-compatible LLM verifier;
+   * - neither set → deterministic checks only.
+   */
+  hallucinationDecisionUrl?: string;
+  hallucinationDecisionApiKeyRef?: string;
+  hallucinationVerifierProvider?: string;
+  hallucinationVerifierTimeoutMs?: number;
+  /** M15.5d mitigation: strategy per severity (config-overridable). */
+  hallucinationMitigationPosture?: Partial<MitigationPosture>;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -247,6 +284,20 @@ function parseNonNegativeInt(
 }
 
 /** 0..1 score with a fallback; rejects NaN and out-of-range input. */
+function parseMitigationStrategy(
+  raw: string | undefined,
+  fallback: MitigationStrategy,
+): MitigationStrategy {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (value === '') return fallback;
+  if ((MITIGATION_STRATEGIES as readonly string[]).includes(value)) {
+    return value as MitigationStrategy;
+  }
+  throw new Error(
+    `mitigation strategy must be one of ${MITIGATION_STRATEGIES.join(', ')} (got "${raw}")`,
+  );
+}
+
 function parseScore(
   raw: string | undefined,
   fallback: number,
@@ -328,6 +379,71 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       6000,
       'PERSONA_GROUNDING_CHARACTER_BUDGET',
     ),
+    personaRelationshipFreshHours: parsePositiveInt(
+      env.PERSONA_RELATIONSHIP_FRESH_HOURS,
+      48,
+      'PERSONA_RELATIONSHIP_FRESH_HOURS',
+    ),
+    personaGroundingWarmupThreshold: parseScore(
+      env.PERSONA_GROUNDING_WARMUP_THRESHOLD,
+      0.6,
+      'PERSONA_GROUNDING_WARMUP_THRESHOLD',
+    ),
+    personaCandidatePressureCount: parsePositiveInt(
+      env.PERSONA_CANDIDATE_PRESSURE_COUNT,
+      3,
+      'PERSONA_CANDIDATE_PRESSURE_COUNT',
+    ),
+    personaCandidatePressureSimilarity: parseScore(
+      env.PERSONA_CANDIDATE_PRESSURE_SIMILARITY,
+      0.6,
+      'PERSONA_CANDIDATE_PRESSURE_SIMILARITY',
+    ),
+    personaSemanticDriftFloor: parseScore(
+      env.PERSONA_SEMANTIC_DRIFT_FLOOR,
+      0.2,
+      'PERSONA_SEMANTIC_DRIFT_FLOOR',
+    ),
+    personaSemanticCriticalFloor: parseScore(
+      env.PERSONA_SEMANTIC_CRITICAL_FLOOR,
+      0.5,
+      'PERSONA_SEMANTIC_CRITICAL_FLOOR',
+    ),
+    personaCumulativeMinCycles: parsePositiveInt(
+      env.PERSONA_CUMULATIVE_MIN_CYCLES,
+      3,
+      'PERSONA_CUMULATIVE_MIN_CYCLES',
+    ),
+    hallucinationDecisionUrl:
+      (env.HALLUCINATION_DECISION_URL ?? '').trim().replace(/\/+$/, '') ||
+      undefined,
+    hallucinationDecisionApiKeyRef:
+      (env.HALLUCINATION_DECISION_API_KEY_REF ?? '').trim() || undefined,
+    hallucinationVerifierProvider:
+      (env.HALLUCINATION_VERIFIER_PROVIDER ?? '').trim() || undefined,
+    hallucinationVerifierTimeoutMs: parsePositiveInt(
+      env.HALLUCINATION_VERIFIER_TIMEOUT_MS,
+      10000,
+      'HALLUCINATION_VERIFIER_TIMEOUT_MS',
+    ),
+    hallucinationMitigationPosture: {
+      info: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_INFO,
+        DEFAULT_MITIGATION_POSTURE.info,
+      ),
+      watch: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_WATCH,
+        DEFAULT_MITIGATION_POSTURE.watch,
+      ),
+      warning: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_WARNING,
+        DEFAULT_MITIGATION_POSTURE.warning,
+      ),
+      critical: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_CRITICAL,
+        DEFAULT_MITIGATION_POSTURE.critical,
+      ),
+    },
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

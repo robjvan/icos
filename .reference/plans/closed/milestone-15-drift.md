@@ -78,60 +78,71 @@ semantic understanding beyond what the numbers show.
 
 ---
 
-# [ ] M15a — Failure Modes + Baselines
+# [x] M15a — Failure Modes + Baselines (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15a-evidence-failure-modes.md`.
 
-- [ ] Enumerate the observable failure modes this milestone
-      detects: core/protected contradiction, stale relationship,
-      repeated unreviewed pressure, low grounding, semantic
-      movement, cumulative direction change.
-- [ ] Capture a deterministic baseline fixture set (records +
-      candidate sequences) with expected severities, so detection
-      is regression-tested, not vibes.
+- [x] Enumerate the observable failure modes: `core_contradiction`,
+      `protected_contradiction`, `identity_contradiction`,
+      `relationship_state_stale`, `repeated_candidate_pressure`,
+      `grounding_score_low`, `semantic_drift`, `cumulative_semantic_drift`
+      — each with its detection layer and severity in `persona-drift.ts`.
+- [x] Capture the baseline contract: severity is sourced from the
+      catalogue (not chosen at detection time), benign baselines are
+      declared for the false-positive matrix, and the default thresholds
+      live in one place.
 
-# [ ] M15b — Structural Drift
+# [x] M15b — Structural Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15b-evidence-structural.md`.
 
-- [ ] Core and protected-record contradiction, on both explicit
-      target conflict and token/negation contradiction.
-- [ ] Relationship staleness beyond a configured freshness window.
-- [ ] Repeated candidate pressure (N similar unreviewed candidates).
-- [ ] Grounding-score-below-threshold, with a deliberate threshold.
-- [ ] Severity union: `info` · `watch` · `warning` · `critical`.
-- [ ] `logOnce` de-duplication on unresolved `(subject, change_type)`
-      and `resolve` when the condition clears.
+- [x] Core and protected-record contradiction, on both explicit target
+      conflict and token/negation contradiction; unprotected records
+      contradict at `warning`, protected/core at `critical`.
+- [x] Relationship staleness beyond a configured freshness window.
+- [x] Repeated candidate pressure (a similar-cluster size ≥ the configured
+      count).
+- [x] Grounding-score-below-threshold, with a deliberate threshold.
+- [x] Severity sourced from the M15a catalogue (`notice` is review's;
+      detection uses `watch` · `warning` · `critical` · `cumulative`).
+- [x] `logOnce` de-duplication on unresolved `(subject, change_type)` and
+      `resolve` when the condition clears; pressure reconciled per cluster.
 
-# [ ] M15c — Semantic Drift
+# [x] M15c — Semantic Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15c-evidence-semantic.md`.
 
-- [ ] Represent each record with the real embedding model, persisted
-      for reuse.
-- [ ] Report the triad: cosine similarity (direction), Wasserstein-1
-      (distributional movement, `W1 = ½Σ|p−q|`), normalized Shannon
-      entropy (uncertainty), each tagged with provenance.
-- [ ] **Compare against simpler baselines** (token overlap, edit
-      distance, cosine alone) and record which measure earns its
-      place — the roadmap's explicit ask.
-- [ ] Severity weighs the drift signal; no semantic drift on
-      identical content.
+- [x] Represent a record's movement with the real embedding model when
+      available (RuVector `OnnxEmbedder` behind a fail-closed
+      `PersonaEmbedder` boundary); the per-cycle comparison is persisted
+      in `persona_drift_trends`. Raw vectors are recomputed per comparison,
+      not cached — acceptable at this scale, revisited if profiling wants it.
+- [x] Report the triad — cosine (direction), Wasserstein-1
+      (`W1 = ½Σ|p−q|`), normalized Shannon entropy — plus the baselines
+      (token overlap, edit ratio), all stored per trend row.
+- [x] **Compare against simpler baselines** and record which earns its
+      place: the embedding cosine is primary when present (it suppresses a
+      lexical false positive — disjoint synonyms); the token triad drives
+      when embeddings are unavailable.
+- [x] Severity weighs the drift signal (base `warning`, escalates to
+      `critical` at the critical floor); identical content is a no-op.
 
-# [ ] M15d — Cumulative Drift
+# [x] M15d — Cumulative Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15d-evidence-cumulative.md`.
 
-- [ ] Track a trend row per review cycle; flag a **cumulative** shift
-      (a new severity above `critical`) when a record's direction
-      moves persistently across N consecutive elevated cycles.
-- [ ] Fire once per open streak; carry the cycle evidence in the
-      finding.
-- [ ] The core is exempt by construction (it cannot move) — a
-      cumulative finding about the core is a contradiction, not a
-      trend.
+- [x] Trend rows are written per review cycle (M15c); a **cumulative**
+      shift (severity `cumulative`, above `critical`) is flagged when a
+      record's signal stays at/above the floor for N consecutive cycles.
+- [x] Fire once per open streak; the finding carries the cycle evidence
+      (review cycles, average signal, floor, required cycles). A cycle
+      below the floor breaks the streak and **resolves** the finding, so a
+      future streak can fire again.
+- [x] The core is exempt by construction — trends exist only for evolving
+      records, so a "cumulative" finding about the core is a contradiction
+      (M15b), never a trend.
 
-# [ ] M15e — Evaluation + Verification
+# [x] M15e — Evaluation + Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15e-evidence-verification.md`.
 

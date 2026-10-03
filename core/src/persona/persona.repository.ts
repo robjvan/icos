@@ -4,9 +4,11 @@ import type {
   PersonaCandidate,
   PersonaCoreState,
   PersonaDriftEntry,
+  PersonaDriftTrend,
   PersonaRecord,
   PersonaRelationship,
   PersonaUserFact,
+  RecordPersonaDriftTrendInput,
   StagePersonaCandidateInput,
   UpdatePersonaCandidateReviewInput,
   UpsertPersonaRelationshipInput,
@@ -76,6 +78,30 @@ export abstract class PersonaRepository {
     userId: string,
     limit?: number,
   ): Promise<PersonaDriftEntry[]>;
+
+  /** True when an unresolved finding exists for `(subject, change_type)`. */
+  abstract hasUnresolvedDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<boolean>;
+
+  /** Mark unresolved findings for `(subject, change_type)` reviewed. */
+  abstract resolveDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<number>;
+
+  /** Append a semantic-trend row for a record (review cycle auto-numbered). */
+  abstract recordDriftTrend(
+    input: RecordPersonaDriftTrendInput,
+  ): Promise<PersonaDriftTrend>;
+
+  abstract listDriftTrends(
+    recordId: string,
+    limit?: number,
+  ): Promise<PersonaDriftTrend[]>;
 
   /**
    * Last recorded core-persona load (path, hash, status), for change

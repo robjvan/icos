@@ -160,24 +160,32 @@
   - [x] ~~Persona review UI~~
   - [x] ~~Persona verification~~
 
-- [ ] **M15: Drift Detection and Reporting**
-  - [ ] Define observable drift failure modes
-  - [ ] Establish behavioral / epistemic baselines
-  - [ ] Structural drift (core / protected contradiction, staleness, repeated pressure, low grounding)
-  - [ ] Distributional drift detection
-    - [ ] Evaluate Wasserstein distance and simpler alternatives
-  - [ ] Cumulative drift across review cycles
-  - [ ] Finding reconciliation / de-duplication
-  - [ ] Drift reporting surface
-  - [ ] Evaluation
+- [x] ~~**M15: Drift Detection and Reporting**~~
+  - [x] ~~Define observable drift failure modes~~
+  - [x] ~~Establish behavioral / epistemic baselines~~
+  - [x] ~~Structural drift (core / protected contradiction, staleness, repeated pressure, low grounding)~~
+  - [x] ~~Distributional drift detection~~
+    - [x] ~~Evaluate Wasserstein distance and simpler alternatives~~
+  - [x] ~~Cumulative drift across review cycles~~
+  - [x] ~~Finding reconciliation / de-duplication~~
+  - [x] ~~Drift reporting surface~~
+  - [x] ~~Evaluation~~
+  > _Detection + reconciliation + honest calibration delivered. Semantic
+  > drift is a measured **advisory** signal (embedding F1 0.78 on the M15e
+  > corpus); subtle propositional drift is deferred to M15.5. Further
+  > tuning: `.reference/plans/drift-tuning-backlog.md`._
 
-- [ ] **M15.5: Hallucination Mitigation**
-  - [ ] Define observable hallucination failure modes
-  - [ ] Claim / evidence consistency checking
-  - [ ] Secondary-model verification (provider-agnostic)
-  - [ ] Mitigation strategies (flag / re-ground / defer / refuse)
-  - [ ] False-positive / false-negative analysis
-  - [ ] Evaluation
+- [x] ~~**M15.5: Hallucination Mitigation**~~
+  - [x] ~~Define observable hallucination failure modes~~
+  - [x] ~~Claim / evidence consistency checking~~
+  - [x] ~~Secondary-model verification (provider-agnostic)~~
+  - [x] ~~Mitigation strategies (flag / re-ground / defer / refuse)~~
+  - [x] ~~False-positive / false-negative analysis~~
+  - [x] ~~Evaluation~~
+  > _Deterministic detection plus optional provider-agnostic verification and
+  > explicit, logged mitigations — verified live against the local Jev 2B
+  > decision model. Blocking pre-send mitigation, a Linux CUDA verifier
+  > service, and propositional drift tuning remain later slices._
 
 - [ ] **M16: External Communication Integrations**
   - [ ] Discord integration

@@ -224,6 +224,20 @@ export class ProviderRegistryService implements OnModuleInit {
     }
   }
 
+  /**
+   * Endpoint for a specific catalog provider id, or null when unknown or
+   * disabled. No env fallback — callers use this to target a *named*
+   * provider (e.g. an M15.5c verifier) and degrade when it is absent.
+   */
+  endpointForId(id: string): LlmEndpointConfig | null {
+    const trimmed = id.trim();
+    if (!trimmed) return null;
+    const entry = this.catalog.providers.find(
+      (candidate) => candidate.id === trimmed && candidate.enabled !== false,
+    );
+    return entry ? this.toEndpoint(entry, 'conversation') : null;
+  }
+
   private activeId(role: ProviderRole): string {
     const id = this.catalog.active[role];
     const entry = id

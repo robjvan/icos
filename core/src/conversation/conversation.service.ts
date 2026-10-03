@@ -28,6 +28,7 @@ import { ClaimRepository } from '../memory/claim.repository';
 import { PromotionService } from '../memory/promotion.service';
 import { compareRecalled } from '../memory/comparison';
 import { buildKbBand } from '../memory/prompt-bands';
+import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
 import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
 import { PersonaGroundingService } from '../persona/persona-grounding.service';
 import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
@@ -221,6 +222,7 @@ export class ConversationService {
     private readonly claims: ClaimRepository,
     private readonly personaGrounding: PersonaGroundingService,
     private readonly personaStager: PersonaCandidateStager,
+    private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
   ) {}
 
@@ -2247,6 +2249,15 @@ export class ConversationService {
                   }`,
                 );
               });
+            // M15.5e: audit the model's own asserted claims. Fire-and-forget,
+            // fail-soft — a hallucination check never fails a turn.
+            void this.hallucinationGuard.audit(saved).catch((err: unknown) => {
+              this.logger.warn(
+                `Hallucination audit failed for session ${input.sessionId}: ${
+                  err instanceof Error ? err.message : 'unknown error'
+                }`,
+              );
+            });
           });
       })
       .catch((err: unknown) => {

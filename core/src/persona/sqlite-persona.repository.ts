@@ -16,11 +16,13 @@ import type {
   PersonaCoreState,
   PersonaDriftEntry,
   PersonaDriftSeverity,
+  PersonaDriftTrend,
   PersonaProposedTarget,
   PersonaRecord,
   PersonaRelationship,
   PersonaSensitivity,
   PersonaUserFact,
+  RecordPersonaDriftTrendInput,
   StagePersonaCandidateInput,
   UpdatePersonaCandidateReviewInput,
   UpsertPersonaRelationshipInput,
@@ -164,6 +166,21 @@ interface PersonaDriftRow {
   created_at: string;
 }
 
+interface PersonaDriftTrendRow {
+  id: number;
+  record_id: string;
+  review_cycle: number;
+  cosine: number;
+  wasserstein: number;
+  entropy: number;
+  token_overlap: number;
+  edit_ratio: number;
+  embedding_cosine: number | null;
+  signal: number;
+  severity: string;
+  observed_at: string;
+}
+
 interface PersonaCoreStateRow {
   path: string;
   hash: string | null;
@@ -261,6 +278,26 @@ function mapDrift(row: PersonaDriftRow): PersonaDriftEntry {
     reviewedAt: nullableString(row.reviewed_at),
     metadata: parseJsonObject(row.metadata_json),
     createdAt: row.created_at,
+  };
+}
+
+function mapDriftTrend(row: PersonaDriftTrendRow): PersonaDriftTrend {
+  return {
+    id: row.id,
+    recordId: row.record_id,
+    reviewCycle: row.review_cycle,
+    cosine: row.cosine,
+    wasserstein: row.wasserstein,
+    entropy: row.entropy,
+    tokenOverlap: row.token_overlap,
+    editRatio: row.edit_ratio,
+    embeddingCosine:
+      row.embedding_cosine === null || row.embedding_cosine === undefined
+        ? null
+        : Number(row.embedding_cosine),
+    signal: row.signal,
+    severity: row.severity as PersonaDriftSeverity,
+    observedAt: row.observed_at,
   };
 }
 
@@ -644,6 +681,90 @@ export class SqlitePersonaRepository extends PersonaRepository {
       );
 
     return mapCandidate(this.getCandidateRow(input.candidateId)!);
+  }
+
+  async hasUnresolvedDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<boolean> {
+    const row = this.database
+      .prepare(
+        `SELECT 1 AS present FROM persona_drift_log
+         WHERE user_id = ? AND subject_id = ? AND change_type = ? AND reviewed = 0
+         LIMIT 1`,
+      )
+      .get(userId, subjectId, changeType) as { present: number } | undefined;
+    return row !== undefined;
+  }
+
+  async resolveDrift(
+    userId: string,
+    subjectId: string,
+    changeType: string,
+  ): Promise<number> {
+    const result = this.database
+      .prepare(
+        `UPDATE persona_drift_log
+         SET reviewed = 1, reviewed_at = ?
+         WHERE user_id = ? AND subject_id = ? AND change_type = ? AND reviewed = 0`,
+      )
+      .run(nowIso(), userId, subjectId, changeType);
+    return Number(result.changes);
+  }
+
+  async recordDriftTrend(
+    input: RecordPersonaDriftTrendInput,
+  ): Promise<PersonaDriftTrend> {
+    const now = input.occurredAt ?? nowIso();
+    const maxCycle = this.database
+      .prepare(
+        'SELECT COALESCE(MAX(review_cycle), 0) AS cycle FROM persona_drift_trends WHERE record_id = ?',
+      )
+      .get(input.recordId) as { cycle: number };
+    const reviewCycle = (maxCycle?.cycle ?? 0) + 1;
+    const result = this.database
+      .prepare(
+        `INSERT INTO persona_drift_trends (
+           record_id, review_cycle, cosine, wasserstein, entropy,
+           token_overlap, edit_ratio, embedding_cosine, signal, severity,
+           observed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.recordId,
+        reviewCycle,
+        input.cosine,
+        input.wasserstein,
+        input.entropy,
+        input.tokenOverlap,
+        input.editRatio,
+        input.embeddingCosine ?? null,
+        input.signal,
+        input.severity,
+        now,
+      );
+
+    const row = this.database
+      .prepare('SELECT * FROM persona_drift_trends WHERE id = ?')
+      .get(Number(result.lastInsertRowid)) as PersonaDriftTrendRow | undefined;
+    if (!row) throw new Error('Drift trend vanished after insert');
+    return mapDriftTrend(row);
+  }
+
+  async listDriftTrends(
+    recordId: string,
+    limit = DEFAULT_LIMIT,
+  ): Promise<PersonaDriftTrend[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM persona_drift_trends
+         WHERE record_id = ?
+         ORDER BY review_cycle DESC
+         LIMIT ?`,
+      )
+      .all(recordId, this.capLimit(limit)) as PersonaDriftTrendRow[];
+    return rows.map(mapDriftTrend);
   }
 
   async getCoreState(): Promise<PersonaCoreState | null> {

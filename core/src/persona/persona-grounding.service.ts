@@ -64,9 +64,12 @@ export class PersonaGroundingService {
     const strongUser = facts.filter(
       (fact) => fact.confidence >= STRONG_CONFIDENCE,
     ).length;
+    const freshHours = this.config.personaRelationshipFreshHours ?? FRESH_HOURS;
+    const warmupThreshold =
+      this.config.personaGroundingWarmupThreshold ?? WARMUP_THRESHOLD;
     const ageHours = relationship ? hoursSince(relationship.updatedAt) : -1;
     const relationshipCurrent =
-      relationship !== null && ageHours >= 0 && ageHours <= FRESH_HOURS;
+      relationship !== null && ageHours >= 0 && ageHours <= freshHours;
 
     const identityGrounded = coreLoaded || strongIdentity > 0;
     const userKnown = strongUser > 0;
@@ -105,7 +108,7 @@ export class PersonaGroundingService {
       userFactCount: facts.length,
       relationshipStateAgeHours: ageHours < 0 ? -1 : round1(ageHours),
       overallScore: round2(score),
-      needsWarmup: score < WARMUP_THRESHOLD,
+      needsWarmup: score < warmupThreshold,
       details,
     };
   }

@@ -25,8 +25,10 @@ services:
       # Single data root: sessions + memories + vector store + skills +
       # embedding model cache all live under the host's ~/.icos and
       # survive container rebuilds. Paths in core/.env must match the
-      # container side exactly (bind mount, same absolute path).
-      - /Users/rob/.icos:/Users/rob/.icos
+      # container side exactly (bind mount, same absolute path), so set
+      # the SESSION_DB_PATH / MEMORY_DB_PATH / AUTH_DIR_PATH / ... values
+      # in core/.env to ${HOME}/.icos/... .
+      - ${HOME}/.icos:${HOME}/.icos
 
     healthcheck:
       # Verify that NestJS is actually responding rather than merely having its process running.
