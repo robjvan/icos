@@ -76,14 +76,20 @@ to avoid.
 
 ---
 
-# [ ] M15.5a — Failure Modes + Baselines
+# [x] M15.5a — Failure Modes + Baselines (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5a-evidence-failure-modes.md`.
 
-- [ ] Define observable hallucination failure modes: unsupported
-      claim, contradicted claim, fabricated provenance, overconfident
-      uncertainty, silent self-correction.
-- [ ] Baseline fixture set with expected findings and severities.
+- [x] Defined the observable failure modes in `hallucination-modes.ts`:
+      `unsupported_claim`, `contradicted_claim`, `fabricated_provenance`,
+      `overconfident_uncertainty`, `silent_self_correction`, and
+      `unverifiable_high_stakes` — each with its detection layer and
+      severity.
+- [x] Baseline contract: severity is sourced from the catalogue (not chosen
+      at detection time); benign baselines declared (novelty, supported
+      claims, honest hedging, recorded model disagreement); default
+      thresholds documented. The deterministic layer owns every mode but
+      `unverifiable_high_stakes` (secondary model).
 
 # [ ] M15.5b — Claim / Evidence Consistency
 
