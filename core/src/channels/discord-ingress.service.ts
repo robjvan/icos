@@ -137,6 +137,17 @@ export class DiscordIngressService implements OnModuleInit {
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
+      // Fail visibly: never leave the user with a typing indicator and then
+      // silence. The reply is queued so it survives a restart like any other.
+      await this.repository
+        .enqueueDelivery({
+          channel: 'discord',
+          conversationKey,
+          body: '⚠️ Sorry — I hit an error processing that message. Please try again.',
+          replyToMessageId: inbound.id,
+        })
+        .catch(() => undefined);
+      void this.delivery.runOnce().catch(() => undefined);
     }
   }
 

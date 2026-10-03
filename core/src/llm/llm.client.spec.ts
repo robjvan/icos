@@ -183,6 +183,34 @@ describe('LlmClient', () => {
     expect(err).toMatchObject({ name: 'LlmError', httpStatus: 502 });
   });
 
+  it('surfaces the upstream error message and status on a failed response', async () => {
+    global.fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: 'Insufficient credits' } }),
+          { status: 402 },
+        ),
+      );
+
+    const err = await clientWith()
+      .chat({ messages: [{ role: 'user', content: 'hi' }] })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ name: 'LlmError', httpStatus: 502 });
+    expect((err as Error).message).toContain('402');
+    expect((err as Error).message).toContain('Insufficient credits');
+  });
+
+  it('surfaces an error envelope returned with a 200', async () => {
+    global.fetch = () =>
+      Promise.resolve(okResponse({ error: { message: 'rate limited' } }));
+
+    const err = await clientWith()
+      .chat({ messages: [{ role: 'user', content: 'hi' }] })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ name: 'LlmError', httpStatus: 502 });
+    expect((err as Error).message).toContain('rate limited');
+  });
+
   it('throws 504 when the request fails (network error / abort)', async () => {
     global.fetch = (): Promise<Response> => {
       throw new DOMException('aborted', 'AbortError');

@@ -242,4 +242,19 @@ describe('DiscordIngressService', () => {
     expect(converse).not.toHaveBeenCalled();
     expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
   });
+
+  it('queues a visible error reply when the turn fails', async () => {
+    const converse = jest.fn(async () => {
+      throw new Error('LLM endpoint returned an invalid completion');
+    });
+    const service = build(testConfig(dir), {
+      converse,
+    } as unknown as ConversationService);
+
+    await service.handle(inbound());
+
+    const deliveries = await repository.listDeliveries('pending');
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]?.body).toContain('error');
+  });
 });
