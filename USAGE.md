@@ -202,6 +202,13 @@ bind the same host ports, so bring one down before starting the other.
 > **DMR status: in testing.** The compose file, model refs, and VRAM behaviour
 > are still being validated. It works; treat sharp edges as expected.
 
+> **Claims verifier (optional).** The hallucination check uses a local
+> Jev-style decision model when one is reachable. On macOS, `bin/verifier`
+> starts it on the host (MLX) and core reaches it at
+> `host.docker.internal:8765` (the default `HALLUCINATION_DECISION_URL`).
+> With none configured, detection falls back to deterministic
+> claim/evidence checks. See [docs/model-lineups.md](docs/model-lineups.md).
+
 ### Docker with your own models
 
 If you already run Ollama, llama.cpp, or a remote provider:

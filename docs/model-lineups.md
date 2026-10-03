@@ -167,9 +167,28 @@ A verifier never auto-resolves: disagreement is recorded, not rewritten.
 With no verifier configured, a high-stakes claim the evidence cannot
 resolve is flagged `unverifiable_high_stakes` rather than accepted.
 
-Running the local Jev-style server needs a Python sidecar (`jev-style
-serve`); the model lives on the shared `~/.icos/models` volume. The end
-user runs a compose profile, not `pip`.
+### Running the verifier (macOS first)
+
+Docker Desktop on macOS cannot reach Apple's GPU, so a containerised Jev
+would be CPU-only and slow. Run it on the **host** instead — one command
+bootstraps the runtime (once) and serves the 2B model over MLX:
+
+```sh
+bin/verifier            # first run installs the runtime, then serves :8765
+JEV_STYLE_RELEASE=0.8b bin/verifier   # smaller/faster model
+```
+
+Core (in Docker) then reaches it at `host.docker.internal:8765` — the
+default `HALLUCINATION_DECISION_URL`. The runtime lives under
+`~/.icos/verifier/`, the model under the shared `~/.icos/models` volume.
+
+**Linux is a line item.** On a CUDA host the verifier becomes a compose
+service reached at `http://verifier:8765`; until then, either point
+`HALLUCINATION_VERIFIER_PROVIDER` at a model you already run, or leave the
+decision URL unset and the deterministic checks carry the load. (A
+*deterministic* systemone-compatible stub is a plausible lightweight
+in-between — it would exercise the decision client without a GPU — but a
+container that fakes a model answer is not the move.)
 
 ## The fast vision path
 

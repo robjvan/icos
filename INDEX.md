@@ -10,8 +10,9 @@ icos/   # Root of project.
 │     │
 │     └── status.md         # Live project status tracking.
 │
-├── bin/        # Launch script helper files.
-│     └── dmr   # Compose override shorthand for the DMR variant.
+├── bin/            # Launch script helper files.
+│     ├── dmr       # Compose override shorthand for the DMR variant.
+│     └── verifier  # Starts the local Jev-style claims verifier (macOS/MLX).
 │
 ├── core/                   # Core subsystem.
 │     ├── ...               # Other miscellaneous project files.

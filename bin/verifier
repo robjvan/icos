@@ -1,0 +1,48 @@
+#!/bin/sh
+# Local claims verifier (optional). Serves a Jev-style decision model for
+# the M15.5 hallucination check.
+#
+# macOS: MLX on the HOST — Docker Desktop cannot reach Apple's GPU, so a
+# container would be CPU-only and slow. Serves http://127.0.0.1:8765 and
+# core (in Docker) reaches it at http://host.docker.internal:8765.
+#
+# Linux: would become a CUDA compose service (future work); this helper
+# still runs it in-process (PyTorch, CUDA or CPU) for now.
+#
+# Usage: bin/verifier [extra jev-style serve args...]
+#   JEV_STYLE_RELEASE=0.8b bin/verifier   # smaller/faster model
+set -e
+cd "$(dirname "$0")/.."
+
+VENV="${HOME}/.icos/verifier/venv"
+
+case "$(uname -s)" in
+  Darwin) EXTRA="mlx" ;;
+  *) EXTRA="torch" ;;
+esac
+
+if [ ! -x "${VENV}/bin/jev-style" ]; then
+  echo "bin/verifier: setting up the Jev runtime in ${VENV} (one time)..."
+  mkdir -p "$(dirname "${VENV}")"
+  if command -v uv >/dev/null 2>&1; then
+    uv venv "${VENV}"
+    uv pip install --python "${VENV}/bin/python" "jev-style[${EXTRA}]"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -m venv "${VENV}"
+    "${VENV}/bin/pip" install --upgrade pip
+    "${VENV}/bin/pip" install "jev-style[${EXTRA}]"
+  else
+    echo "bin/verifier: need 'uv' or python3 >= 3.10 on PATH." >&2
+    exit 1
+  fi
+fi
+
+# Default to the 2B decision model; override with JEV_STYLE_RELEASE.
+JEV_STYLE_RELEASE="${JEV_STYLE_RELEASE:-2b}"
+export JEV_STYLE_RELEASE
+
+echo "bin/verifier: serving http://127.0.0.1:8765 (release ${JEV_STYLE_RELEASE})."
+echo "bin/verifier: core in Docker reaches it at http://host.docker.internal:8765"
+echo "bin/verifier: set HALLUCINATION_DECISION_URL=http://host.docker.internal:8765"
+
+exec "${VENV}/bin/jev-style" serve "$@"
