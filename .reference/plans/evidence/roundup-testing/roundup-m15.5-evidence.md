@@ -3,7 +3,7 @@
 > **Date:** 2026-10-03. **Scope:** M1–M15.5, the security-hardening pass, the
 > web client, and the compose launch path. **Origin:**
 > `.reference/roundup-testing/idea.md`. **Plan:**
-> `.reference/plans/roundup-testing-m15.5.md`.
+> `.reference/plans/closed/roundup-testing-m15.5.md`.
 >
 > This is a verification pass, not a feature. It re-checks what the
 > repository claims about itself against the running system and fixes the
