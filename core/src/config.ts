@@ -119,6 +119,18 @@ export interface CoreConfig {
   /** M15d: consecutive elevated cycles that flag cumulative drift. */
   personaCumulativeMinCycles?: number;
   /**
+   * M15.5c secondary-model verification. Tiers, preferred first:
+   * - `hallucinationDecisionUrl` — a systemone decision model
+   *   (`POST /v1/systemone`; local Jev or any Jev-compatible server);
+   * - `hallucinationVerifierProvider` — a catalog provider id for an
+   *   OpenAI-compatible LLM verifier;
+   * - neither set → deterministic checks only.
+   */
+  hallucinationDecisionUrl?: string;
+  hallucinationDecisionApiKeyRef?: string;
+  hallucinationVerifierProvider?: string;
+  hallucinationVerifierTimeoutMs?: number;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -376,6 +388,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.PERSONA_CUMULATIVE_MIN_CYCLES,
       3,
       'PERSONA_CUMULATIVE_MIN_CYCLES',
+    ),
+    hallucinationDecisionUrl:
+      (env.HALLUCINATION_DECISION_URL ?? '').trim().replace(/\/+$/, '') ||
+      undefined,
+    hallucinationDecisionApiKeyRef:
+      (env.HALLUCINATION_DECISION_API_KEY_REF ?? '').trim() || undefined,
+    hallucinationVerifierProvider:
+      (env.HALLUCINATION_VERIFIER_PROVIDER ?? '').trim() || undefined,
+    hallucinationVerifierTimeoutMs: parsePositiveInt(
+      env.HALLUCINATION_VERIFIER_TIMEOUT_MS,
+      10000,
+      'HALLUCINATION_VERIFIER_TIMEOUT_MS',
     ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),

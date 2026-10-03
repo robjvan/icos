@@ -105,16 +105,21 @@ Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5b-evidence-con
 - [x] Novelty is not failure — an unsupported-but-uncontradicted assertion
       is flagged (`warning`), never refused.
 
-# [ ] M15.5c — Secondary-Model Verification
+# [x] M15.5c — Secondary-Model Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5c-evidence-secondary.md`.
 
-- [ ] A second model verifies high-stakes claims via the S4 provider
-      registry; provider-agnostic, no hard-coding.
-- [ ] Disagreement between models is recorded as a finding, not
-      auto-resolved.
-- [ ] Absent a configured verifier, the milestone still passes on
-      deterministic checks.
+- [x] A second model verifies high-stakes claims, provider-agnostic and
+      tiered (preferred first): a **systemone decision model**
+      (`POST /v1/systemone` — local Jev-style or any Jev-compatible
+      server), then an **OpenAI-compatible LLM** named by provider id via
+      the S4 registry, then **none**.
+- [x] Disagreement is **recorded** (the verdict + a `disagreement` flag),
+      never auto-resolved; every verdict records its tier and
+      **independence** (`independent` vs `self`).
+- [x] Absent a configured verifier, the milestone still passes on
+      deterministic checks; a high-stakes unresolved assertion is flagged
+      `unverifiable_high_stakes`.
 
 # [ ] M15.5d — Mitigation Strategies
 

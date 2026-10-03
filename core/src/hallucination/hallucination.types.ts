@@ -40,3 +40,51 @@ export interface ClaimConsistencyResult {
   findings: ClaimFinding[];
   reasons: string[];
 }
+
+/** Which verifier answered (M15.5c). */
+export type VerificationBackend = 'decision' | 'llm';
+
+export type VerificationVerdictLabel = 'supported' | 'contradicted' | 'unknown';
+
+/**
+ * Whether the verifier is a *different* model from the one that spoke.
+ * `self` is self-consistency, never independent verification — recorded so
+ * evidence never overstates it.
+ */
+export type VerificationIndependence = 'independent' | 'self' | 'unknown';
+
+export interface VerificationRequest {
+  assertion: ClaimAssertion;
+  /** A short, provenance-bearing summary of the store's position. */
+  evidenceSummary: string;
+  /** The model that produced the assertion, when known. */
+  speakerModel?: string;
+}
+
+export interface VerificationVerdict {
+  available: boolean;
+  backend: VerificationBackend | null;
+  verdict: VerificationVerdictLabel;
+  /** Calibrated probability of the chosen verdict, when provided. */
+  probability: number | null;
+  model: string | null;
+  independence: VerificationIndependence;
+  detail?: string;
+}
+
+export interface ClaimVerificationResult extends ClaimConsistencyResult {
+  verification: VerificationVerdict;
+  /** True when the verifier disagreed with the deterministic classification. */
+  disagreement: boolean;
+}
+
+/** A human-readable rendering of an assertion for a verifier prompt. */
+export function describeAssertion(assertion: ClaimAssertion): string {
+  const object = assertion.negated
+    ? `not ${assertion.object}`
+    : assertion.object;
+  return `${assertion.subject} ${assertion.predicate} ${object}`.replace(
+    /\s+/g,
+    ' ',
+  );
+}
