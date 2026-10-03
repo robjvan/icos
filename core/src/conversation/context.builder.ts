@@ -34,6 +34,13 @@ export interface ContextSkills {
  */
 export interface ContextMemory {
   /**
+   * Source/situation band (M16): where this turn arrived from (e.g. a
+   * Discord DM or channel). Its own system block, ahead of persona and
+   * memory. Optional/absent yields byte-identical context for non-channel
+   * turns.
+   */
+  sourceBand?: string | null;
+  /**
    * Persona grounding band (M14d): immutable core first, then evolving
    * identity/user context, as its own provenance-tagged system block —
    * never mixed with the memory bands. Optional/absent yields
@@ -78,6 +85,9 @@ export function buildContext(
       role: 'system',
       content: `<skill name="${skill.name}" scope="${scope}">\n${skill.body}\n</skill>`,
     });
+  }
+  if (memory?.sourceBand) {
+    messages.push({ role: 'system', content: memory.sourceBand });
   }
   if (memory?.personaBand) {
     messages.push({ role: 'system', content: memory.personaBand });

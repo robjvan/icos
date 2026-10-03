@@ -226,7 +226,11 @@ export class ConversationService {
     private readonly realtime: RealtimePublisher,
   ) {}
 
-  async converse(message: string, sessionId?: string): Promise<TurnOutcome> {
+  async converse(
+    message: string,
+    sessionId?: string,
+    options?: { sourceBand?: string },
+  ): Promise<TurnOutcome> {
     // Slash commands short-circuit before conversation: no LLM, no
     // transcript writes, no memory extraction.
     if (this.commands.isCommand(message)) {
@@ -241,7 +245,7 @@ export class ConversationService {
       };
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(id, message);
+    const turn = await this.prepareTurn(id, message, options?.sourceBand);
     // Bounded multi-step loop: each step proposes at most one call.
     // Approval-free searches chain (pair appended, propose again);
     // parks, text, and invalid proposals end the turn as before.
@@ -1555,6 +1559,7 @@ export class ConversationService {
   private async prepareTurn(
     sessionId: string,
     message: string,
+    sourceBand?: string,
   ): Promise<{
     history: ChatMessage[];
     skills: ResolvedTurnSkills;
@@ -1575,6 +1580,7 @@ export class ConversationService {
     const textMessages = this.prepareMessages(history, message, skills, {
       ...recalled.bands,
       personaBand,
+      sourceBand: sourceBand ?? null,
     });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.

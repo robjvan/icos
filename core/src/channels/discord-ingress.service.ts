@@ -113,6 +113,7 @@ export class DiscordIngressService implements OnModuleInit {
       const outcome = await this.conversation.converse(
         message.content,
         knownSessionId ?? undefined,
+        { sourceBand: this.sourceBand(message) },
       );
       if (!knownSessionId) {
         await this.repository.updateMessageSession(
@@ -158,6 +159,25 @@ export class DiscordIngressService implements OnModuleInit {
   private guildUserAllowed(authorId: string): boolean {
     const allowed = this.config.discordAllowedUserIds ?? [];
     return allowed.length === 0 || allowed.includes(authorId);
+  }
+
+  /** Situational context: where this turn came from, told to the model. */
+  private sourceBand(message: DiscordInbound): string {
+    const tag = this.adapter.selfName();
+    const self = tag ? `You are connected to Discord as @${tag}. ` : '';
+    if (message.isDm) {
+      return (
+        `<source_context>${self}` +
+        `This turn arrived as a Discord direct message from user id ` +
+        `${message.authorId}.</source_context>`
+      );
+    }
+    return (
+      `<source_context>${self}` +
+      `This turn arrived in a Discord channel (channel id ` +
+      `${message.channelId}, guild ${message.guildId}` +
+      `${message.isThread ? ', thread' : ''}).</source_context>`
+    );
   }
 
   private isChatChannel(message: DiscordInbound): boolean {

@@ -97,6 +97,7 @@ export class DiscordAdapter
   private ready = false;
   private statusDetail = 'not started';
   private messageHandler: DiscordMessageHandler | null = null;
+  private selfTag: string | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -168,6 +169,11 @@ export class DiscordAdapter
   /** Register the inbound message handler (M16d). */
   onMessage(handler: DiscordMessageHandler): void {
     this.messageHandler = handler;
+  }
+
+  /** The bot's own Discord tag (e.g. `NigelAgent#5144`), once ready. */
+  selfName(): string | null {
+    return this.selfTag;
   }
 
   health(): ChannelHealth {
@@ -264,6 +270,7 @@ export class DiscordAdapter
       this.statusDetail = 'connected';
       const tag = (readyClient as { user?: { tag?: string } } | null)?.user
         ?.tag;
+      this.selfTag = tag ?? null;
       this.logger.log(`Discord ready${tag ? `: ${tag}` : ''}`);
     });
     client.on('error', (error: unknown) => {

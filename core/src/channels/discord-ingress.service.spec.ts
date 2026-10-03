@@ -53,6 +53,9 @@ class FakeAdapter {
   onMessage(handler: DiscordMessageHandler): void {
     this.handler = handler;
   }
+  selfName(): string | null {
+    return 'bot#1';
+  }
   async sendTyping(conversationKey: string): Promise<void> {
     this.typing.push(conversationKey);
   }
@@ -60,7 +63,10 @@ class FakeAdapter {
 
 function fakeConversation(): {
   service: ConversationService;
-  converse: jest.Mock<Promise<TurnOutcome>, [string, (string | undefined)?]>;
+  converse: jest.Mock<
+    Promise<TurnOutcome>,
+    [string, (string | undefined)?, { sourceBand?: string }?]
+  >;
 } {
   const converse = jest.fn(
     async (message: string, sessionId?: string): Promise<TurnOutcome> => ({
@@ -189,7 +195,11 @@ describe('DiscordIngressService', () => {
 
     await service.handle(inbound({ content: 'hi bot' }));
 
-    expect(converse).toHaveBeenCalledWith('hi bot', undefined);
+    expect(converse).toHaveBeenCalledWith(
+      'hi bot',
+      undefined,
+      expect.anything(),
+    );
     const messages = await repository.listMessages('discord:g1:c1');
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({
@@ -224,8 +234,18 @@ describe('DiscordIngressService', () => {
     // First turn created 'sess-new'; the second should reuse it.
     await service.handle(inbound({ externalId: 'b', content: 'second' }));
 
-    expect(converse).toHaveBeenNthCalledWith(1, 'first', undefined);
-    expect(converse).toHaveBeenNthCalledWith(2, 'second', 'sess-new');
+    expect(converse).toHaveBeenNthCalledWith(
+      1,
+      'first',
+      undefined,
+      expect.anything(),
+    );
+    expect(converse).toHaveBeenNthCalledWith(
+      2,
+      'second',
+      'sess-new',
+      expect.anything(),
+    );
   });
 
   it('ignores a message that fails the accept policy', async () => {
@@ -241,6 +261,17 @@ describe('DiscordIngressService', () => {
 
     expect(converse).not.toHaveBeenCalled();
     expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
+  });
+
+  it('tells the model where the turn came from', async () => {
+    const { service: conversation, converse } = fakeConversation();
+    const service = build(testConfig(dir), conversation);
+
+    await service.handle(inbound({ content: 'hi' }));
+
+    const options = converse.mock.calls[0]?.[2];
+    expect(options?.sourceBand).toContain('Discord');
+    expect(options?.sourceBand).toContain('bot#1');
   });
 
   it('queues a visible error reply when the turn fails', async () => {
