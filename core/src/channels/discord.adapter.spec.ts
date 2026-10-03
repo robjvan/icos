@@ -15,8 +15,26 @@ import {
 } from './discord.adapter';
 import type { DiscordInbound } from './discord.types';
 
+class FakeMessageHandle {
+  readonly edited: string[] = [];
+  readonly threads: string[] = [];
+  async edit(content: string): Promise<unknown> {
+    this.edited.push(content);
+    return this;
+  }
+  async startThread(options: { name: string }): Promise<{ id: string }> {
+    this.threads.push(options.name);
+    return { id: 'thread-1' };
+  }
+}
+
 class FakeChannel implements DiscordChannelLike {
   readonly sent: string[] = [];
+  readonly handles = new Map<string, FakeMessageHandle>();
+  readonly messages = {
+    fetch: async (id: string): Promise<FakeMessageHandle> =>
+      this.handles.get(id) ?? new FakeMessageHandle(),
+  };
   constructor(private readonly textBased = true) {}
   isTextBased(): boolean {
     return this.textBased;
@@ -204,6 +222,28 @@ describe('DiscordAdapter', () => {
 
     expect(dm.sent).toEqual(['hello dm']);
     expect(result.externalMessageId).toBe('msg-1');
+  });
+
+  it('edits a message and starts a thread on it', async () => {
+    const client = new FakeClient();
+    const channel = new FakeChannel();
+    const handle = new FakeMessageHandle();
+    channel.handles.set('m1', handle);
+    client.channelsById.set('c1', channel);
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    await adapter.edit('discord:g:c1', 'm1', 'the reply');
+    expect(handle.edited).toEqual(['the reply']);
+
+    const threadId = await adapter.startThread('c1', 'm1', 'Topic');
+    expect(threadId).toBe('thread-1');
+    expect(handle.threads).toEqual(['Topic']);
   });
 
   it('disconnect stops sending', async () => {

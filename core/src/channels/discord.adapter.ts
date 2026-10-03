@@ -26,10 +26,16 @@ import type {
 export const DISCORD_CLIENT_FACTORY = 'DISCORD_CLIENT_FACTORY';
 
 /** The slice of discord.js this adapter uses, kept structural for testing. */
+export interface DiscordMessageHandle {
+  edit(content: string): Promise<unknown>;
+  startThread?(options: { name: string }): Promise<{ id: string }>;
+}
+
 export interface DiscordChannelLike {
   isTextBased(): boolean;
   send(content: string): Promise<{ id: string }>;
   sendTyping?(): Promise<void>;
+  messages?: { fetch(id: string): Promise<DiscordMessageHandle> };
 }
 
 export interface DiscordUserLike {
@@ -98,6 +104,7 @@ export class DiscordAdapter
   private statusDetail = 'not started';
   private messageHandler: DiscordMessageHandler | null = null;
   private selfTag: string | null = null;
+  private selfId: string | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -221,6 +228,50 @@ export class DiscordAdapter
     }
   }
 
+  /** Edit a previously sent message (the "thinking…" placeholder → reply). */
+  async edit(
+    conversationKey: string,
+    messageId: string,
+    body: string,
+  ): Promise<void> {
+    if (!this.client || !this.ready) return;
+    const target = parseDiscordTargetKey(conversationKey);
+    if (!target) return;
+    try {
+      const channel = await this.resolveChannel(target);
+      const handle = await channel?.messages?.fetch(messageId);
+      await handle?.edit(body);
+    } catch (error) {
+      this.logger.warn(
+        `Discord edit failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  /** Start a thread on a message; returns the thread id, or null. */
+  async startThread(
+    channelId: string,
+    messageId: string,
+    name: string,
+  ): Promise<string | null> {
+    if (!this.client || !this.ready) return null;
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      const handle = await channel?.messages?.fetch(messageId);
+      const thread = await handle?.startThread?.({ name });
+      return thread?.id ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `Discord thread creation failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return null;
+    }
+  }
+
   /** Fetch the channel for a target; a DM target resolves the user first. */
   private async resolveChannel(
     target: DiscordTarget,
@@ -271,6 +322,8 @@ export class DiscordAdapter
       const tag = (readyClient as { user?: { tag?: string } } | null)?.user
         ?.tag;
       this.selfTag = tag ?? null;
+      this.selfId =
+        (readyClient as { user?: { id?: string } } | null)?.user?.id ?? null;
       this.logger.log(`Discord ready${tag ? `: ${tag}` : ''}`);
     });
     client.on('error', (error: unknown) => {
@@ -284,7 +337,7 @@ export class DiscordAdapter
   }
 
   private handleRaw(raw: unknown): void {
-    const message = normalizeDiscordMessage(raw);
+    const message = normalizeDiscordMessage(raw, this.selfId ?? undefined);
     if (message && this.messageHandler) {
       this.messageHandler(message);
     }
@@ -297,7 +350,10 @@ export class DiscordAdapter
  * non-text channels, empty content). Policy (which channels/DMs and users
  * are accepted) is applied by the ingress, not here.
  */
-export function normalizeDiscordMessage(raw: unknown): DiscordInbound | null {
+export function normalizeDiscordMessage(
+  raw: unknown,
+  botId?: string,
+): DiscordInbound | null {
   if (raw === null || typeof raw !== 'object') return null;
   const m = raw as DiscordMessageLike;
   if (m.author?.bot) return null;
@@ -329,6 +385,7 @@ export function normalizeDiscordMessage(raw: unknown): DiscordInbound | null {
     guildId,
     isDm: guildId === null,
     isThread,
+    mentionsBot: botId ? (m.mentions?.has?.(botId) ?? false) : false,
     parentChannelId,
     channelTopic: channel?.topic ?? null,
     parentTopic,

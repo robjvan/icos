@@ -10,6 +10,12 @@ import type { DiscordInbound } from './discord.types';
 
 const DEFAULT_STREAM_MARKER = '[icos-stream:';
 
+/** A short, safe Discord thread name derived from the message text. */
+function threadName(content: string): string {
+  const clean = content.replace(/\s+/g, ' ').trim();
+  return clean ? clean.slice(0, 80) : 'ICOS conversation';
+}
+
 /**
  * M16d inbound Discord. Turns a normalized Discord message into a real
  * ICOS turn: apply the accept policy, claim the transport id (idempotent),
@@ -50,6 +56,10 @@ export class DiscordIngressService implements OnModuleInit {
       return this.isAllowlistedUser(message.authorId);
     }
     if (!this.guildUserAllowed(message.authorId)) return false;
+    // A thread continues an existing conversation (no re-mention). A channel
+    // message must mention the bot to start one — otherwise we would answer
+    // every message in a marked channel.
+    if (!message.isThread && !message.mentionsBot) return false;
     return this.isChatChannel(message);
   }
 
@@ -60,7 +70,7 @@ export class DiscordIngressService implements OnModuleInit {
     return message.isThread ? `${base}:thread:${message.channelId}` : base;
   }
 
-  /** Handle one inbound message: record, run a turn, queue the reply. */
+  /** Handle one inbound message: record, run a turn, reply in place. */
   async handle(message: DiscordInbound): Promise<void> {
     if (!this.accepts(message)) {
       if (message.isDm) {
@@ -72,10 +82,6 @@ export class DiscordIngressService implements OnModuleInit {
       return;
     }
 
-    const conversationKey = this.conversationKey(message);
-    // Immediate feedback: Discord's native typing indicator.
-    void this.adapter.sendTyping?.(conversationKey).catch(() => undefined);
-
     // Claim the transport id first — a redelivered Discord event must never
     // run the turn twice.
     const seen = await this.repository.findMessageByExternalId(
@@ -83,6 +89,26 @@ export class DiscordIngressService implements OnModuleInit {
       message.externalId,
     );
     if (seen) return;
+
+    // A channel mention starts a thread; the conversation lives there so the
+    // user can keep talking without re-mentioning. DMs and thread messages
+    // keep their own conversation.
+    let conversationKey = this.conversationKey(message);
+    if (!message.isDm && !message.isThread && message.mentionsBot) {
+      const threadId = await this.adapter.startThread(
+        message.channelId,
+        message.externalId,
+        threadName(message.content),
+      );
+      if (threadId) {
+        conversationKey =
+          `discord:${message.guildId}:${message.parentChannelId}` +
+          `:thread:${threadId}`;
+      }
+    }
+
+    // Immediate feedback: Discord's native typing indicator.
+    void this.adapter.sendTyping?.(conversationKey).catch(() => undefined);
 
     const knownSessionId = await this.repository.findSessionId(conversationKey);
     let inbound: ChannelMessage;
@@ -109,6 +135,9 @@ export class DiscordIngressService implements OnModuleInit {
       return;
     }
 
+    // A "thinking…" placeholder, edited into the reply when it is ready.
+    const placeholderId = await this.postPlaceholder(conversationKey);
+
     try {
       const outcome = await this.conversation.converse(
         message.content,
@@ -121,34 +150,59 @@ export class DiscordIngressService implements OnModuleInit {
           outcome.sessionId,
         );
       }
-      const reply = (outcome.reply ?? '').trim();
-      if (reply) {
-        await this.repository.enqueueDelivery({
-          channel: 'discord',
-          conversationKey,
-          body: reply,
-          replyToMessageId: inbound.id,
-        });
-        // Post promptly instead of waiting for the next poll tick.
-        void this.delivery.runOnce().catch(() => undefined);
-      }
+      await this.deliver(
+        conversationKey,
+        inbound.id,
+        (outcome.reply ?? '').trim() || '…',
+        placeholderId,
+      );
     } catch (error) {
       this.logger.warn(
         `Discord turn failed for ${conversationKey}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
-      // Fail visibly: never leave the user with a typing indicator and then
-      // silence. The reply is queued so it survives a restart like any other.
-      await this.repository
-        .enqueueDelivery({
-          channel: 'discord',
-          conversationKey,
-          body: '⚠️ Sorry — I hit an error processing that message. Please try again.',
-          replyToMessageId: inbound.id,
-        })
-        .catch(() => undefined);
-      void this.delivery.runOnce().catch(() => undefined);
+      // Fail visibly: never leave the user with a placeholder and silence.
+      await this.deliver(
+        conversationKey,
+        inbound.id,
+        '⚠️ Sorry — I hit an error processing that message. Please try again.',
+        placeholderId,
+      );
+    }
+  }
+
+  /** Edit the placeholder in place; fall back to the durable queue. */
+  private async deliver(
+    conversationKey: string,
+    inboundId: string,
+    body: string,
+    placeholderId: string | null,
+  ): Promise<void> {
+    if (placeholderId) {
+      await this.adapter.edit(conversationKey, placeholderId, body);
+      return;
+    }
+    await this.repository
+      .enqueueDelivery({
+        channel: 'discord',
+        conversationKey,
+        body,
+        replyToMessageId: inboundId,
+      })
+      .catch(() => undefined);
+    void this.delivery.runOnce().catch(() => undefined);
+  }
+
+  /** Post the "thinking…" placeholder; null when the send fails. */
+  private async postPlaceholder(
+    conversationKey: string,
+  ): Promise<string | null> {
+    try {
+      const result = await this.adapter.send(conversationKey, '🤔 thinking…');
+      return result.externalMessageId;
+    } catch {
+      return null;
     }
   }
 

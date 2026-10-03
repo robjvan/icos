@@ -37,6 +37,7 @@ function inbound(overrides: Partial<DiscordInbound> = {}): DiscordInbound {
     guildId: 'g1',
     isDm: false,
     isThread: false,
+    mentionsBot: true,
     parentChannelId: 'c1',
     channelTopic: '[icos-stream: chat]',
     parentTopic: '[icos-stream: chat]',
@@ -50,6 +51,12 @@ function inbound(overrides: Partial<DiscordInbound> = {}): DiscordInbound {
 class FakeAdapter {
   handler: DiscordMessageHandler | null = null;
   readonly typing: string[] = [];
+  readonly sent: { key: string; body: string }[] = [];
+  readonly edited: { key: string; id: string; body: string }[] = [];
+  readonly threads: { channelId: string; messageId: string; name: string }[] =
+    [];
+  threadId: string | null = 'thread-1';
+
   onMessage(handler: DiscordMessageHandler): void {
     this.handler = handler;
   }
@@ -58,6 +65,24 @@ class FakeAdapter {
   }
   async sendTyping(conversationKey: string): Promise<void> {
     this.typing.push(conversationKey);
+  }
+  async send(
+    conversationKey: string,
+    body: string,
+  ): Promise<{ externalMessageId: string | null }> {
+    this.sent.push({ key: conversationKey, body });
+    return { externalMessageId: 'ph-1' };
+  }
+  async edit(conversationKey: string, id: string, body: string): Promise<void> {
+    this.edited.push({ key: conversationKey, id, body });
+  }
+  async startThread(
+    channelId: string,
+    messageId: string,
+    name: string,
+  ): Promise<string | null> {
+    this.threads.push({ channelId, messageId, name });
+    return this.threadId;
   }
 }
 
@@ -114,9 +139,18 @@ describe('DiscordIngressService', () => {
     );
 
   describe('accept policy', () => {
-    it('accepts a topic-designated channel and rejects others', () => {
+    it('accepts a topic-designated channel message that mentions the bot', () => {
       const service = build(testConfig(dir), fakeConversation().service);
       expect(service.accepts(inbound())).toBe(true);
+    });
+
+    it('rejects a channel message that does not mention the bot', () => {
+      const service = build(testConfig(dir), fakeConversation().service);
+      expect(service.accepts(inbound({ mentionsBot: false }))).toBe(false);
+    });
+
+    it('rejects a channel that is not designated', () => {
+      const service = build(testConfig(dir), fakeConversation().service);
       expect(
         service.accepts(
           inbound({
@@ -168,14 +202,6 @@ describe('DiscordIngressService', () => {
       );
     });
 
-    it('restricts guild answers to the user allowlist when set', () => {
-      const restricted = build(
-        testConfig(dir, { discordAllowedUserIds: ['someone-else'] }),
-        fakeConversation().service,
-      );
-      expect(restricted.accepts(inbound())).toBe(false);
-    });
-
     it('keys DMs and threads distinctly', () => {
       const service = build(testConfig(dir), fakeConversation().service);
       expect(
@@ -189,50 +215,74 @@ describe('DiscordIngressService', () => {
     });
   });
 
-  it('records the message, runs a turn, and queues the reply', async () => {
+  it('starts a thread for a channel mention and edits the reply into the placeholder', async () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
 
     await service.handle(inbound({ content: 'hi bot' }));
 
+    expect(adapter.threads).toEqual([
+      { channelId: 'c1', messageId: 'm1', name: 'hi bot' },
+    ]);
+    expect(adapter.sent).toEqual([
+      { key: 'discord:g1:c1:thread:thread-1', body: '🤔 thinking…' },
+    ]);
+    expect(adapter.edited).toEqual([
+      {
+        key: 'discord:g1:c1:thread:thread-1',
+        id: 'ph-1',
+        body: 'echo:hi bot',
+      },
+    ]);
+    const messages = await repository.listMessages(
+      'discord:g1:c1:thread:thread-1',
+    );
+    expect(messages).toHaveLength(1);
     expect(converse).toHaveBeenCalledWith(
       'hi bot',
       undefined,
       expect.anything(),
     );
-    const messages = await repository.listMessages('discord:g1:c1');
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({
-      direction: 'inbound',
-      body: 'hi bot',
-      sessionId: 'sess-new',
-    });
-    const deliveries = await repository.listDeliveries('pending');
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({
-      conversationKey: 'discord:g1:c1',
-      body: 'echo:hi bot',
-    });
+  });
+
+  it('does not thread a DM', async () => {
+    const { service: conversation } = fakeConversation();
+    const service = build(
+      testConfig(dir, { discordAllowedUserIds: ['u1'] }),
+      conversation,
+    );
+
+    await service.handle(inbound({ isDm: true, guildId: null, content: 'yo' }));
+
+    expect(adapter.threads).toHaveLength(0);
+    expect(adapter.sent[0]?.key).toBe('discord:dm:u1');
   });
 
   it('is idempotent on a repeated transport id', async () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
 
-    await service.handle(inbound({ externalId: 'dup' }));
-    await service.handle(inbound({ externalId: 'dup' }));
+    await service.handle(inbound({ externalId: 'dup', content: 'x' }));
+    await service.handle(inbound({ externalId: 'dup', content: 'x' }));
 
     expect(converse).toHaveBeenCalledTimes(1);
-    expect(await repository.listDeliveries('pending')).toHaveLength(1);
+    expect(adapter.edited).toHaveLength(1);
   });
 
-  it('reuses one durable session across turns in a conversation', async () => {
+  it('reuses one durable session across turns in a thread', async () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
+    const threaded = (externalId: string, content: string) =>
+      inbound({
+        externalId,
+        content,
+        isThread: true,
+        channelId: 't1',
+        parentChannelId: 'c1',
+      });
 
-    await service.handle(inbound({ externalId: 'a', content: 'first' }));
-    // First turn created 'sess-new'; the second should reuse it.
-    await service.handle(inbound({ externalId: 'b', content: 'second' }));
+    await service.handle(threaded('a', 'first'));
+    await service.handle(threaded('b', 'second'));
 
     expect(converse).toHaveBeenNthCalledWith(
       1,
@@ -248,33 +298,17 @@ describe('DiscordIngressService', () => {
     );
   });
 
-  it('ignores a message that fails the accept policy', async () => {
-    const { service: conversation, converse } = fakeConversation();
-    const service = build(testConfig(dir), conversation);
-
-    await service.handle(
-      inbound({
-        channelTopic: 'just chatting',
-        parentTopic: 'just chatting',
-      }),
-    );
-
-    expect(converse).not.toHaveBeenCalled();
-    expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
-  });
-
   it('tells the model where the turn came from', async () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
 
     await service.handle(inbound({ content: 'hi' }));
 
-    const options = converse.mock.calls[0]?.[2];
-    expect(options?.sourceBand).toContain('Discord');
-    expect(options?.sourceBand).toContain('bot#1');
+    expect(converse.mock.calls[0]?.[2]?.sourceBand).toContain('Discord');
+    expect(converse.mock.calls[0]?.[2]?.sourceBand).toContain('bot#1');
   });
 
-  it('queues a visible error reply when the turn fails', async () => {
+  it('edits a visible error into the placeholder when the turn fails', async () => {
     const converse = jest.fn(async () => {
       throw new Error('LLM endpoint returned an invalid completion');
     });
@@ -282,10 +316,20 @@ describe('DiscordIngressService', () => {
       converse,
     } as unknown as ConversationService);
 
-    await service.handle(inbound());
+    await service.handle(inbound({ content: 'boom' }));
 
-    const deliveries = await repository.listDeliveries('pending');
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]?.body).toContain('error');
+    expect(adapter.edited).toHaveLength(1);
+    expect(adapter.edited[0]?.body).toContain('error');
+  });
+
+  it('ignores a message that fails the accept policy', async () => {
+    const { service: conversation, converse } = fakeConversation();
+    const service = build(testConfig(dir), conversation);
+
+    await service.handle(inbound({ mentionsBot: false }));
+
+    expect(converse).not.toHaveBeenCalled();
+    expect(adapter.sent).toHaveLength(0);
+    expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
   });
 });

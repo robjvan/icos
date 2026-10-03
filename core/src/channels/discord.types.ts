@@ -15,6 +15,7 @@ export interface DiscordMessageLike {
   guildId?: string | null;
   channelId: string;
   author?: { id: string; bot?: boolean } | null;
+  mentions?: { has?: (id: string) => boolean } | null;
   attachments?: {
     map: <T>(fn: (attachment: DiscordAttachmentLike) => T) => T[];
   } | null;
@@ -36,6 +37,8 @@ export interface DiscordInbound {
   guildId: string | null;
   isDm: boolean;
   isThread: boolean;
+  /** True when the message @-mentions the bot (starts a channel thread). */
+  mentionsBot: boolean;
   /** The channel itself, or a thread's parent channel. */
   parentChannelId: string;
   channelTopic: string | null;
