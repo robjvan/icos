@@ -258,7 +258,7 @@ Evidence: `.reference/plans/evidence/milestone-14/milestone-14g-evidence-ui.md`.
 - [x] Core read endpoints added: `GET /core/persona/records` and
       `GET /core/persona/drift`.
 
-# [ ] M14h — Verification
+# [x] M14h — Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14h-evidence-verification.md`.
 
