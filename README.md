@@ -41,7 +41,9 @@ The goal is not to reproduce a biological model of cognition. Instead, ICOS is a
 
 > **Trying it out?** Start with **[USAGE.md](USAGE.md)** (setup, configuration,
 > and running the stack). Before exposing it beyond your machine, read
-> **[docs/security.md](docs/security.md)**.
+> **[docs/security.md](docs/security.md).** To understand what the platform
+> actually does — feature by feature, and how each is verified — read
+> **[docs/architecture.md](docs/architecture.md)**.
 
 ---
 

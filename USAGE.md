@@ -346,6 +346,7 @@ option for personal remote access.
 | --- | --- |
 | [README](README.md) | What ICOS is, why, design goals, milestones, architecture |
 | [INDEX](INDEX.md) | Annotated repository map |
+| [docs/architecture.md](docs/architecture.md) | Plain-English feature guide: what it does, how, verified status, benefits |
 | [docs/security.md](docs/security.md) | Exposure, TLS, authentication, secrets |
 | [docs/skill-blueprint.md](docs/skill-blueprint.md) | How to author a skill |
 | [docs/tool-blueprint.md](docs/tool-blueprint.md) | How to author a tool |
