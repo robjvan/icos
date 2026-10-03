@@ -160,16 +160,20 @@
   - [x] ~~Persona review UI~~
   - [x] ~~Persona verification~~
 
-- [ ] **M15: Drift Detection and Reporting**
-  - [ ] Define observable drift failure modes
-  - [ ] Establish behavioral / epistemic baselines
-  - [ ] Structural drift (core / protected contradiction, staleness, repeated pressure, low grounding)
-  - [ ] Distributional drift detection
-    - [ ] Evaluate Wasserstein distance and simpler alternatives
-  - [ ] Cumulative drift across review cycles
-  - [ ] Finding reconciliation / de-duplication
-  - [ ] Drift reporting surface
-  - [ ] Evaluation
+- [x] ~~**M15: Drift Detection and Reporting**~~
+  - [x] ~~Define observable drift failure modes~~
+  - [x] ~~Establish behavioral / epistemic baselines~~
+  - [x] ~~Structural drift (core / protected contradiction, staleness, repeated pressure, low grounding)~~
+  - [x] ~~Distributional drift detection~~
+    - [x] ~~Evaluate Wasserstein distance and simpler alternatives~~
+  - [x] ~~Cumulative drift across review cycles~~
+  - [x] ~~Finding reconciliation / de-duplication~~
+  - [x] ~~Drift reporting surface~~
+  - [x] ~~Evaluation~~
+  > _Detection + reconciliation + honest calibration delivered. Semantic
+  > drift is a measured **advisory** signal (embedding F1 0.78 on the M15e
+  > corpus); subtle propositional drift is deferred to M15.5. Further
+  > tuning: `.reference/plans/drift-tuning-backlog.md`._
 
 - [ ] **M15.5: Hallucination Mitigation**
   - [ ] Define observable hallucination failure modes

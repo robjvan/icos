@@ -20,10 +20,10 @@
 - [x] M12: Memory dynamics
 - [x] M13: MCP server support
 - [x] M14: Persistent persona maintenance
+- [x] M15: Drift detection and reporting (semantic drift is advisory; tuning deferred)
 
 ## Designed
 
-- [ ] M15: Drift detection and reporting
 - [ ] M15.5: Hallucination mitigation
 
 ## Planned
