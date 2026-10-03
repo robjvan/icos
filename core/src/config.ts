@@ -110,6 +110,13 @@ export interface CoreConfig {
   channelDeliveryBackoffCapMs?: number;
   channelSendMinIntervalMs?: number;
   /**
+   * M16 Discord channel: the bot token. Accepts a literal value or a secret
+   * reference (`$VAR` / `secret:NAME`), resolved at connect time so a vault
+   * rotation takes effect on reconnect. Optional — no token means the
+   * channel is disabled (and it never blocks boot).
+   */
+  discordBotToken?: string;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -417,6 +424,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       250,
       'CHANNEL_SEND_MIN_INTERVAL_MS',
     ),
+    discordBotToken: (env.DISCORD_BOT_TOKEN ?? '').trim() || undefined,
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',

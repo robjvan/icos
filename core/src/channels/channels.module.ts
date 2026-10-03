@@ -4,25 +4,37 @@ import { CHANNEL_ADAPTERS } from './channel-adapter';
 import { ChannelDatabaseService } from './channel-database.service';
 import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
+import { ChannelsController } from './channels.controller';
+import { DiscordAdapter } from './discord.adapter';
 import { SqliteChannelRepository } from './sqlite-channel.repository';
 
 /**
  * M16 channel subsystem. Self-contained: owns its database service,
- * repository, and outbound delivery drainer, and exports them so the
- * adapter and ingress slices can consume them. Isolated from memory and
- * persona by construction.
+ * repository, outbound delivery drainer, and the channel adapters. Isolated
+ * from memory and persona by construction.
  *
- * `CHANNEL_ADAPTERS` is populated by the adapter slices (M16c onwards);
- * with no adapters the delivery service is inert.
+ * Adapters register through `CHANNEL_ADAPTERS`; a channel with no token
+ * (Discord) simply reports unhealthy and never blocks boot.
  */
 @Module({
+  controllers: [ChannelsController],
   providers: [
     coreConfigProvider,
     ChannelDatabaseService,
     { provide: ChannelRepository, useClass: SqliteChannelRepository },
-    { provide: CHANNEL_ADAPTERS, useValue: [] },
+    DiscordAdapter,
+    {
+      provide: CHANNEL_ADAPTERS,
+      useFactory: (discord: DiscordAdapter) => [discord],
+      inject: [DiscordAdapter],
+    },
     ChannelDeliveryService,
   ],
-  exports: [ChannelDatabaseService, ChannelRepository, ChannelDeliveryService],
+  exports: [
+    ChannelDatabaseService,
+    ChannelRepository,
+    ChannelDeliveryService,
+    DiscordAdapter,
+  ],
 })
 export class ChannelsModule {}
