@@ -36,6 +36,9 @@ import { McpController } from '../mcp/mcp.controller';
 import { McpToolBridge } from '../mcp/mcp-tool-bridge.service';
 import { SdkMcpClientFactory } from '../mcp/sdk-mcp-client';
 import { FOREIGN_TOOL_SOURCE } from '../tools/tool-registry';
+import { ChannelsCoreModule } from '../channels/channels-core.module';
+import { CHANNEL_SEND } from '../channels/channel-send.port';
+import type { ChannelSendPort } from '../channels/channel-send.port';
 import { RankService } from '../memory/rank.service';
 import { SourceReliabilityRepository } from '../memory/source-reliability.repository';
 import { RecallService } from '../memory/recall.service';
@@ -97,6 +100,7 @@ const toolExecutionServiceProvider = {
     approvals: ApprovalRepository,
     approvalService: ApprovalService,
     mcp: McpConnectionService,
+    channels: ChannelSendPort,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -108,6 +112,7 @@ const toolExecutionServiceProvider = {
       llm,
       approvalService,
       mcp,
+      channels,
     ),
   inject: [
     ToolExecutionRepository,
@@ -117,11 +122,12 @@ const toolExecutionServiceProvider = {
     ApprovalRepository,
     ApprovalService,
     McpConnectionService,
+    CHANNEL_SEND,
   ],
 };
 
 @Module({
-  imports: [RealtimeModule, PersonaModule],
+  imports: [RealtimeModule, PersonaModule, ChannelsCoreModule],
   controllers: [
     ConversationController,
     SessionsController,

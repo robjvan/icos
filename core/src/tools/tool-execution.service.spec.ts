@@ -18,6 +18,7 @@ import {
   ToolExecutionService,
   type ToolExecutionInput,
 } from './tool-execution.service';
+import type { ChannelSendPort } from '../channels/channel-send.port';
 
 function input(): ToolExecutionInput {
   return {
@@ -47,7 +48,7 @@ describe('ToolExecutionService SQLite', () => {
   const databases: SessionDatabaseService[] = [];
   const final = jest.fn<Promise<LlmResult>, [LlmToolRequest]>();
 
-  function open() {
+  function open(channels?: ChannelSendPort) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
       memoryDbPath: join(dir, 'unused.sqlite'),
@@ -80,6 +81,7 @@ describe('ToolExecutionService SQLite', () => {
       {
         callTool: () => Promise.reject(new Error('mcp unwired')),
       } as unknown as McpConnectionService,
+      channels,
     );
     return {
       database,
@@ -1179,6 +1181,56 @@ describe('ToolExecutionService SQLite', () => {
     });
     expect(JSON.stringify(result)).not.toContain('secret');
     expect(final).toHaveBeenCalledTimes(1);
+  });
+
+  it('parks a channel.send for approval, then sends on grant', async () => {
+    const sent: unknown[] = [];
+    const channels = {
+      send: (request: unknown) => {
+        sent.push(request);
+        return Promise.resolve({ messageId: 'm1', deliveryId: 'd1' });
+      },
+    };
+    const opened = open(channels);
+    await opened.sessions.createSession('s1');
+    const proposal: ToolExecutionInput = {
+      requestId: 'request-send',
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'ping me' }],
+      allowedTools: ['channel.send'],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'model-id',
+            name: 'channel.send',
+            version: 1,
+            rawArguments:
+              '{"channel":"discord","target":"operator","body":"ping"}',
+            args: { channel: 'discord', target: 'operator', body: 'ping' },
+          },
+        ],
+      },
+    };
+
+    const parked = await opened.service.consume(proposal);
+    expect(parked.state).toBe('awaiting_approval');
+    const approval = await opened.approvalService.get(parked.approvalId ?? '');
+    expect(approval?.action).toBe('channel.send');
+
+    await opened.approvalService.approve(parked.approvalId ?? '', 's1');
+    const done = await opened.service.resume(proposal.requestId, 's1');
+
+    expect(done).toMatchObject({
+      state: 'succeeded',
+      execution: {
+        ok: true,
+        channelSend: { messageId: 'm1', deliveryId: 'd1' },
+      },
+    });
+    expect(sent[0]).toMatchObject({ target: 'operator', body: 'ping' });
   });
 });
 
