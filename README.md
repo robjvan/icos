@@ -1,27 +1,47 @@
 # ICOS
 
-<center>
+<div align="center">
 
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
-![Updated](https://img.shields.io/badge/Updated-2026%2F10%2F03-CBA701)
-![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)
+![Commits](https://img.shields.io/github/commit-activity/t/robjvan/icos?logo=github)
+![LastCommit](https://img.shields.io/github/last-commit/robjvan/icos?color=CBA701&logo=github)
+
+![Tests](https://img.shields.io/badge/Tests-Passing-green?logo=jest)
+![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7%-green?logo=jest)
+![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9%-green?logo=jest)
+
+![Tests](https://img.shields.io/badge/Unit%20Tests-994-green?logo=jest)
+![Tests](https://img.shields.io/badge/E2E%20Tests-93-green?logo=jest)
+![Tests](https://img.shields.io/badge/Web%20Tests-185-green?logo=jest)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.x-red)
 ![NPM](https://img.shields.io/badge/npm-11.x-CB0200?logo=npm&logoColor=CB0200)
 ![NestJS](https://img.shields.io/badge/NestJS-11.0.1-EA2F59?logo=nestjs&logoColor=EA2F59)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-blue?logo=typescript)
+![Angular](https://img.shields.io/badge/Angular-21.x-DD0031?logo=angular&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
 ![REST](https://img.shields.io/badge/REST-API-lavender)
 ![SSE](https://img.shields.io/badge/Streaming-SSE-lavender)
+![Realtime](https://img.shields.io/badge/Realtime-WebSocket-lavender)
 ![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-steelblue?logo=openaigym)
 ![Providers](https://img.shields.io/badge/LLM-Provider--Independent-blueviolet?logo=lmstudio)
+![MCP](https://img.shields.io/badge/MCP-Client-5A67D8)
 
 ![SQLite](https://img.shields.io/badge/SQLite-FTS5-90D4F4?logo=sqlite&logoColor=90D4F4)
 ![Memory](https://img.shields.io/badge/Memory-Epistemic%20%7C%20Experimental-purple)
+![Persona](https://img.shields.io/badge/Persona-Persistent-purple)
+![Provenance](https://img.shields.io/badge/Provenance-Tracked-purple)
+
+![Self-hosted](https://img.shields.io/badge/Self--hosted-yes-green)
+![Local-first](https://img.shields.io/badge/Local--first-yellowgreen)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey)
+[![Architecture](https://img.shields.io/badge/Docs-Architecture-informational)](ARCHITECTURE.md)
+![License](https://img.shields.io/badge/License-PolyForm%20NC%201.0.0-blue)
 
 ![Github](https://img.shields.io/badge/Coffees-Many-88502A?logo=coffeescript&logoColor=white)
 
-</center>
+</div>
 
 ---
 
@@ -50,14 +70,14 @@ The goal is not to reproduce a biological model of cognition. Instead, ICOS is a
 ## Lineage
 
 ICOS is the third generation of a personal cognitive-architecture research
-line — hence "v3", which refers to the *generation*, not to ICOS's own
+line — hence "v3", which refers to the _generation_, not to ICOS's own
 version. ICOS is the first release under its own name.
 
-| Generation | Name       |                                                |
-| :--------: | :--------- | :--------------------------------------------- |
-|    v1      | **AURORA** |                                                |
-|    v2      | **ISABEL** | A large, biologically inspired architecture.   |
-|    v3      | **ICOS**   | **ISABEL Cognitive Operating System**.         |
+| Generation | Name       |                                              |
+| :--------: | :--------- | :------------------------------------------- |
+|     v1     | **AURORA** |                                              |
+|     v2     | **ISABEL** | A large, biologically inspired architecture. |
+|     v3     | **ICOS**   | **ISABEL Cognitive Operating System**.       |
 
 ISABEL (v2) explored a much more elaborate approach to cognitive architecture, incorporating biologically inspired mechanisms including persistent identity, multiple memory systems, state modulation, autonomous action selection, knowledge structures, and more.
 

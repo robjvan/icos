@@ -1,7 +1,7 @@
 # How ICOS Works — An Architecture Report
 
-*A plain-English map of what ICOS does, how each part works, whether it's been
-verified, and why it matters. No hand-waving.*
+_A plain-English map of what ICOS does, how each part works, whether it's been
+verified, and why it matters. No hand-waving._
 
 > **What this is.** Most projects describe themselves with confident adjectives
 > and vague diagrams. This report does the opposite: it says what is built,
@@ -18,12 +18,12 @@ verified, and why it matters. No hand-waving.*
 
 Every feature below carries one of these:
 
-| Label | Means |
-| --- | --- |
+| Label                | Means                                                             |
+| -------------------- | ----------------------------------------------------------------- |
 | **Built & verified** | It exists and was exercised by committed tests and/or a live run. |
-| **Built (advisory)** | It works, but it informs a human rather than making a decision. |
-| **Partial** | It works, but weaker than you'd guess — the report says how. |
-| **Not built** | Planned or imagined; genuinely not in the software yet. |
+| **Built (advisory)** | It works, but it informs a human rather than making a decision.   |
+| **Partial**          | It works, but weaker than you'd guess — the report says how.      |
+| **Not built**        | Planned or imagined; genuinely not in the software yet.           |
 
 "Verified" is a specific claim here. It means one or more of: a **unit test**
 (a small, deterministic check of one piece), an **end-to-end test** (the whole
@@ -31,7 +31,7 @@ running program driven through a real HTTP request), or a **live run** (the
 real software talking to a real model or the real database). It does **not**
 mean "we feel good about it."
 
-A useful honesty note up front: our automated tests mostly use a *stand-in*
+A useful honesty note up front: our automated tests mostly use a _stand-in_
 model instead of a real one, so they prove the machinery is wired correctly —
 not that a particular AI model behaves well. Where a real model was used, the
 report says so.
@@ -109,7 +109,7 @@ off it. One message goes through these steps:
 4. **The reply is saved.** The turn is written to a durable session store
    (it survives restarts).
 5. **In the background, quietly, the runtime learns.** A separate, non-
-   blocking step reads the turn and proposes *memory candidates* — things that
+   blocking step reads the turn and proposes _memory candidates_ — things that
    might be worth remembering. This never delays or breaks your reply.
 6. **Optional checks run.** If configured, honesty checks review the model's
    own claims (see §9).
@@ -124,12 +124,12 @@ system streams real replies.
 
 ## 4. Talking to it
 
-| Feature | What it does | How it works | Why it's useful |
-| --- | --- | --- | --- |
-| **Conversation API** | Accepts messages, returns replies. | A REST endpoint (`POST /core/conversation`). | The basic interface; anything can talk to it. |
-| **Streaming** | Shows the reply word-by-word as it's generated. | Server-Sent Events (`POST /core/conversation/stream`); the client renders tokens live and only saves history on a clean finish. | Feels responsive; a dropped connection doesn't corrupt history. |
-| **Sessions** | Remembers what was said, across restarts. | A SQLite database of sessions and messages, with full-text search. | You can close the browser and come back; you can search your past. |
-| **Slash commands** | Shortcuts like `/status`, `/new`, `/export`. | Handled directly by the runtime, bypassing the model. | Instant, deterministic; they never get "interpreted" by the AI. |
+| Feature              | What it does                                    | How it works                                                                                                                    | Why it's useful                                                    |
+| -------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Conversation API** | Accepts messages, returns replies.              | A REST endpoint (`POST /core/conversation`).                                                                                    | The basic interface; anything can talk to it.                      |
+| **Streaming**        | Shows the reply word-by-word as it's generated. | Server-Sent Events (`POST /core/conversation/stream`); the client renders tokens live and only saves history on a clean finish. | Feels responsive; a dropped connection doesn't corrupt history.    |
+| **Sessions**         | Remembers what was said, across restarts.       | A SQLite database of sessions and messages, with full-text search.                                                              | You can close the browser and come back; you can search your past. |
+| **Slash commands**   | Shortcuts like `/status`, `/new`, `/export`.    | Handled directly by the runtime, bypassing the model.                                                                           | Instant, deterministic; they never get "interpreted" by the AI.    |
 
 **Status: Built & verified** (unit + end-to-end tests cover the routes; live
 probes return the expected results).
@@ -145,23 +145,23 @@ The pipeline, in plain terms:
 
 1. **Candidate.** After a turn, the runtime asks the model (a smaller,
    separate "extraction" model role) to pull out possible facts — e.g.
-   *"the user prefers oak."* These are only **candidates** at this point.
+   _"the user prefers oak."_ These are only **candidates** at this point.
 2. **Evidence ledger.** Every candidate is filed in a ledger with where it came
    from, which message, and how confident the extractor was. This is the
    paper trail.
 3. **Belief ("claim").** A candidate can become a belief, which is a
-   normalized statement — *subject · predicate · object* — with a confidence
+   normalized statement — _subject · predicate · object_ — with a confidence
    and a status (candidate, active, contradicted, retired).
 4. **Promotion.** Beliefs don't appear by magic. They are **promoted** through
    a journal that records each proposal exactly once (so a crash can't
    double-apply it), and — by default — a **human approves** the promotion.
 5. **Contradiction & reinforcement.** If a new statement clashes with an old
    belief, ICOS doesn't silently overwrite. It keeps both, marks the loser
-   **contradicted** (still searchable), and can *park a question* for you to
+   **contradicted** (still searchable), and can _park a question_ for you to
    resolve. Agreement instead reinforces the existing belief.
 
-The important word is **provenance**: ICOS can always answer *"why do you
-believe that?"* by pointing at the evidence.
+The important word is **provenance**: ICOS can always answer _"why do you
+believe that?"_ by pointing at the evidence.
 
 **Status: Built & verified.** Unit tests cover the claim model, contradiction,
 and promotion; the live API returns real beliefs and a durable history.
@@ -182,7 +182,7 @@ the model's context. It combines several lenses:
 
 Results are **ranked**, gated by a confidence threshold, and — critically —
 placed in a **separate, clearly-labelled band** of the prompt so the model
-never confuses *"the user told me"* with *"I remembered."*
+never confuses _"the user told me"_ with _"I remembered."_
 
 **Status: Built & verified.** Recall, ranking, and context assembly are
 unit-tested; the live `/core/recall/trace` endpoint exposes what was recalled.
@@ -196,14 +196,14 @@ measured, not guaranteed.
 Real memory isn't a filing cabinet; it's a living thing. ICOS models that
 explicitly, and — unlike most systems — **honestly**:
 
-| Behaviour | What it means in plain terms |
-| --- | --- |
-| **Reinforcement** | Repeated or supported beliefs get more confident (bounded, so it can't run away). |
-| **Decay** | Unused beliefs lose confidence gradually. |
-| **Revision** | A belief can be updated, and the change is recorded as history — you can walk back through it. |
-| **Retirement** | A belief can be deliberately set aside (not deleted). |
-| **Salience ≠ truth** | How *prominent* a belief is (its "activation") is tracked separately from whether it's *true* (its confidence). A vivid belief isn't automatically a correct one. |
-| **Temporal navigation** | Beliefs carry time, so you can ask what was known when. |
+| Behaviour               | What it means in plain terms                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Reinforcement**       | Repeated or supported beliefs get more confident (bounded, so it can't run away).                                                                                 |
+| **Decay**               | Unused beliefs lose confidence gradually.                                                                                                                         |
+| **Revision**            | A belief can be updated, and the change is recorded as history — you can walk back through it.                                                                    |
+| **Retirement**          | A belief can be deliberately set aside (not deleted).                                                                                                             |
+| **Salience ≠ truth**    | How _prominent_ a belief is (its "activation") is tracked separately from whether it's _true_ (its confidence). A vivid belief isn't automatically a correct one. |
+| **Temporal navigation** | Beliefs carry time, so you can ask what was known when.                                                                                                           |
 
 Every change is written to a history journal, so nothing about the knowledge
 base changes behind your back.
@@ -224,7 +224,7 @@ ICOS has a stable identity, kept in **two deliberately separated layers**:
   start** if the core is missing or invalid (running without a reference frame
   is worse than not running).
 - An **evolving layer**: the parts of identity, user model, and relationship
-  that *do* change over time — but only through a **human review** step, never
+  that _do_ change over time — but only through a **human review** step, never
   silently.
 
 The core is also injected into the conversation as a "grounding band" so the
@@ -233,9 +233,9 @@ agent's stated values are actually in front of the model.
 **Status: Built & verified.** Unit and end-to-end tests cover the read-only
 core, fail-closed boot, seeding, grounding, candidate review, and the rule
 that the evolving layer can never contradict the core. **Partial / Not
-built:** the core is read-only but not yet *cryptographically signed* — a
+built:** the core is read-only but not yet _cryptographically signed_ — a
 future hardening plan (`core-provenance-integrity.md`) would make it
-tamper-*authenticated*, not just tamper-*evident*.
+tamper-_authenticated_, not just tamper-_evident_.
 
 ---
 
@@ -260,7 +260,7 @@ something, ICOS can check it against its own beliefs:
 1. **Deterministic check (no model needed).** Is the claim backed by an active
    belief (`supported`), contradicted by one (`contradicted`), or genuinely new
    (`novel`)? It also catches a claim that cites evidence which doesn't exist.
-2. **Optional second opinion.** For high-stakes claims, a *different* model
+2. **Optional second opinion.** For high-stakes claims, a _different_ model
    can be asked to weigh in. ICOS supports a specialist local "decision" model
    (Jev-style) first, then a general chat model, then nothing. If the second
    opinion disagrees, the disagreement is **recorded, never silently
@@ -274,19 +274,19 @@ something, ICOS can check it against its own beliefs:
 **Status: Built & verified.** The full pipeline is unit-tested and was
 **verified end-to-end against a real local Jev 2B decision model**: a real
 turn whose claim contradicted a stored belief was caught, refused, and logged,
-with the verifier tier recorded. **Not built:** *blocking* pre-send mitigation
+with the verifier tier recorded. **Not built:** _blocking_ pre-send mitigation
 (today the audit runs after the turn, so it never adds latency).
 
 ---
 
 ## 10. Getting things done — skills, tools, and the agent loop
 
-| Feature | What it does | How it works | Why it's useful |
-| --- | --- | --- | --- |
-| **Skills** | Reusable instruction packs the agent can pull in. | Markdown files (`SKILL.md`) discovered from a folder, validated fail-closed, and injected into context when relevant (by keyword, no magic). | Teach the agent a procedure without retraining it. |
-| **Tools** | Real actions the model can request. | A registry with concrete tools (e.g. `session.search`, `session.rename`) plus tools bridged in from external systems. The model *proposes* a call; the runtime decides whether to allow it. | Lets the agent *do* things, not just talk. |
-| **The agent loop** | Multi-step "plan → act → observe → continue". | A bounded loop with execution and time budgets, loop/repetition protection, and failure recovery. | Handles tasks that need several steps. |
-| **Approvals & clarifications** | Human checkpoints. | Structured requests with explicit states (`pending → approved / rejected / expired / cancelled`). **Model text can never approve anything.** | Keeps a human in control of consequential actions. |
+| Feature                        | What it does                                      | How it works                                                                                                                                                                                | Why it's useful                                    |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Skills**                     | Reusable instruction packs the agent can pull in. | Markdown files (`SKILL.md`) discovered from a folder, validated fail-closed, and injected into context when relevant (by keyword, no magic).                                                | Teach the agent a procedure without retraining it. |
+| **Tools**                      | Real actions the model can request.               | A registry with concrete tools (e.g. `session.search`, `session.rename`) plus tools bridged in from external systems. The model _proposes_ a call; the runtime decides whether to allow it. | Lets the agent _do_ things, not just talk.         |
+| **The agent loop**             | Multi-step "plan → act → observe → continue".     | A bounded loop with execution and time budgets, loop/repetition protection, and failure recovery.                                                                                           | Handles tasks that need several steps.             |
+| **Approvals & clarifications** | Human checkpoints.                                | Structured requests with explicit states (`pending → approved / rejected / expired / cancelled`). **Model text can never approve anything.**                                                | Keeps a human in control of consequential actions. |
 
 **Status: Built & verified.** Skills, tools, the loop, and approvals all have
 unit and end-to-end coverage. The built-in tool set is intentionally small;
@@ -296,7 +296,7 @@ more tools arrive via MCP or the documented authoring blueprint.
 
 ## 11. Talking to other systems
 
-- **MCP (Model Context Protocol).** ICOS acts as a *client* to standard MCP
+- **MCP (Model Context Protocol).** ICOS acts as a _client_ to standard MCP
   servers: their tools are bridged into the agent loop and their resources and
   prompt templates are exposed read-only. Servers can be added/removed and the
   catalog reloaded **without a restart**, and each server reports its health.
@@ -322,7 +322,7 @@ MCP path was additionally exercised against a real external server in M13).
   tabs are honest placeholders that render a visible **"server unimplemented"**
   marker (with a milestone pointer) instead of fake data: tools, agents,
   comms, sensors, files, cron, and knowledge-base — and, UI-only, the skills
-  and metrics tabs (their *backends* exist; only the browser tab doesn't yet).
+  and metrics tabs (their _backends_ exist; only the browser tab doesn't yet).
 - **Security.** Loopback-only by default; authentication on by default with a
   bootstrap token; signed sessions with CSRF protection; an **encrypted
   secret vault** (AES-256-GCM, write-only — values are never returned by any
@@ -340,7 +340,7 @@ write-only, secrets `no-store`).
 
 ## 13. How we know it works — the evidence habit
 
-ICOS is built so that *claims are checkable*. Every milestone leaves:
+ICOS is built so that _claims are checkable_. Every milestone leaves:
 
 - a **plan** stating the question and what "done" means;
 - **evidence** — the actual test results, counts, and live-run observations;
@@ -348,14 +348,14 @@ ICOS is built so that *claims are checkable*. Every milestone leaves:
 
 At this snapshot the numbers are:
 
-| Check | Result |
-| --- | --- |
-| Runtime unit tests | **994 passing** (+1 optional live test) |
-| Runtime end-to-end tests | **65 passing** |
-| Web-client tests | **185 passing** |
-| Type-check / lint | clean (both packages) |
-| Docker stack | core + web client **healthy** |
-| Live model check | hallucination verifier answered a real local model |
+| Check                    | Result                                             |
+| ------------------------ | -------------------------------------------------- |
+| Runtime unit tests       | **994 passing** (+1 optional live test)            |
+| Runtime end-to-end tests | **93 passing**                                     |
+| Web-client tests         | **185 passing**                                    |
+| Type-check / lint        | clean (both packages)                              |
+| Docker stack             | core + web client **healthy**                      |
+| Live model check         | hallucination verifier answered a real local model |
 
 This report itself is the product of that habit: a full-platform **roundup**
 re-checked every claim in these docs against the running system and fixed the
@@ -365,27 +365,27 @@ places where the documentation had drifted from reality.
 
 ## 14. Honest status at a glance
 
-| Capability | Status |
-| --- | --- |
-| Conversation, streaming, sessions | Built & verified |
-| Memory extraction → evidence → beliefs → promotion | Built & verified |
-| Recall, ranking, context bands | Built & verified |
-| Memory dynamics (reinforce / decay / revise / retire) | Built & verified |
-| Persona (immutable core + reviewed evolving layer) | Built & verified |
-| Drift detection | Built (advisory semantic signal; structural deterministic) |
-| Hallucination mitigation | Built & verified (audit is post-turn, not blocking) |
-| Skills, tools, agent loop, approvals | Built & verified |
-| MCP client, provider registry | Built & verified (DMR path still "in testing") |
-| Security (auth, vault, CORS, posture) | Built & verified |
-| Docker launch path | Built & verified |
-| Core signing / tamper-authentication | **Not built** (future hardening) |
-| External channels (Discord, email, SMS) | **Not built** (M16) |
-| Autonomous action selection | **Not built** (M17) |
-| Sensors, subagents, reactionary events | **Not built** (M18–M20) |
+| Capability                                            | Status                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
+| Conversation, streaming, sessions                     | Built & verified                                           |
+| Memory extraction → evidence → beliefs → promotion    | Built & verified                                           |
+| Recall, ranking, context bands                        | Built & verified                                           |
+| Memory dynamics (reinforce / decay / revise / retire) | Built & verified                                           |
+| Persona (immutable core + reviewed evolving layer)    | Built & verified                                           |
+| Drift detection                                       | Built (advisory semantic signal; structural deterministic) |
+| Hallucination mitigation                              | Built & verified (audit is post-turn, not blocking)        |
+| Skills, tools, agent loop, approvals                  | Built & verified                                           |
+| MCP client, provider registry                         | Built & verified (DMR path still "in testing")             |
+| Security (auth, vault, CORS, posture)                 | Built & verified                                           |
+| Docker launch path                                    | Built & verified                                           |
+| Core signing / tamper-authentication                  | **Not built** (future hardening)                           |
+| External channels (Discord, email, SMS)               | **Not built** (M16)                                        |
+| Autonomous action selection                           | **Not built** (M17)                                        |
+| Sensors, subagents, reactionary events                | **Not built** (M18–M20)                                    |
 
 ---
 
-## 15. What ICOS is *not*
+## 15. What ICOS is _not_
 
 Being clear about this is part of being honest:
 
@@ -393,12 +393,12 @@ Being clear about this is part of being honest:
   and internals may change without warning.
 - **Not a general-purpose agent framework.** It is built to ask specific
   questions about agent architecture, not to compete on features.
-- **Not omniscient or infallible.** The honesty checks *detect and surface*
+- **Not omniscient or infallible.** The honesty checks _detect and surface_
   problems; they are not a guarantee of truth, and the "second opinion" is an
   input, never an authority.
 - **Not tamper-proof.** The persona core is read-only to the software, but if
-  you control the machine *and* the program, no client-side check can stop you.
-  The achievable guarantee is *honest-by-default and tamper-evident*.
+  you control the machine _and_ the program, no client-side check can stop you.
+  The achievable guarantee is _honest-by-default and tamper-evident_.
 - **Not self-modifying.** Nothing in the running system rewrites its own code,
   its core identity, or your visible output behind the scenes.
 
@@ -413,7 +413,7 @@ Being clear about this is part of being honest:
 - **Evidence ledger** — the paper trail connecting a belief back to the exact
   conversation moment it came from.
 - **Embedding** — a numeric fingerprint of text, used to find things that
-  *mean* the same thing without sharing words.
+  _mean_ the same thing without sharing words.
 - **MCP** — an open protocol for plugging external tool servers into an agent.
 - **Promotion** — the controlled step that turns a proposed fact into an
   accepted belief (human-approved by default).
@@ -425,6 +425,6 @@ Being clear about this is part of being honest:
 
 ---
 
-*ICOS is an experimental project built to the author's requirements, not to a
+_ICOS is an experimental project built to the author's requirements, not to a
 market. If a capability can't justify its complexity, it isn't in the
-architecture yet — and this report will say so.*
+architecture yet — and this report will say so._
