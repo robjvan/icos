@@ -50,6 +50,7 @@ import { SqlitePromotionJournalRepository } from '../memory/sqlite-promotion-jou
 import { SqliteMemoryCandidateRepository } from '../memory/sqlite-memory-candidate.repository';
 import { ClaimConsistencyService } from '../hallucination/claim-consistency.service';
 import { ClaimVerifierService } from '../hallucination/claim-verifier.service';
+import { HallucinationController } from '../hallucination/hallucination.controller';
 import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
 import { HallucinationLedgerRepository } from '../hallucination/hallucination-ledger.repository';
 import { HallucinationMitigationService } from '../hallucination/hallucination-mitigation.service';
@@ -135,6 +136,7 @@ const toolExecutionServiceProvider = {
     SkillsController,
     HealthController,
     McpController,
+    HallucinationController,
   ],
   providers: [
     coreConfigProvider,

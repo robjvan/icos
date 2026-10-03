@@ -147,20 +147,22 @@ Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5e-wiring-evide
       `ConversationModule`, sharing the existing `ClaimRepository` and
       `MemoryDatabaseService` — no second database connection.
 
-# [ ] M15.5e — Evaluation + Verification
+# [x] M15.5e — Evaluation + Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5e-evidence-verification.md`.
 
-- **Detection** — each failure mode from M15.5a produces the
-      expected finding.
-- **False-positive / false-negative** — legitimate novelty is not
+- [x] **Detection** — each failure mode from M15.5a produces the
+      expected finding (matrix spec; severity from the catalogue).
+- [x] **False-positive / false-negative** — legitimate novelty is not
       refused; supported claims pass; fabricated claims are caught.
-- **Secondary model** — disagreement is surfaced, not hidden; the
+- [x] **Secondary model** — disagreement is surfaced, not hidden; the
       system works without a verifier configured.
-- **Mitigation honesty** — every mitigation is logged and
-      observable; no output is silently rewritten.
-- **Live** — a real turn with a fabricated claim is caught and
-      mitigated end to end.
+- [x] **Mitigation honesty** — every mitigation is logged and
+      observable (`GET /core/hallucination/mitigations`); no output is
+      silently rewritten.
+- [x] **Live** — a real turn with a contradicted assistant claim is caught,
+      refused, and logged end to end, with the tier recorded (`decision`,
+      the real Jev 2B).
 
 ---
 

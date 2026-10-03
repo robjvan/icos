@@ -83,7 +83,9 @@ export class ClaimVerifierService {
 
     let disagreement = false;
     if (!verification.available) {
-      if (deterministic.classification !== 'supported') {
+      // Only an *unresolved* high-stakes claim is unverifiable; a
+      // contradicted one already has its answer from the store.
+      if (deterministic.classification === 'novel') {
         findings.push({
           mode: 'unverifiable_high_stakes',
           severity: HALLUCINATION_SEVERITY.unverifiable_high_stakes,

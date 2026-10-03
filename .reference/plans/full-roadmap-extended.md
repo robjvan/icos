@@ -175,13 +175,17 @@
   > corpus); subtle propositional drift is deferred to M15.5. Further
   > tuning: `.reference/plans/drift-tuning-backlog.md`._
 
-- [ ] **M15.5: Hallucination Mitigation**
-  - [ ] Define observable hallucination failure modes
-  - [ ] Claim / evidence consistency checking
-  - [ ] Secondary-model verification (provider-agnostic)
-  - [ ] Mitigation strategies (flag / re-ground / defer / refuse)
-  - [ ] False-positive / false-negative analysis
-  - [ ] Evaluation
+- [x] ~~**M15.5: Hallucination Mitigation**~~
+  - [x] ~~Define observable hallucination failure modes~~
+  - [x] ~~Claim / evidence consistency checking~~
+  - [x] ~~Secondary-model verification (provider-agnostic)~~
+  - [x] ~~Mitigation strategies (flag / re-ground / defer / refuse)~~
+  - [x] ~~False-positive / false-negative analysis~~
+  - [x] ~~Evaluation~~
+  > _Deterministic detection plus optional provider-agnostic verification and
+  > explicit, logged mitigations — verified live against the local Jev 2B
+  > decision model. Blocking pre-send mitigation, a Linux CUDA verifier
+  > service, and propositional drift tuning remain later slices._
 
 - [ ] **M16: External Communication Integrations**
   - [ ] Discord integration

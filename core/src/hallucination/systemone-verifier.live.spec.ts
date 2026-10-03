@@ -1,9 +1,6 @@
 import type { CoreConfig } from '../config';
 import type { SecretResolver } from '../secrets/secret-resolver';
-import {
-  SystemoneVerifier,
-  type SystemoneFetch,
-} from './systemone-verifier.service';
+import { SystemoneVerifier } from './systemone-verifier.service';
 
 /**
  * Live check against a running systemone verifier (M15.5c/e). Skipped
@@ -25,7 +22,7 @@ maybe('SystemoneVerifier (live)', () => {
     const verifier = new SystemoneVerifier(
       config,
       { resolve: () => null } as unknown as SecretResolver,
-      fetch as unknown as SystemoneFetch,
+      fetch,
     );
 
     const verdict = await verifier.verify({
