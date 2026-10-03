@@ -123,12 +123,31 @@ describe('DiscordIngressService', () => {
       ).toBe(true);
     });
 
-    it('answers DMs when allowed, and respects the user allowlist', () => {
-      const service = build(testConfig(dir), fakeConversation().service);
-      expect(service.accepts(inbound({ isDm: true, guildId: null }))).toBe(
+    it('answers DMs only for allowlisted users (operator-only)', () => {
+      const open = build(testConfig(dir), fakeConversation().service);
+      expect(open.accepts(inbound({ isDm: true, guildId: null }))).toBe(false);
+
+      const allowed = build(
+        testConfig(dir, { discordAllowedUserIds: ['u1'] }),
+        fakeConversation().service,
+      );
+      expect(allowed.accepts(inbound({ isDm: true, guildId: null }))).toBe(
         true,
       );
 
+      const disabled = build(
+        testConfig(dir, {
+          discordAllowedUserIds: ['u1'],
+          discordAllowDirectMessages: false,
+        }),
+        fakeConversation().service,
+      );
+      expect(disabled.accepts(inbound({ isDm: true, guildId: null }))).toBe(
+        false,
+      );
+    });
+
+    it('restricts guild answers to the user allowlist when set', () => {
       const restricted = build(
         testConfig(dir, { discordAllowedUserIds: ['someone-else'] }),
         fakeConversation().service,

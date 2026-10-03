@@ -41,8 +41,13 @@ export class DiscordIngressService implements OnModuleInit {
 
   /** Whether a normalized message should be answered. */
   accepts(message: DiscordInbound): boolean {
-    if (!this.userAllowed(message.authorId)) return false;
-    if (message.isDm) return this.config.discordAllowDirectMessages !== false;
+    if (message.isDm) {
+      if (this.config.discordAllowDirectMessages === false) return false;
+      // A DM has no channel to designate — the operator allowlist is the
+      // gate, so an unlisted stranger cannot talk to the agent privately.
+      return this.isAllowlistedUser(message.authorId);
+    }
+    if (!this.guildUserAllowed(message.authorId)) return false;
     return this.isChatChannel(message);
   }
 
@@ -121,7 +126,11 @@ export class DiscordIngressService implements OnModuleInit {
     }
   }
 
-  private userAllowed(authorId: string): boolean {
+  private isAllowlistedUser(authorId: string): boolean {
+    return (this.config.discordAllowedUserIds ?? []).includes(authorId);
+  }
+
+  private guildUserAllowed(authorId: string): boolean {
     const allowed = this.config.discordAllowedUserIds ?? [];
     return allowed.length === 0 || allowed.includes(authorId);
   }
