@@ -37,6 +37,9 @@ export interface ChannelAdapter {
    * delivery service owns retries and backoff.
    */
   send(conversationKey: string, body: string): Promise<ChannelSendResult>;
+
+  /** Optional best-effort "processing" feedback (a typing indicator). */
+  sendTyping?(conversationKey: string): Promise<void>;
 }
 
 /** DI token: the set of adapters the delivery service may use. */

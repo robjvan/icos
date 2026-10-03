@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
 import { ConversationService } from '../conversation/conversation.service';
+import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
 import type { ChannelMessage } from './channel.types';
 import { DiscordAdapter } from './discord.adapter';
@@ -25,6 +26,7 @@ export class DiscordIngressService implements OnModuleInit {
     private readonly adapter: DiscordAdapter,
     private readonly repository: ChannelRepository,
     private readonly conversation: ConversationService,
+    private readonly delivery: ChannelDeliveryService,
   ) {}
 
   onModuleInit(): void {
@@ -60,9 +62,19 @@ export class DiscordIngressService implements OnModuleInit {
 
   /** Handle one inbound message: record, run a turn, queue the reply. */
   async handle(message: DiscordInbound): Promise<void> {
-    if (!this.accepts(message)) return;
+    if (!this.accepts(message)) {
+      if (message.isDm) {
+        this.logger.log(
+          `Ignoring Discord DM from ${message.authorId} — add the id to ` +
+            'DISCORD_ALLOWED_USER_IDS to allow it',
+        );
+      }
+      return;
+    }
 
     const conversationKey = this.conversationKey(message);
+    // Immediate feedback: Discord's native typing indicator.
+    void this.adapter.sendTyping?.(conversationKey).catch(() => undefined);
 
     // Claim the transport id first — a redelivered Discord event must never
     // run the turn twice.
@@ -116,6 +128,8 @@ export class DiscordIngressService implements OnModuleInit {
           body: reply,
           replyToMessageId: inbound.id,
         });
+        // Post promptly instead of waiting for the next poll tick.
+        void this.delivery.runOnce().catch(() => undefined);
       }
     } catch (error) {
       this.logger.warn(
@@ -144,7 +158,7 @@ export class DiscordIngressService implements OnModuleInit {
       return true;
     }
     const marker = this.config.discordStreamMarker ?? DEFAULT_STREAM_MARKER;
-    return this.streamOf(message.channelTopic, marker) === 'chat';
+    return this.streamOf(message.parentTopic, marker) === 'chat';
   }
 
   /** Parse the stream type out of a channel topic: `[icos-stream: chat]`. */

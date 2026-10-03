@@ -23,6 +23,8 @@ export interface DiscordMessageLike {
     isThread?: () => boolean;
     parentId?: string | null;
     topic?: string | null;
+    /** For a thread, the parent channel (its topic designates the stream). */
+    parent?: { topic?: string | null } | null;
   } | null;
 }
 
@@ -37,6 +39,11 @@ export interface DiscordInbound {
   /** The channel itself, or a thread's parent channel. */
   parentChannelId: string;
   channelTopic: string | null;
+  /**
+   * The topic that designates the stream: a thread's parent topic, or the
+   * channel's own. Threads have no topic of their own.
+   */
+  parentTopic: string | null;
   authorId: string;
   content: string;
   attachments: ChannelAttachment[];

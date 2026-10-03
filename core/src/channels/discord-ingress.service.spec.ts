@@ -10,6 +10,7 @@ import type {
   TurnOutcome,
 } from '../conversation/conversation.service';
 import { ChannelDatabaseService } from './channel-database.service';
+import type { ChannelDeliveryService } from './channel-delivery.service';
 import type { DiscordAdapter } from './discord.adapter';
 import { DiscordIngressService } from './discord-ingress.service';
 import type { DiscordInbound, DiscordMessageHandler } from './discord.types';
@@ -38,6 +39,7 @@ function inbound(overrides: Partial<DiscordInbound> = {}): DiscordInbound {
     isThread: false,
     parentChannelId: 'c1',
     channelTopic: '[icos-stream: chat]',
+    parentTopic: '[icos-stream: chat]',
     authorId: 'u1',
     content: 'hello',
     attachments: [],
@@ -47,8 +49,12 @@ function inbound(overrides: Partial<DiscordInbound> = {}): DiscordInbound {
 
 class FakeAdapter {
   handler: DiscordMessageHandler | null = null;
+  readonly typing: string[] = [];
   onMessage(handler: DiscordMessageHandler): void {
     this.handler = handler;
+  }
+  async sendTyping(conversationKey: string): Promise<void> {
+    this.typing.push(conversationKey);
   }
 }
 
@@ -96,6 +102,9 @@ describe('DiscordIngressService', () => {
       adapter as unknown as DiscordAdapter,
       repository,
       conversation,
+      {
+        runOnce: jest.fn(async () => 0),
+      } as unknown as ChannelDeliveryService,
     );
 
   describe('accept policy', () => {
@@ -103,7 +112,12 @@ describe('DiscordIngressService', () => {
       const service = build(testConfig(dir), fakeConversation().service);
       expect(service.accepts(inbound())).toBe(true);
       expect(
-        service.accepts(inbound({ channelTopic: 'general chatter' })),
+        service.accepts(
+          inbound({
+            channelTopic: 'general chatter',
+            parentTopic: 'general chatter',
+          }),
+        ),
       ).toBe(false);
     });
 
@@ -118,6 +132,7 @@ describe('DiscordIngressService', () => {
             channelId: 'c9',
             parentChannelId: 'c9',
             channelTopic: null,
+            parentTopic: null,
           }),
         ),
       ).toBe(true);
@@ -217,7 +232,12 @@ describe('DiscordIngressService', () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
 
-    await service.handle(inbound({ channelTopic: 'just chatting' }));
+    await service.handle(
+      inbound({
+        channelTopic: 'just chatting',
+        parentTopic: 'just chatting',
+      }),
+    );
 
     expect(converse).not.toHaveBeenCalled();
     expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);

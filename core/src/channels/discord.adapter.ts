@@ -29,6 +29,7 @@ export const DISCORD_CLIENT_FACTORY = 'DISCORD_CLIENT_FACTORY';
 export interface DiscordChannelLike {
   isTextBased(): boolean;
   send(content: string): Promise<{ id: string }>;
+  sendTyping?(): Promise<void>;
 }
 
 export interface DiscordClientLike {
@@ -185,6 +186,22 @@ export class DiscordAdapter
     return { externalMessageId: sent.id ?? null };
   }
 
+  /**
+   * Show Discord's native "typing…" indicator in a conversation. Best-effort
+   * feedback — never throws, so a hiccup cannot break the turn.
+   */
+  async sendTyping(conversationKey: string): Promise<void> {
+    if (!this.client || !this.ready) return;
+    const targetId = parseDiscordTargetKey(conversationKey);
+    if (!targetId) return;
+    try {
+      const channel = await this.client.channels.fetch(targetId);
+      await channel?.sendTyping?.();
+    } catch {
+      // Typing is cosmetic; swallow.
+    }
+  }
+
   private async buildClient(): Promise<{
     client: DiscordClientLike;
     readyEvent: string;
@@ -263,6 +280,10 @@ export function normalizeDiscordMessage(raw: unknown): DiscordInbound | null {
   const parentChannelId = isThread
     ? (channel?.parentId ?? m.channelId)
     : m.channelId;
+  // A thread has no topic of its own; its parent's topic designates it.
+  const parentTopic = isThread
+    ? (channel?.parent?.topic ?? null)
+    : (channel?.topic ?? null);
   const guildId = m.guildId ?? null;
 
   return {
@@ -273,6 +294,7 @@ export function normalizeDiscordMessage(raw: unknown): DiscordInbound | null {
     isThread,
     parentChannelId,
     channelTopic: channel?.topic ?? null,
+    parentTopic,
     authorId: m.author?.id ?? 'unknown',
     content: m.content ?? '',
     attachments,
