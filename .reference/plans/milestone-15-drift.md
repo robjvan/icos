@@ -127,18 +127,20 @@ Evidence: `.reference/plans/evidence/milestone-15/milestone-15c-evidence-semanti
 - [x] Severity weighs the drift signal (base `warning`, escalates to
       `critical` at the critical floor); identical content is a no-op.
 
-# [ ] M15d — Cumulative Drift
+# [x] M15d — Cumulative Drift (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15d-evidence-cumulative.md`.
 
-- [ ] Track a trend row per review cycle; flag a **cumulative** shift
-      (a new severity above `critical`) when a record's direction
-      moves persistently across N consecutive elevated cycles.
-- [ ] Fire once per open streak; carry the cycle evidence in the
-      finding.
-- [ ] The core is exempt by construction (it cannot move) — a
-      cumulative finding about the core is a contradiction, not a
-      trend.
+- [x] Trend rows are written per review cycle (M15c); a **cumulative**
+      shift (severity `cumulative`, above `critical`) is flagged when a
+      record's signal stays at/above the floor for N consecutive cycles.
+- [x] Fire once per open streak; the finding carries the cycle evidence
+      (review cycles, average signal, floor, required cycles). A cycle
+      below the floor breaks the streak and **resolves** the finding, so a
+      future streak can fire again.
+- [x] The core is exempt by construction — trends exist only for evolving
+      records, so a "cumulative" finding about the core is a contradiction
+      (M15b), never a trend.
 
 # [ ] M15e — Evaluation + Verification
 

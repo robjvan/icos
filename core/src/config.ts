@@ -116,6 +116,8 @@ export interface CoreConfig {
   personaSemanticDriftFloor?: number;
   /** M15c: semantic-drift signal at/above which severity is `critical`. */
   personaSemanticCriticalFloor?: number;
+  /** M15d: consecutive elevated cycles that flag cumulative drift. */
+  personaCumulativeMinCycles?: number;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -369,6 +371,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.PERSONA_SEMANTIC_CRITICAL_FLOOR,
       0.5,
       'PERSONA_SEMANTIC_CRITICAL_FLOOR',
+    ),
+    personaCumulativeMinCycles: parsePositiveInt(
+      env.PERSONA_CUMULATIVE_MIN_CYCLES,
+      3,
+      'PERSONA_CUMULATIVE_MIN_CYCLES',
     ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),

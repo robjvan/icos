@@ -312,4 +312,81 @@ describe('PersonaDriftService', () => {
     ).toBeNull();
     expect(await repository.listDriftTrends('r1')).toHaveLength(0);
   });
+
+  it('flags cumulative drift across consecutive elevated cycles, once, then reconciles', async () => {
+    const { repository, drift } = await open();
+    await drift.evaluateSemanticChange(
+      'r1',
+      'alpha beta gamma',
+      'delta epsilon zeta',
+    );
+    await drift.evaluateSemanticChange(
+      'r1',
+      'delta epsilon zeta',
+      'eta theta iota',
+    );
+    await drift.evaluateSemanticChange(
+      'r1',
+      'eta theta iota',
+      'kappa lambda omega',
+    );
+
+    const first = (await repository.listRecentDrift('user')).filter(
+      (entry) => entry.changeType === 'cumulative_semantic_drift',
+    );
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ severity: 'cumulative', reviewed: false });
+    expect(first[0].metadata).toMatchObject({ requiredCycles: 3 });
+
+    // Same open streak: no duplicate.
+    await drift.evaluateSemanticChange(
+      'r1',
+      'kappa lambda omega',
+      'sigma tau upsilon',
+    );
+    expect(
+      (await repository.listRecentDrift('user')).filter(
+        (entry) => entry.changeType === 'cumulative_semantic_drift',
+      ),
+    ).toHaveLength(1);
+
+    // A benign (below-floor) cycle breaks the streak and resolves it.
+    await drift.evaluateSemanticChange(
+      'r1',
+      'sigma tau upsilon',
+      'sigma, tau, upsilon!',
+    );
+    const resolved = (await repository.listRecentDrift('user')).filter(
+      (entry) => entry.changeType === 'cumulative_semantic_drift',
+    );
+    expect(resolved.every((entry) => entry.reviewed)).toBe(true);
+
+    // A fresh streak fires again.
+    await drift.evaluateSemanticChange(
+      'r1',
+      'sigma tau upsilon',
+      'one two three',
+    );
+    await drift.evaluateSemanticChange('r1', 'one two three', 'four five six');
+    await drift.evaluateSemanticChange(
+      'r1',
+      'four five six',
+      'seven eight nine',
+    );
+    const total = (await repository.listRecentDrift('user')).filter(
+      (entry) => entry.changeType === 'cumulative_semantic_drift',
+    );
+    expect(total).toHaveLength(2);
+    expect(total.some((entry) => !entry.reviewed)).toBe(true);
+  });
+
+  it('raises no cumulative finding without a streak (the core is exempt)', async () => {
+    const { repository, drift } = await open();
+    expect(await drift.detectCumulativeDrift('record-none')).toBeNull();
+    expect(
+      (await repository.listRecentDrift('user')).filter(
+        (entry) => entry.changeType === 'cumulative_semantic_drift',
+      ),
+    ).toHaveLength(0);
+  });
 });

@@ -19,6 +19,7 @@ import {
   type PersonaCandidate,
   type PersonaDriftEntry,
   type PersonaDriftSeverity,
+  type PersonaDriftTrend,
 } from './persona.types';
 
 /**
@@ -280,6 +281,9 @@ export class PersonaDriftService {
       severity,
     });
 
+    // M15d: persistent direction change across cycles.
+    await this.detectCumulativeDrift(recordId, userId);
+
     if (signal < floor) {
       return null;
     }
@@ -300,6 +304,72 @@ export class PersonaDriftService {
         embeddingCosine: vectorCosine,
       },
       severity,
+    );
+  }
+
+  /**
+   * Cumulative drift (M15d): a record whose signal stays at/above the
+   * floor for N consecutive review cycles is drifting persistently, not
+   * settling. Fires once per open streak; the streak breaking (a cycle
+   * below the floor) resolves the finding so a future streak can fire
+   * again.
+   *
+   * The core is exempt by construction: trends exist only for evolving
+   * records, so a "cumulative" finding about the core is a contradiction
+   * (M15b), never a trend.
+   */
+  async detectCumulativeDrift(
+    recordId: string,
+    userId: string = DEFAULT_PERSONA_USER_ID,
+  ): Promise<PersonaDriftEntry | null> {
+    const floor =
+      this.config.personaSemanticDriftFloor ??
+      PERSONA_DRIFT_DEFAULTS.semanticDriftFloor;
+    const minCycles =
+      this.config.personaCumulativeMinCycles ??
+      PERSONA_DRIFT_DEFAULTS.cumulativeMinCycles;
+    const subject = `record:${recordId}`;
+
+    const trends = await this.repository.listDriftTrends(recordId, 50);
+    const elevated: PersonaDriftTrend[] = [];
+    for (const trend of trends) {
+      if (trend.signal >= floor) {
+        elevated.push(trend);
+      } else {
+        break;
+      }
+    }
+
+    if (elevated.length < minCycles) {
+      // The newest trend below the floor means the streak has broken.
+      if ((trends[0]?.signal ?? 0) < floor) {
+        await this.repository.resolveDrift(
+          userId,
+          subject,
+          'cumulative_semantic_drift',
+        );
+      }
+      return null;
+    }
+
+    const average =
+      elevated.reduce((sum, trend) => sum + trend.signal, 0) / elevated.length;
+    return this.logOnce(
+      userId,
+      subject,
+      'cumulative_semantic_drift',
+      average.toFixed(3),
+      `Cumulative semantic drift: signal at/above ${floor} across ${elevated.length} consecutive review cycles (${elevated
+        .map(
+          (trend) => `cycle ${trend.reviewCycle}: ${trend.signal.toFixed(2)}`,
+        )
+        .join(', ')}).`,
+      {
+        reviewCycles: elevated.map((trend) => trend.reviewCycle),
+        avgSignal: Number(average.toFixed(3)),
+        floor,
+        requiredCycles: minCycles,
+      },
     );
   }
 
