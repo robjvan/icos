@@ -43,7 +43,7 @@ The goal is not to reproduce a biological model of cognition. Instead, ICOS is a
 > and running the stack). Before exposing it beyond your machine, read
 > **[docs/security.md](docs/security.md).** To understand what the platform
 > actually does — feature by feature, and how each is verified — read
-> **[docs/architecture.md](docs/architecture.md)**.
+> **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 
@@ -266,6 +266,7 @@ docker-compose-dmr.yml  # DMR override: models served in-stack (see bin/dmr)
 bin/dmr                 # Shorthand for the DMR variant
 docs/                   # User-facing docs (security, blueprints, sample skills)
 .reference/             # Plans, evidence, and planning notes
+ARCHITECTURE.md         # Plain-English architecture and feature guide
 INDEX.md                # Full repository map
 USAGE.md                # Setup, configuration, and operation
 ```

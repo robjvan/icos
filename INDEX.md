@@ -41,6 +41,7 @@ icos/   # Root of project.
 │
 ├── .gitignore              # Files to avoid committing to Git.
 ├── AGENTS.md               # Project-level Agent rules.
+├── ARCHITECTURE.md         # Plain-English architecture and feature guide.
 ├── COMMERCIAL-LICENSE.md   # Commercial use license.
 ├── docker-compose-dmr.yml  # Compose configuration for adding DMR.
 ├── docker-compose.yml      # Core Compose configuration.
