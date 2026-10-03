@@ -50,6 +50,18 @@ because it changes the turn contract and needs UX decisions.
   there (unchanged assertions).
 - **`tsc` / `eslint` clean.**
 
+## Live check (partial)
+
+The local Jev 2B was stood up on the host (`bin/verifier`, MLX, 8-bit), and
+our **`SystemoneVerifier` client** was exercised against the real endpoint
+via `systemone-verifier.live.spec.ts` (opt-in through `JEV_LIVE_URL`). The
+model answered `contradicted` at probability **0.907** (backend `mlx`, ~1.9 s
+per call), and the client mapped it to
+`available: true · backend: decision · verdict: contradicted ·
+independence: independent`. The default suite skips the live spec when
+`JEV_LIVE_URL` is unset (989 passed, 1 skipped). The full evaluation matrix
+remains **M15.5e**.
+
 ## Next
 
 **M15.5e** — the evaluation matrix (detection, FP/FN, secondary model,

@@ -180,7 +180,8 @@ JEV_STYLE_RELEASE=0.8b bin/verifier   # smaller/faster model
 
 Core (in Docker) then reaches it at `host.docker.internal:8765` — the
 default `HALLUCINATION_DECISION_URL`. The runtime lives under
-`~/.icos/verifier/`, the model under the shared `~/.icos/models` volume.
+`~/.icos/verifier/`; jev-style caches the weights in the HuggingFace cache
+(`~/.cache/huggingface`), separate from the embedder's `~/.icos/models`.
 
 **Linux is a line item.** On a CUDA host the verifier becomes a compose
 service reached at `http://verifier:8765`; until then, either point
