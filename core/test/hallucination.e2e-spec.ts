@@ -80,6 +80,7 @@ describe('Hallucination (e2e)', () => {
     process.env.SESSION_DB_PATH = join(dir, 'sessions.sqlite');
     process.env.MEMORY_DB_PATH = memoryDbPath;
     process.env.PERSONA_DB_PATH = join(dir, 'persona.sqlite');
+    process.env.CHANNELS_DB_PATH = join(dir, 'channels.sqlite');
     process.env.PERSONA_CORE_REQUIRED = 'false';
     process.env.PERSONA_SEED_ROOT = join(dir, 'seeds');
     process.env.VECTOR_DB_PATH = join(dir, 'claims-vector.db');

@@ -91,6 +91,13 @@ export interface CoreConfig {
    */
   personaDbPath?: string;
   /**
+   * M16 channel store: the unified inbound/outbound message ledger and the
+   * durable outbound delivery queue. A separate file, like persona —
+   * channel traffic is its own subsystem. Optional on the type for callers
+   * that never open it; `loadConfig` always populates it.
+   */
+  channelsDbPath?: string;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -363,6 +370,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     sessionDbPath: resolvePath(env.SESSION_DB_PATH, '~/.icos/data/sessions.db'),
     memoryDbPath: resolvePath(env.MEMORY_DB_PATH, '~/.icos/data/memories.db'),
     personaDbPath: resolvePath(env.PERSONA_DB_PATH, '~/.icos/data/persona.db'),
+    channelsDbPath: resolvePath(
+      env.CHANNELS_DB_PATH,
+      '~/.icos/data/channels.db',
+    ),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',

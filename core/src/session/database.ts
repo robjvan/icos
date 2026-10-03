@@ -2,7 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import Database from 'better-sqlite3';
 
-export type DatabaseSchema = 'sessions' | 'memories' | 'persona';
+export type DatabaseSchema = 'sessions' | 'memories' | 'persona' | 'channels';
 
 /**
  * Canonical transcript schema. `messages` is the source of truth;
@@ -702,6 +702,57 @@ CREATE INDEX IF NOT EXISTS idx_persona_drift_trends_record
 ON persona_drift_trends(record_id, review_cycle DESC);
 `;
 
+/**
+ * M16 channel store: the unified record of external communication.
+ * `channel_messages` is the append-only ledger of what crossed the
+ * boundary in either direction; `channel_deliveries` is the durable
+ * outbound queue (intent + status), so a send survives restarts and is
+ * retried rather than lost. Channels are evidence, like turn messages —
+ * extraction still decides whether anything becomes memory.
+ */
+const CHANNELS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS channel_messages (
+    id TEXT PRIMARY KEY,
+    channel TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    external_id TEXT,
+    conversation_key TEXT NOT NULL,
+    peer_id TEXT,
+    session_id TEXT,
+    body TEXT NOT NULL,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_messages_conversation
+ON channel_messages(conversation_key, created_at);
+
+-- Inbound idempotency: one transport message id per channel.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_messages_external
+ON channel_messages(channel, external_id)
+WHERE external_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS channel_deliveries (
+    id TEXT PRIMARY KEY,
+    channel TEXT NOT NULL,
+    conversation_key TEXT NOT NULL,
+    body TEXT NOT NULL,
+    reply_to_message_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'abandoned')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    external_message_id TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_deliveries_status
+ON channel_deliveries(status, next_attempt_at);
+`;
+
 const SCHEMAS: Record<
   DatabaseSchema,
   { sql: string; tables: string[]; triggers: string[] }
@@ -751,6 +802,11 @@ const SCHEMAS: Record<
       'persona_core_state',
       'persona_drift_trends',
     ],
+    triggers: [],
+  },
+  channels: {
+    sql: CHANNELS_SCHEMA_SQL,
+    tables: ['channel_messages', 'channel_deliveries'],
     triggers: [],
   },
 };
