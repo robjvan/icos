@@ -142,7 +142,7 @@ Evidence: `.reference/plans/evidence/milestone-15/milestone-15d-evidence-cumulat
       records, so a "cumulative" finding about the core is a contradiction
       (M15b), never a trend.
 
-# [ ] M15e — Evaluation + Verification
+# [x] M15e — Evaluation + Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15/milestone-15e-evidence-verification.md`.
 

@@ -364,7 +364,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     ),
     personaSemanticDriftFloor: parseScore(
       env.PERSONA_SEMANTIC_DRIFT_FLOOR,
-      0.25,
+      0.2,
       'PERSONA_SEMANTIC_DRIFT_FLOOR',
     ),
     personaSemanticCriticalFloor: parseScore(

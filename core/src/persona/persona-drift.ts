@@ -145,7 +145,9 @@ export const PERSONA_DRIFT_DEFAULTS = {
   candidatePressureCount: 3,
   candidatePressureSimilarity: 0.6,
   groundingWarmupThreshold: 0.6,
-  semanticDriftFloor: 0.25,
+  // Calibrated to the M15e corpus: best embedding F1 at 0.20 (P 0.75,
+  // R 0.82). Provisional — revisit as the corpus grows.
+  semanticDriftFloor: 0.2,
   semanticCriticalFloor: 0.5,
   cumulativeMinCycles: 3,
 } as const;

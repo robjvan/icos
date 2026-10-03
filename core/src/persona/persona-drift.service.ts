@@ -259,7 +259,14 @@ export class PersonaDriftService {
     // see through synonyms, where the lexical triad cannot. The triad and
     // baselines are still reported for the "which measure earns its place"
     // comparison. Without embeddings the token distribution drives.
-    const signal = vectorCosine !== null ? 1 - vectorCosine : comparison.signal;
+    // `1 - cosine` spans [0, 2]; clamp to [0, 1] so it shares the lexical
+    // signal's range and a single floor is meaningful. Negation polarity is
+    // the structural layer's job (M15b) — distributional distance does not
+    // model `not`.
+    const signal =
+      vectorCosine !== null
+        ? Math.min(1, Math.max(0, 1 - vectorCosine))
+        : comparison.signal;
     const floor =
       this.config.personaSemanticDriftFloor ??
       PERSONA_DRIFT_DEFAULTS.semanticDriftFloor;

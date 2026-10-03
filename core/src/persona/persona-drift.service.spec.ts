@@ -380,6 +380,18 @@ describe('PersonaDriftService', () => {
     expect(total.some((entry) => !entry.reviewed)).toBe(true);
   });
 
+  it('bounds the embedding signal to [0, 1]', async () => {
+    const embed = (text: string): Promise<number[] | null> =>
+      Promise.resolve(text === 'alpha' ? [1, 0] : [-1, 0]);
+    const { repository, drift } = await open(CORE, { embed });
+
+    await drift.evaluateSemanticChange('r1', 'alpha', 'beta');
+    const trend = (await repository.listDriftTrends('r1'))[0];
+    expect(trend.signal).toBeGreaterThanOrEqual(0);
+    expect(trend.signal).toBeLessThanOrEqual(1);
+    expect(trend.embeddingCosine).toBeCloseTo(-1, 6);
+  });
+
   it('raises no cumulative finding without a streak (the core is exempt)', async () => {
     const { repository, drift } = await open();
     expect(await drift.detectCumulativeDrift('record-none')).toBeNull();
