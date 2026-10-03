@@ -132,6 +132,33 @@ gate, and the JSON identity file (replaced by config + the existing vault).
       ledger, secret handling. Kept separate because Discord alone is already a
       full milestone.
 
+# [ ] M16m — Presence messages (boot / shutdown) *(queued last)*
+
+Hermes parity: announce when the bot comes up and when it goes down, so an
+operator watching a channel sees the runtime's lifecycle.
+
+- [ ] On Discord **ready**, post an "online" message; on **graceful shutdown**
+      (`onModuleDestroy`), post a "shutting down" message. Defaults:
+      `♻️ Gateway online — ICOS is back and ready.` /
+      `⚠️ Gateway shutting down — the current task may be interrupted.`
+- [ ] Destination: a designated **status/presence** channel — a topic marker
+      `[icos-stream: status]` (extending the existing vocabulary) or
+      `DISCORD_STATUS_CHANNEL_ID`. **Unset → send nothing** (no channel to
+      announce into is a normal state, never an error).
+- [ ] **Boot** goes through the durable delivery queue (retried). **Shutdown**
+      is sent directly with a short bounded timeout: the queue will not drain
+      once the process is told to stop, so it is best-effort by nature. A hard
+      kill (`SIGKILL`) sends nothing — an honest limitation, not a bug.
+- [ ] Requires **graceful shutdown**: `app.enableShutdownHooks()` in `main.ts`
+      so `SIGTERM`/`SIGINT` run `onModuleDestroy` (currently absent — add it).
+- [ ] **Reconnect guard:** announce "online" once per process start, not on
+      every gateway resume, so a network blip does not spam the channel.
+- [ ] Config: `DISCORD_PRESENCE_ENABLED`, `DISCORD_STATUS_CHANNEL_ID` (or the
+      marker), and optional `DISCORD_PRESENCE_ONLINE` / `_OFFLINE` templates;
+      documented in `.env.sample`.
+- [ ] Tests: a boot message is enqueued once on ready; a shutdown message is
+      attempted on destroy; no status channel → nothing sent, no error.
+
 ## Scope boundary
 
 - **SMS:** dropped (no viable free tier).
