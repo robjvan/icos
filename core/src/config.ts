@@ -2,6 +2,15 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { MEMORY_CANDIDATE_KINDS } from './memory/memory-candidate';
 
+import {
+  DEFAULT_MITIGATION_POSTURE,
+  MITIGATION_STRATEGIES,
+} from './hallucination/hallucination-modes';
+import type {
+  MitigationPosture,
+  MitigationStrategy,
+} from './hallucination/hallucination-modes';
+
 export const CORE_CONFIG = 'CORE_CONFIG';
 
 export interface CoreConfig {
@@ -130,6 +139,8 @@ export interface CoreConfig {
   hallucinationDecisionApiKeyRef?: string;
   hallucinationVerifierProvider?: string;
   hallucinationVerifierTimeoutMs?: number;
+  /** M15.5d mitigation: strategy per severity (config-overridable). */
+  hallucinationMitigationPosture?: Partial<MitigationPosture>;
   /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
@@ -273,6 +284,20 @@ function parseNonNegativeInt(
 }
 
 /** 0..1 score with a fallback; rejects NaN and out-of-range input. */
+function parseMitigationStrategy(
+  raw: string | undefined,
+  fallback: MitigationStrategy,
+): MitigationStrategy {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (value === '') return fallback;
+  if ((MITIGATION_STRATEGIES as readonly string[]).includes(value)) {
+    return value as MitigationStrategy;
+  }
+  throw new Error(
+    `mitigation strategy must be one of ${MITIGATION_STRATEGIES.join(', ')} (got "${raw}")`,
+  );
+}
+
 function parseScore(
   raw: string | undefined,
   fallback: number,
@@ -401,6 +426,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       10000,
       'HALLUCINATION_VERIFIER_TIMEOUT_MS',
     ),
+    hallucinationMitigationPosture: {
+      info: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_INFO,
+        DEFAULT_MITIGATION_POSTURE.info,
+      ),
+      watch: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_WATCH,
+        DEFAULT_MITIGATION_POSTURE.watch,
+      ),
+      warning: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_WARNING,
+        DEFAULT_MITIGATION_POSTURE.warning,
+      ),
+      critical: parseMitigationStrategy(
+        env.HALLUCINATION_MITIGATE_CRITICAL,
+        DEFAULT_MITIGATION_POSTURE.critical,
+      ),
+    },
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

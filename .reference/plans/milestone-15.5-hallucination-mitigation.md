@@ -121,15 +121,17 @@ Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5c-evidence-sec
       deterministic checks; a high-stakes unresolved assertion is flagged
       `unverifiable_high_stakes`.
 
-# [ ] M15.5d — Mitigation Strategies
+# [x] M15.5d — Mitigation Strategies (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5d-evidence-mitigation.md`.
 
-- [ ] Explicit mitigations: flag, re-ground (retrieve and re-answer),
-      defer (ask/review), refuse.
-- [ ] Each mitigation is logged with the finding that triggered it —
-      no silent behavior.
-- [ ] Configurable posture per severity; conservative defaults.
+- [x] Explicit mitigations: `flag`, `re_ground` (retrieve and re-answer),
+      `defer` (ask/review), `refuse` — plus `none`.
+- [x] Each mitigation is logged with the finding that triggered it in an
+      append-only `hallucination_mitigations` ledger — no silent behavior.
+- [x] Configurable posture per severity with conservative defaults
+      (`critical` → `refuse`, `warning`/`watch` → `flag`, `info` → `none`);
+      the strictest strategy across findings wins.
 
 # [ ] M15.5e — Evaluation + Verification
 

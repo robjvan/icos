@@ -1,6 +1,7 @@
 import type {
   HallucinationFailureMode,
   HallucinationSeverity,
+  MitigationStrategy,
 } from './hallucination-modes';
 
 /** The three deterministic outcomes of checking an assertion vs the store. */
@@ -76,6 +77,13 @@ export interface ClaimVerificationResult extends ClaimConsistencyResult {
   verification: VerificationVerdict;
   /** True when the verifier disagreed with the deterministic classification. */
   disagreement: boolean;
+}
+
+/** A mitigation decision: what to do, and the finding that drove it. */
+export interface MitigationPlan {
+  strategy: MitigationStrategy;
+  trigger: ClaimFinding | null;
+  reasons: string[];
 }
 
 /** A human-readable rendering of an assertion for a verifier prompt. */

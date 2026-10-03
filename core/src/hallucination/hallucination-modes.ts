@@ -134,3 +134,34 @@ export const HALLUCINATION_DEFAULTS = {
   /** Asserted confidence at/above this on weak support is overconfident. */
   highStakesConfidenceFloor: 0.8,
 } as const;
+
+/** What ICOS does with a finding (M15.5d). Explicit actions only. */
+export type MitigationStrategy =
+  'none' | 'flag' | 're_ground' | 'defer' | 'refuse';
+
+export const MITIGATION_STRATEGIES: readonly MitigationStrategy[] = [
+  'none',
+  'flag',
+  're_ground',
+  'defer',
+  'refuse',
+];
+
+/** Strategy per severity. Config may override; these are the defaults. */
+export type MitigationPosture = Record<
+  HallucinationSeverity,
+  MitigationStrategy
+>;
+
+/**
+ * Conservative defaults: never present an unresolvable/contradicted claim
+ * as settled. `critical` refuses; `warning`/`watch` flag (annotate, do not
+ * silently rewrite); `info` does nothing. An operator can raise a tier to
+ * `re_ground` or `defer`.
+ */
+export const DEFAULT_MITIGATION_POSTURE: MitigationPosture = {
+  info: 'none',
+  watch: 'flag',
+  warning: 'flag',
+  critical: 'refuse',
+};

@@ -525,6 +525,23 @@ CREATE TRIGGER IF NOT EXISTS claims_au AFTER UPDATE ON claims BEGIN
     INSERT INTO claims_fts(rowid, subject, predicate, object, entities_json)
     VALUES (new.rowid, new.subject, new.predicate, new.object, new.entities_json);
 END;
+
+-- M15.5d hallucination-mitigation ledger (append-only). One row per
+-- explicit mitigation, carrying the finding that triggered it. Nothing is
+-- rewritten; mitigation is never silent.
+CREATE TABLE IF NOT EXISTS hallucination_mitigations (
+    id TEXT PRIMARY KEY,
+    severity TEXT NOT NULL,
+    strategy TEXT NOT NULL CHECK (strategy IN ('none','flag','re_ground','defer','refuse')),
+    mode TEXT,
+    reason TEXT NOT NULL,
+    subject TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hallucination_mitigations_created
+ON hallucination_mitigations(created_at DESC);
 `;
 
 /**
@@ -719,6 +736,7 @@ const SCHEMAS: Record<
       'prospective_items',
       'claim_history',
       'source_reliability',
+      'hallucination_mitigations',
     ],
     triggers: ['claims_ai', 'claims_ad', 'claims_au'],
   },

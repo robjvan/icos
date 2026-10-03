@@ -126,6 +126,7 @@ describe('openDatabase', () => {
         'claims_fts_idx',
         'claims_fts_docsize',
         'claims_fts_config',
+        'hallucination_mitigations',
       ]);
     } finally {
       db.close();
