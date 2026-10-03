@@ -58,6 +58,10 @@ checklist: **[docs/security.md](docs/security.md)**.
 - An OpenAI-compatible LLM endpoint (local or remote). The model does not
   need to run on the same machine.
 
+> **Which models?** ICOS is provider-agnostic. For the roles, two sensible
+> lineups, and the memory budget, see
+> [docs/model-lineups.md](docs/model-lineups.md).
+
 ---
 
 ## Install

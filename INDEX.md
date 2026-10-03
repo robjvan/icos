@@ -27,6 +27,8 @@ icos/   # Root of project.
 │     │     └── icos-v3-stack/  # Skill containing ICOS stack knowledge and guidance.
 │     │         └── SKILL.md   # Skill file.
 │     │
+│     ├── model-lineups.md      # Which models to run, and the memory budget.
+│     ├── security.md           # Exposure, TLS, auth, and secrets.
 │     ├── skill-blueprint.md    # Template for new skill creation.
 │     └── tool-blueprint.md     # Template for new tool creation.
 │
