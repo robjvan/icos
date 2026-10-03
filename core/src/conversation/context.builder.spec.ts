@@ -131,6 +131,22 @@ describe('buildContext', () => {
     ]);
   });
 
+  it('inserts the persona band before the memory band', () => {
+    const history: ChatMessage[] = [{ role: 'user', content: 'a' }];
+    const result = buildContext('sys', history, 'c', 50, undefined, {
+      personaBand: '<persona_grounding></persona_grounding>',
+      memoryBand: '[memory: 1 recalled]',
+      kbBand: null,
+    });
+    expect(result.map((m) => m.content)).toEqual([
+      'sys',
+      '<persona_grounding></persona_grounding>',
+      '[memory: 1 recalled]',
+      'a',
+      'c',
+    ]);
+  });
+
   it('omits null bands for byte-identical pre-M11 context', () => {
     const history: ChatMessage[] = [{ role: 'user', content: 'a' }];
     expect(

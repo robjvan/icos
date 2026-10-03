@@ -3,6 +3,7 @@ import { coreConfigProvider } from '../config';
 import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
+import { PersonaModule } from '../persona/persona.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
@@ -104,7 +105,7 @@ const toolExecutionServiceProvider = {
 };
 
 @Module({
-  imports: [RealtimeModule],
+  imports: [RealtimeModule, PersonaModule],
   controllers: [
     ConversationController,
     SessionsController,

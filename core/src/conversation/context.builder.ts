@@ -33,6 +33,13 @@ export interface ContextSkills {
  * anti-laundering rule).
  */
 export interface ContextMemory {
+  /**
+   * Persona grounding band (M14d): immutable core first, then evolving
+   * identity/user context, as its own provenance-tagged system block —
+   * never mixed with the memory bands. Optional/absent yields
+   * byte-identical pre-M14 context.
+   */
+  personaBand?: string | null;
   /** Labeled belief lines, or null when recall found nothing to say. */
   memoryBand: string | null;
   /** Labeled corpus slot (absence declared, never silent). */
@@ -71,6 +78,9 @@ export function buildContext(
       role: 'system',
       content: `<skill name="${skill.name}" scope="${scope}">\n${skill.body}\n</skill>`,
     });
+  }
+  if (memory?.personaBand) {
+    messages.push({ role: 'system', content: memory.personaBand });
   }
   if (memory?.memoryBand) {
     messages.push({ role: 'system', content: memory.memoryBand });

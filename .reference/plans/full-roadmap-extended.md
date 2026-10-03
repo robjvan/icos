@@ -146,19 +146,19 @@
   - [x] ~~Approval / execution integration~~
   - [x] ~~MCP verification~~
 
-- [ ] **M14: Persistent Persona Maintenance**
-  - [ ] Immutable core persona (file-backed, read-only, integrity-pinned, no write path)
-  - [ ] Evolving persona model (identity / user / relationship)
-  - [ ] Persona provenance
-  - [ ] Persona seed import and update / maintenance
-  - [ ] Grounding check and session-start context band
-  - [ ] Candidate staging (memory proposes, persona adjudicates)
-  - [ ] Reviewed curation (protected records, corrigibility)
-  - [ ] Isolation invariant (identity sealed from memory, core sealed from the system)
-  - [ ] Model-independent persona persistence
-  - [ ] Persona recovery
-  - [ ] Persona review UI
-  - [ ] Persona verification
+- [x] ~~**M14: Persistent Persona Maintenance**~~
+  - [x] ~~Immutable core persona (file-backed, read-only, integrity-pinned, no write path)~~
+  - [x] ~~Evolving persona model (identity / user / relationship)~~
+  - [x] ~~Persona provenance~~
+  - [x] ~~Persona seed import and update / maintenance~~
+  - [x] ~~Grounding check and session-start context band~~
+  - [x] ~~Candidate staging (memory proposes, persona adjudicates)~~
+  - [x] ~~Reviewed curation (protected records, corrigibility)~~
+  - [x] ~~Isolation invariant (identity sealed from memory, core sealed from the system)~~
+  - [x] ~~Model-independent persona persistence~~
+  - [x] ~~Persona recovery~~
+  - [x] ~~Persona review UI~~
+  - [x] ~~Persona verification~~
 
 - [ ] **M15: Drift Detection and Reporting**
   - [ ] Define observable drift failure modes

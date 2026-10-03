@@ -74,6 +74,37 @@ export interface CoreConfig {
   sessionDbPath: string;
   memoryDbPath: string;
   /**
+   * M14 persona store: curated identity / user / relationship records,
+   * staged candidates, and the drift log. A separate file from the
+   * memory stores by design — identity is isolated from memory.
+   * Optional in the type (tests and callers that never open it may omit
+   * it); `loadConfig` always populates it.
+   */
+  personaDbPath?: string;
+  /**
+   * M14b immutable core persona: a human-authored, read-only Markdown
+   * file. ICOS has no write path to it. Optional on the type for the
+   * same reason as `personaDbPath`; `loadConfig` always populates it.
+   */
+  personaCorePath?: string;
+  /**
+   * M14b fail-closed boot: when true (the default), a missing or invalid
+   * core persona aborts startup rather than running half-grounded. Set
+   * false only for dev/throwaway instances. Optional on the type for the
+   * same reason as `personaDbPath`.
+   */
+  personaCoreRequired?: boolean;
+  /**
+   * M14c seed import root: the only directory persona seed imports may
+   * read from (relative Markdown paths, realpath-confined). Optional on
+   * the type; `loadConfig` always populates it.
+   */
+  personaSeedRoot?: string;
+  /** M14d grounding bundle cap: max entries in the persona band. */
+  personaGroundingEntryLimit?: number;
+  /** M14d grounding bundle cap: approximate character budget for the band. */
+  personaGroundingCharacterBudget?: number;
+  /**
    * Pre-split single-file database, probed once as a migration source.
    * Explicit CORE_DB_PATH wins; otherwise the historical default
    * ./data/core.sqlite. Never written to; ignored when absent.
@@ -280,6 +311,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     maxHistory: parsePositiveInt(env.MAX_HISTORY, 50, 'MAX_HISTORY'),
     sessionDbPath: resolvePath(env.SESSION_DB_PATH, '~/.icos/data/sessions.db'),
     memoryDbPath: resolvePath(env.MEMORY_DB_PATH, '~/.icos/data/memories.db'),
+    personaDbPath: resolvePath(env.PERSONA_DB_PATH, '~/.icos/data/persona.db'),
+    personaCorePath: resolvePath(
+      env.PERSONA_CORE_PATH,
+      '~/.icos/persona/core.md',
+    ),
+    personaCoreRequired: parseBoolean(env.PERSONA_CORE_REQUIRED, true),
+    personaSeedRoot: resolvePath(env.PERSONA_SEED_ROOT, '~/.icos/seeds'),
+    personaGroundingEntryLimit: parsePositiveInt(
+      env.PERSONA_GROUNDING_ENTRY_LIMIT,
+      12,
+      'PERSONA_GROUNDING_ENTRY_LIMIT',
+    ),
+    personaGroundingCharacterBudget: parsePositiveInt(
+      env.PERSONA_GROUNDING_CHARACTER_BUDGET,
+      6000,
+      'PERSONA_GROUNDING_CHARACTER_BUDGET',
+    ),
     legacyDbPath: resolveLegacyDbPath(env.CORE_DB_PATH),
     memoryExtractionEnabled: parseBoolean(env.MEMORY_EXTRACTION_ENABLED, true),
     // Each falls back to its primary counterpart: the extraction role has

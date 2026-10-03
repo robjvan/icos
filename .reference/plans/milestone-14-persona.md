@@ -70,11 +70,12 @@ can promote a candidate into the core.
 
 ## Identity is isolated from memory
 
-Persona tables live in the same SQLite file as the rest of ICOS but
-are a separate, protected namespace. The invariant to prove: **if a
-memory store is tampered with, no persona record and no core entry
-changes.** Memory has no write handle to persona; the reverse is not
-required (persona may cite memory provenance).
+Persona lives in its **own SQLite database file**, separate from the
+memory stores at the filesystem level as well as the table level. The
+invariant to prove: **if a memory store is tampered with, no persona
+record and no core entry changes.** Memory has no write handle to
+persona; the reverse is not required (persona may cite memory
+provenance by plain column, never a cross-database foreign key).
 
 ## The core has no write path — by construction
 
@@ -111,129 +112,153 @@ deferred.
 
 ---
 
-# [ ] M14a — Persona Model + Stores
+# [x] M14a — Persona Model + Stores (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14a-evidence-model.md`.
 
-- [ ] New `core/src/persona/` module. `persona.repository.ts` over
-      `node:sqlite` (same DB, `DatabaseSync`, WAL), mirroring the
-      proven v2 repository shape.
-- [ ] Tables: `persona_records` (identity/self layer),
+- [x] New `core/src/persona/` module. `persona.repository.ts` over
+      `better-sqlite3`, in its own `persona.db` file (separate from the
+      `sessions` and `memories` files), mirroring the proven v2
+      repository shape.
+- [x] Tables: `persona_records` (identity/self layer),
       `persona_user_model`, `persona_relationship` (singleton),
       `persona_candidates`, `persona_drift_log`.
-- [ ] Provenance on every row: `source`, `source_turn_id`,
+- [x] Provenance on every row: `source`, `source_turn_id`,
       `claim_id` (nullable link into M10 claims), `confidence`,
       `sensitivity`, `protected`, `reviewed_by`, timestamps,
       `metadata_json`.
-- [ ] Deterministic sha256-prefixed IDs so staging is idempotent.
-- [ ] `protected` here means "explicit review required to
-      overwrite" (evolving tier only; the core is not a DB row).
-- [ ] Migration-safe schema creation; new tables never touch
-      existing M1–M13 tables.
+- [x] Deterministic sha256-prefixed IDs so staging is idempotent.
+- [x] `protected` here means "explicit review required to
+      overwrite" (evolving tier only; the core is not a DB row);
+      enforced at the store.
+- [x] Migration-safe schema creation; new tables never touch
+      existing M1–M13 tables. Verified: the persona file contains
+      only persona tables.
 
-# [ ] M14b — Immutable Core Persona
+# [x] M14b — Immutable Core Persona (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14b-evidence-core.md`.
 
-- [ ] Core is **file-backed**: `PERSONA_CORE_PATH` (default
-      `~/.icos/persona/core.md`), parsed at boot.
-- [ ] Categories: `ethical_grounding`, `core_belief`,
+- [x] Core is **file-backed**: `PERSONA_CORE_PATH` (default
+      `~/.icos/persona/core.md`), parsed read-only at boot; a shipped
+      template lives at `core/persona/core.example.md`.
+- [x] Categories: `ethical_grounding`, `core_belief`,
       `safety_boundary`, `non_negotiable`, `agentic_character`.
-- [ ] **No write path exists.** Audit and prove: no
-      `fs.write*`/`fs.append*`, no `UPDATE`/`DELETE`/`INSERT` that
-      targets core, no API/tool that mutates it. Recommended
-      deployment: bind the core directory read-only into the
-      container.
-- [ ] Boot computes and records the core sha256; a hash change is an
-      audited human act (`persona_core_changed`), not drift.
-- [ ] Missing or invalid core → **loud degraded boot**, never a
-      fabricated identity; grounding caps its score accordingly.
-- [ ] Core is exposed read-only (status + API) and injected first in
-      every grounding band, marked `immutable`.
-- [ ] A candidate contradicting any core entry is `critical` and
-      non-applicable (enforced in M14f).
+- [x] **No write path exists.** Proven: no file-write call anywhere in
+      the persona subsystem, no mutation of core entries, no API/tool
+      that changes it — only `readFileSync`. Read-only-mount guidance
+      documented in `.env.sample`.
+- [x] Boot computes and records the core sha256; a hash change is an
+      audited human act (`persona_core_changed`, severity `info`), not
+      drift.
+- [x] Missing or invalid core → **fail-closed boot** by default
+      (`PERSONA_CORE_REQUIRED=true`): ICOS refuses to start rather than
+      run half-grounded, since drift and hallucination checks need a
+      reference frame. `false` is the documented dev/throwaway escape
+      hatch. `loaded: false` + reason is still surfaced when not
+      required; identity is never fabricated.
+- [x] Core is exposed read-only (status + `GET /core/persona/core`,
+      admin-only); entries carry a literal `immutable: true`. Band
+      ordering lands in M14d.
+- [x] Core entries expose stable ids + content so a candidate
+      contradicting one is `critical` and non-applicable (enforcement
+      lands in M14f).
 
-# [ ] M14c — Seed Import (Evolving Baseline)
+# [x] M14c — Seed Import (Evolving Baseline) (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14c-evidence-seed.md`.
 
-- [ ] Markdown section→policy parser (port of the v2 seed importer):
+- [x] Markdown section→policy parser (a port of the v2 seed importer):
       headings map to category / sensitivity / protected / layer.
-- [ ] Guarded seed root (`PERSONA_SEED_ROOT`): relative paths only,
-      `realpath` containment, `.md` only, bounded file count.
-- [ ] Idempotent by content hash; unchanged imports write nothing
-      and emit nothing.
-- [ ] Unresolved template placeholders are skipped, never persisted.
-- [ ] A changed seed updates only its own untouched `seeded`
-      baseline; anything else is **staged as a candidate**, never an
-      overwrite.
-- [ ] The import target is the **evolving tier only**. The core is
-      never a seed target.
-- [ ] Deferred (recorded, not built): portable JSON package import.
+- [x] Guarded seed root (`PERSONA_SEED_ROOT`): relative paths only,
+      `realpath` containment, `.md` only, at most 20 files per import.
+- [x] Idempotent by content hash; an unchanged import writes nothing.
+- [x] Unresolved template placeholders are skipped, never persisted.
+- [x] A changed seed updates only its own untouched `seeded` baseline;
+      anything else is **staged as a candidate**, never an overwrite.
+- [x] The import target is the **evolving tier only**. The core is never
+      a seed target. Exposed admin-only at `POST /core/persona/seeds/import`.
+- [x] Deferred (recorded, not built): portable JSON package import.
 
-# [ ] M14d — Grounding Check + Context Band
+# [x] M14d — Grounding Check + Context Band (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14d-evidence-grounding.md`.
 
-- [ ] Grounding result: `coreLoaded`, `identityGrounded`,
-      `userKnown`, `relationshipCurrent`, `overallScore`,
-      `needsWarmup`, `details`. Core is a **hard gate**; the
-      remaining weights are deliberate, not `score < 1`.
-- [ ] Grounding bundle: core entries first (immutable), then
-      evolving (protected-first, then confidence, then recency),
-      under an entry limit **and** a character budget, with an
-      explicit truncation notice.
-- [ ] Rendered as a labelled, provenance-tagged band
-      (`<persona_grounding>`), injected by the M11 context builder
-      as its **own band** — never mixed with memory bands.
-- [ ] Status + inspection endpoint.
-- [ ] Empty/weak persona returns `needsWarmup: true`, never a fake
-      identity.
+- [x] Grounding result: `coreLoaded`, `identityGrounded`, `userKnown`,
+      `relationshipCurrent`, `overallScore`, `needsWarmup`, `details`.
+      Core is a **hard gate**; weights are deliberate (0.4 core / 0.2
+      strong identity / 0.2 user / 0.2 fresh relationship) with a
+      documented warm-up threshold, not `score < 1`.
+- [x] Grounding bundle: core entries first (immutable), then evolving
+      (protected-first, then confidence, then recency), under an entry
+      limit **and** a character budget, with an explicit truncation
+      notice.
+- [x] Rendered as a labelled, provenance-tagged `<persona_grounding>`
+      band, injected by the M11 context builder as its **own** system
+      block ahead of the memory band — never mixed. Null on a miss
+      (byte-identical pre-M14 context).
+- [x] Status + inspection endpoint: `GET /core/persona/grounding`
+      (admin-only).
+- [x] Empty/weak persona returns `needsWarmup: true` with reasons, never
+      a fabricated identity.
 
-# [ ] M14e — Candidate Staging
+# [x] M14e — Candidate Staging (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14e-evidence-candidates.md`.
 
-- [ ] Memory extraction (M4/M10) may stage identity-relevant
-      observations as `persona_candidates`. **Stage only.**
-- [ ] Candidate fields: observation, category, confidence,
-      proposed target layer, `source`, `source_turn_id`, `claim_id`,
-      `session_id`.
-- [ ] Idempotent by deterministic ID; re-observing the same claim
-      does not duplicate.
-- [ ] No code path from extraction to a persona record except
-      through review.
+- [x] Memory extraction (M4) stages identity-relevant observations as
+      `persona_candidates`. **Stage only.**
+- [x] Candidate fields: observation, category, confidence, proposed
+      target layer, `source`, `source_turn_id`, `claim_id`, `session_id`.
+      Staged from memory candidates, so `claim_id` is null for now — the
+      column is reserved for a future claim-sourced path (M10).
+- [x] Idempotent by deterministic ID; re-observing the same triple does
+      not duplicate, and a reviewed candidate is not resurrected.
+- [x] No code path from extraction to a persona record except through
+      review.
 
-# [ ] M14f — Review / Curation
+# [x] M14f — Review / Curation (complete 2026-10-02)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14f-evidence-review.md`.
 
-- [ ] Outcomes: `approve_to_identity`, `approve_to_user_model`,
+- [x] Outcomes: `approve_to_identity`, `approve_to_user_model`,
       `approve_to_relationship`, `reject`, `archive_as_transient`,
       `needs_more_evidence`.
-- [ ] Every review writes a `persona_drift_log` entry (append-only).
-- [ ] `protected` evolving records require explicit review to
-      overwrite; previous value retained in the log.
-- [ ] A core-contradicting candidate **cannot be applied** by any
-      outcome; review surfaces the conflict and refuses.
-- [ ] Corrigibility rule encoded: revision improves truth and
-      continuity; it is not identity failure.
-- [ ] Review is admin-only (reuses M6/S2 auth + roles); it is never
-      exposed as an agent tool.
+- [x] Every review writes a `persona_drift_log` entry (append-only),
+      with outcome, severity, reason, and before/after values.
+- [x] `protected` evolving records require explicit review to overwrite
+      (the store enforces the reviewer); the previous value is retained
+      on the record and in the drift log.
+- [x] A core-contradicting candidate **cannot be applied** by any
+      approval outcome; review surfaces the conflict and refuses, logging
+      `core_contradiction` at `critical`.
+- [x] Corrigibility rule encoded: `reason` is required and recorded;
+      revision is recorded, never punished.
+- [x] Review is admin-only (`@RequireRole('admin')`, CSRF-gated by the
+      global guard) at `POST /core/persona/candidates/:id/review`, with a
+      pending list at `GET /core/persona/candidates`. It is never exposed
+      as an agent tool.
 
-# [ ] M14g — Web-Client Persona Review
+# [x] M14g — Web-Client Persona Review (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14g-evidence-ui.md`.
 
-- [ ] Persona tab: core (read-only, with its recorded hash),
-      evolving records, pending candidates (provenance +
-      confidence), and drift history.
-- [ ] Review actions wired to M14f; core rows render read-only, no
-      affordance to edit them.
-- [ ] Traceability: one screen answers "why does ICOS believe this,
-      and when did it change?"
+- [x] The existing **Identity** tab (the M14 placeholder) becomes the
+      persona review surface: core (read-only, with its recorded sha256),
+      evolving records + user facts + relationship, pending candidates
+      (observation, category, confidence, provenance), and the drift /
+      audit history.
+- [x] Review actions wired to M14f (approve → identity / user model /
+      relationship, reject, archive, needs-evidence) behind a mandatory
+      reviewer name and reason; core rows render read-only with no edit
+      affordance.
+- [x] Traceability: one screen answers "why does ICOS believe this, and
+      when did it change?" — curated records, provenance, and the
+      append-only history together.
+- [x] Core read endpoints added: `GET /core/persona/records` and
+      `GET /core/persona/drift`.
 
-# [ ] M14h — Verification
+# [x] M14h — Verification (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-14/milestone-14h-evidence-verification.md`.
 

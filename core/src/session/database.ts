@@ -2,7 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import Database from 'better-sqlite3';
 
-export type DatabaseSchema = 'sessions' | 'memories';
+export type DatabaseSchema = 'sessions' | 'memories' | 'persona';
 
 /**
  * Canonical transcript schema. `messages` is the source of truth;
@@ -527,6 +527,144 @@ CREATE TRIGGER IF NOT EXISTS claims_au AFTER UPDATE ON claims BEGIN
 END;
 `;
 
+/**
+ * M14a persona schema. The curated self-model, deliberately separate
+ * from the memory ledger (its own database file): identity must not
+ * decay, consolidate, or revise like a belief, and memory can only
+ * *stage* a candidate here — never write a record.
+ *
+ * Two tiers by design. These tables are the **evolving** tier, changed
+ * only through review (M14f). The **immutable core** is not a table at
+ * all: it is a read-only file loaded at boot, with no write path from
+ * the application (M14b).
+ *
+ * `claim_id` links a record to the memory claim it came from. The claim
+ * lives in a different database file, so this is a plain provenance
+ * column, not a foreign key (same convention as the memory ledger).
+ * A duplicate `(user_id, content)` is prevented by deterministic ids
+ * at the repository layer, not by a unique index.
+ */
+const PERSONA_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS persona_records (
+    record_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN (
+        'self', 'value', 'belief', 'boundary', 'commitment',
+        'agentic_character', 'relationship', 'other'
+    )),
+    content TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.85,
+    sensitivity TEXT NOT NULL DEFAULT 'normal'
+        CHECK (sensitivity IN ('normal', 'sensitive', 'protected')),
+    is_protected INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL,
+    source_turn_id TEXT,
+    claim_id TEXT,
+    metadata_json TEXT,
+    reviewed_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_persona_records_user_updated
+ON persona_records(user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_persona_records_category
+ON persona_records(user_id, category);
+
+CREATE TABLE IF NOT EXISTS persona_user_model (
+    memory_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.85,
+    source TEXT NOT NULL,
+    source_turn_id TEXT,
+    claim_id TEXT,
+    metadata_json TEXT,
+    reviewed_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_persona_user_model_user_updated
+ON persona_user_model(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS persona_relationship (
+    state_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    trust_level REAL NOT NULL DEFAULT 0.5,
+    emotional_temperature REAL NOT NULL DEFAULT 0,
+    active_nicknames_json TEXT NOT NULL DEFAULT '[]',
+    recent_developments_json TEXT NOT NULL DEFAULT '[]',
+    last_significant_interaction TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS persona_candidates (
+    candidate_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    observation TEXT NOT NULL,
+    category TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.65,
+    session_id TEXT,
+    source TEXT NOT NULL,
+    source_turn_id TEXT,
+    claim_id TEXT,
+    proposed_target TEXT CHECK (proposed_target IS NULL OR proposed_target IN (
+        'persona_record', 'persona_user_model', 'persona_relationship'
+    )),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'reviewed')),
+    review_outcome TEXT,
+    review_reason TEXT,
+    reviewed_by TEXT,
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    metadata_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_persona_candidates_pending
+ON persona_candidates(user_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS persona_drift_log (
+    log_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN (
+        'info', 'watch', 'warning', 'critical', 'cumulative'
+    )),
+    change_type TEXT NOT NULL,
+    previous_value TEXT,
+    new_value TEXT,
+    reason TEXT NOT NULL,
+    reviewed INTEGER NOT NULL DEFAULT 0,
+    reviewed_at TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_persona_drift_user_created
+ON persona_drift_log(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_persona_drift_unresolved
+ON persona_drift_log(user_id, reviewed, change_type);
+
+-- M14b: the last core-persona load, for change detection across boots.
+-- A single row. The core *entries* are never stored — the core is a
+-- read-only file; only its hash and status are remembered here.
+CREATE TABLE IF NOT EXISTS persona_core_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    path TEXT NOT NULL,
+    hash TEXT,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    loaded INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    updated_at TEXT NOT NULL
+);
+`;
+
 const SCHEMAS: Record<
   DatabaseSchema,
   { sql: string; tables: string[]; triggers: string[] }
@@ -563,6 +701,18 @@ const SCHEMAS: Record<
       'source_reliability',
     ],
     triggers: ['claims_ai', 'claims_ad', 'claims_au'],
+  },
+  persona: {
+    sql: PERSONA_SCHEMA_SQL,
+    tables: [
+      'persona_records',
+      'persona_user_model',
+      'persona_relationship',
+      'persona_candidates',
+      'persona_drift_log',
+      'persona_core_state',
+    ],
+    triggers: [],
   },
 };
 

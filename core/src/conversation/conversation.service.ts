@@ -28,6 +28,9 @@ import { ClaimRepository } from '../memory/claim.repository';
 import { PromotionService } from '../memory/promotion.service';
 import { compareRecalled } from '../memory/comparison';
 import { buildKbBand } from '../memory/prompt-bands';
+import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
+import { PersonaGroundingService } from '../persona/persona-grounding.service';
+import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import { applyBandBudget } from '../memory/prompt-bands';
 import { RankService } from '../memory/rank.service';
 import { RecallService } from '../memory/recall.service';
@@ -216,6 +219,8 @@ export class ConversationService {
     private readonly rank: RankService,
     private readonly traces: RecallTraceStore,
     private readonly claims: ClaimRepository,
+    private readonly personaGrounding: PersonaGroundingService,
+    private readonly personaStager: PersonaCandidateStager,
     private readonly realtime: RealtimePublisher,
   ) {}
 
@@ -1560,12 +1565,15 @@ export class ConversationService {
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
     const pairs = this.tools.recentPairs(sessionId, MAX_TOOL_PAIRS);
     const recalled = await this.recallTurn(sessionId, message);
-    const textMessages = this.prepareMessages(
-      history,
-      message,
-      skills,
-      recalled.bands,
+    // Persona grounding rides its own band, ahead of memory. Null when
+    // there is nothing to ground (byte-identical context on a miss).
+    const personaBand = await this.personaGrounding.band(
+      DEFAULT_PERSONA_USER_ID,
     );
+    const textMessages = this.prepareMessages(history, message, skills, {
+      ...recalled.bands,
+      personaBand,
+    });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = textMessages[textMessages.length - 1];
@@ -2223,9 +2231,22 @@ export class ConversationService {
             })),
           )
           .then((saved) => {
+            if (!saved) return;
             // Proposal is fire-and-forget inside fire-and-forget:
             // execution happens on the explicit sweep path, never here.
-            if (saved) void this.promotion.proposeCandidates(saved);
+            void this.promotion.proposeCandidates(saved);
+            // M14e: stage identity-relevant observations for persona
+            // review. Stage only — never a persona record. Fail-soft:
+            // persona staging never fails a turn.
+            void this.personaStager
+              .stageFromMemoryCandidates(saved)
+              .catch((err: unknown) => {
+                this.logger.warn(
+                  `Persona candidate staging failed for session ${input.sessionId}: ${
+                    err instanceof Error ? err.message : 'unknown error'
+                  }`,
+                );
+              });
           });
       })
       .catch((err: unknown) => {
