@@ -155,7 +155,9 @@ describe('M8b tool protocol', () => {
           name:
             tool.name === 'session.search'
               ? 'session_search'
-              : 'session_rename',
+              : tool.name === 'session.rename'
+                ? 'session_rename'
+                : 'channel_send',
           description: tool.description,
           parameters: tool.argsSchema,
         },

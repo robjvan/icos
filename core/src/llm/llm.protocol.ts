@@ -39,6 +39,7 @@ export interface LlmToolRequest {
 const ALIASES: Readonly<Record<ToolName, string>> = {
   'session.search': 'session_search',
   'session.rename': 'session_rename',
+  'channel.send': 'channel_send',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

@@ -50,10 +50,11 @@ describe('ToolRegistry', () => {
     registry = new ToolRegistry();
   });
 
-  it('exposes exactly the two canonical session tools', () => {
+  it('exposes the canonical native tools', () => {
     expect(registry.list().map((d) => d.name)).toEqual([
       'session.search',
       'session.rename',
+      'channel.send',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -61,6 +62,7 @@ describe('ToolRegistry', () => {
     }
     expect(registry.lookup('session.search')?.approval).toBe('none');
     expect(registry.lookup('session.rename')?.approval).toBe('none');
+    expect(registry.lookup('channel.send')?.approval).toBe('required');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -411,7 +413,7 @@ describe('ToolRegistry', () => {
             ? true
             : false = false;
           expect([query, limit, hasTitle]).toEqual(['q', 20, false]);
-        } else if (!('foreign' in request)) {
+        } else if (request.name === 'session.rename') {
           const title: string = request.args.title;
           const hasQuery: 'query' extends keyof typeof request.args
             ? true
@@ -610,6 +612,7 @@ describe('ToolRegistry', () => {
       expect(bridged.list().map((d) => d.name)).toEqual([
         'session.search',
         'session.rename',
+        'channel.send',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

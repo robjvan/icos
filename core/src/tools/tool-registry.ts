@@ -5,7 +5,7 @@ import {
 } from '../mcp/mcp-tool-bridge';
 import { validateForeignArgs } from '../mcp/mcp-tool-bridge';
 
-export type ToolName = 'session.search' | 'session.rename';
+export type ToolName = 'session.search' | 'session.rename' | 'channel.send';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -52,7 +52,16 @@ export interface SessionRenameArgs {
   readonly title: string;
 }
 
-export type ValidatedToolArgs = SessionSearchArgs | SessionRenameArgs;
+export interface ChannelSendArgs {
+  readonly channel: 'discord' | 'email';
+  readonly target: 'operator' | 'channel' | 'user';
+  /** The channel or user id; required unless the target is the operator. */
+  readonly id?: string;
+  readonly body: string;
+}
+
+export type ValidatedToolArgs =
+  SessionSearchArgs | SessionRenameArgs | ChannelSendArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -60,6 +69,7 @@ export type ValidatedToolRequest = {
 } & (
   | { readonly name: 'session.search'; readonly args: SessionSearchArgs }
   | { readonly name: 'session.rename'; readonly args: SessionRenameArgs }
+  | { readonly name: 'channel.send'; readonly args: ChannelSendArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -132,6 +142,8 @@ const MIN_SEARCH_LIMIT = 1;
 const MAX_SEARCH_LIMIT = 100;
 const MAX_QUERY_LENGTH = 500;
 const MAX_TITLE_LENGTH = 200;
+const MAX_BODY_LENGTH = 8000;
+const MAX_ID_LENGTH = 200;
 
 const NONBLANK_PATTERN = '\\S';
 
@@ -195,6 +207,28 @@ const RENAME_SCHEMA = deepFreeze({
   },
 } as const);
 
+const CHANNEL_SEND_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['channel', 'target', 'body'],
+  properties: {
+    channel: { type: 'string', enum: ['discord', 'email'] },
+    target: { type: 'string', enum: ['operator', 'channel', 'user'] },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+    body: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BODY_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -213,6 +247,15 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     // toggles remain future UI work; if that lands, revisit this.
     approval: 'none',
     argsSchema: RENAME_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'channel.send',
+    version: 1,
+    description:
+      'Send a message on a configured channel (e.g. Discord) to the ' +
+      'operator, or to an allowlisted channel or user. Requires approval.',
+    approval: 'required',
+    argsSchema: CHANNEL_SEND_SCHEMA,
   }),
 ]);
 
@@ -294,6 +337,52 @@ function validateRenameArgs(
     return title;
   }
   return { ok: true, value: Object.freeze({ title: title.value }) };
+}
+
+function validateChannelSendArgs(
+  args: Record<string, unknown>,
+): ParseResult<ChannelSendArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'channel',
+    'target',
+    'id',
+    'body',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const channel = ownValue(args, 'channel');
+  if (channel !== 'discord' && channel !== 'email') {
+    return { ok: false, message: 'channel must be "discord" or "email"' };
+  }
+  const target = ownValue(args, 'target');
+  if (target !== 'operator' && target !== 'channel' && target !== 'user') {
+    return {
+      ok: false,
+      message: 'target must be "operator", "channel", or "user"',
+    };
+  }
+  const body = validText(ownValue(args, 'body'), 'body', MAX_BODY_LENGTH);
+  if (!body.ok) {
+    return body;
+  }
+  let id: string | undefined;
+  if (target !== 'operator') {
+    const parsedId = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+    if (!parsedId.ok) {
+      return parsedId;
+    }
+    id = parsedId.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      channel,
+      target,
+      ...(id !== undefined ? { id } : {}),
+      body: body.value,
+    }),
+  };
 }
 
 function fail(
@@ -414,6 +503,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'session.rename',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'channel.send') {
+      const result = validateChannelSendArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'channel.send',
           ...base,
           args: result.value,
         }),
