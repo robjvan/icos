@@ -91,16 +91,19 @@ Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5a-evidence-fai
       thresholds documented. The deterministic layer owns every mode but
       `unverifiable_high_stakes` (secondary model).
 
-# [ ] M15.5b — Claim / Evidence Consistency
+# [x] M15.5b — Claim / Evidence Consistency (complete 2026-10-03)
 
 Evidence: `.reference/plans/evidence/milestone-15.5/milestone-15.5b-evidence-consistency.md`.
 
-- [ ] For a claim, resolve its evidence via M10 provenance and
-      classify: supported · contradicted · novel (unsupported but not
-      contradicted).
-- [ ] Deterministic checks only; no model judgment required.
-- [ ] Novelty is not failure — output that is new is flagged, not
-      refused.
+- [x] For an assertion, resolve the store via M10 provenance and classify:
+      `supported` · `contradicted` · `novel`. Deterministic only — no model
+      judgment.
+- [x] Failure modes detected here: `unsupported_claim` (novel),
+      `contradicted_claim` (opposing active claim),
+      `overconfident_uncertainty` (high asserted confidence on no support),
+      and `fabricated_provenance` (a cited claim id that does not exist).
+- [x] Novelty is not failure — an unsupported-but-uncontradicted assertion
+      is flagged (`warning`), never refused.
 
 # [ ] M15.5c — Secondary-Model Verification
 
