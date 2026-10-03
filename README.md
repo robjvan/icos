@@ -9,8 +9,8 @@
 ![LastCommit](https://img.shields.io/github/last-commit/robjvan/icos?color=CBA701&logo=github)
 
 ![Tests](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
-![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7%-green?logo=jest)
-![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9%-green?logo=jest)
+![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7-green?logo=jest)
+![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9-green?logo=jest)
 
 ![Tests](https://img.shields.io/badge/Unit%20Tests-994-green?logo=jest)
 ![Tests](https://img.shields.io/badge/E2E%20Tests-93-green?logo=jest)
