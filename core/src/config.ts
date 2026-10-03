@@ -98,6 +98,18 @@ export interface CoreConfig {
    */
   channelsDbPath?: string;
   /**
+   * M16 outbound delivery: the queue drainer's cadence and retry policy.
+   * Optional — the delivery service applies defaults when unset, so test
+   * configs and callers that never send need not carry them.
+   */
+  channelDeliveryEnabled?: boolean;
+  channelDeliveryIntervalMs?: number;
+  channelDeliveryBatch?: number;
+  channelDeliveryMaxAttempts?: number;
+  channelDeliveryBackoffBaseMs?: number;
+  channelDeliveryBackoffCapMs?: number;
+  channelSendMinIntervalMs?: number;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -373,6 +385,37 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     channelsDbPath: resolvePath(
       env.CHANNELS_DB_PATH,
       '~/.icos/data/channels.db',
+    ),
+    channelDeliveryEnabled: parseBoolean(env.CHANNEL_DELIVERY_ENABLED, true),
+    channelDeliveryIntervalMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_INTERVAL_MS,
+      5000,
+      'CHANNEL_DELIVERY_INTERVAL_MS',
+    ),
+    channelDeliveryBatch: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BATCH,
+      10,
+      'CHANNEL_DELIVERY_BATCH',
+    ),
+    channelDeliveryMaxAttempts: parsePositiveInt(
+      env.CHANNEL_DELIVERY_MAX_ATTEMPTS,
+      5,
+      'CHANNEL_DELIVERY_MAX_ATTEMPTS',
+    ),
+    channelDeliveryBackoffBaseMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BACKOFF_BASE_MS,
+      1000,
+      'CHANNEL_DELIVERY_BACKOFF_BASE_MS',
+    ),
+    channelDeliveryBackoffCapMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BACKOFF_CAP_MS,
+      30000,
+      'CHANNEL_DELIVERY_BACKOFF_CAP_MS',
+    ),
+    channelSendMinIntervalMs: parsePositiveInt(
+      env.CHANNEL_SEND_MIN_INTERVAL_MS,
+      250,
+      'CHANNEL_SEND_MIN_INTERVAL_MS',
     ),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
