@@ -18,7 +18,7 @@ once.
 | File | What it is |
 | --- | --- |
 | `icos-mark.svg` | The bare monogram, transparent background (reusable anywhere). |
-| `icos-app-icon.svg` | Inverted 512 px app icon / favicon source (hawkesbury tile). |
+| `icos-app-icon.svg` | 512 px app icon / favicon source (smoky-granite tile, hawkesbury stem). |
 | `icos-logo-dark.svg` | Presentation sheet on smoky granite (hero, lockup, sizes, app icon, on-light strip). |
 | `icos-logo-light.svg` | Presentation sheet on lilac mist (same, with an on-dark strip). |
 
