@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" width="960" height="680" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <g id="icosMark">
+      <rect x="-13" y="-64" width="26" height="118" rx="13" fill="#6F8F82"/>
+      <circle cx="0" cy="-88" r="16" fill="#8A6D3B"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="680" fill="#E4E4E7"/>
+
+  <!-- header -->
+  <text x="56" y="62" fill="#25282A" font-size="20" font-weight="600" letter-spacing="6">ICOS</text>
+  <text x="56" y="88" fill="#6A6F6C" font-size="13">monogram · Exile Research palette · light</text>
+
+  <!-- palette legend -->
+  <g transform="translate(620,40)">
+    <rect width="16" height="16" rx="4" fill="#E4E4E7" stroke="#C2C2C7"/>
+    <text x="22" y="13" fill="#6A6F6C" font-size="12">#E4E4E7</text>
+    <rect x="92" width="16" height="16" rx="4" fill="#6F8F82"/>
+    <text x="114" y="13" fill="#6A6F6C" font-size="12">#6F8F82</text>
+    <rect x="184" width="16" height="16" rx="4" fill="#8A6D3B"/>
+    <text x="206" y="13" fill="#6A6F6C" font-size="12">#8A6D3B</text>
+  </g>
+
+  <!-- hero mark -->
+  <use href="#icosMark" transform="translate(300,300) scale(1.9)"/>
+
+  <!-- wordmark lockup (granite text for contrast; mark keeps the brand colours) -->
+  <use href="#icosMark" transform="translate(600,266) scale(0.8)"/>
+  <text x="652" y="268" fill="#25282A" font-size="60" font-weight="700" letter-spacing="3">ICOS</text>
+  <text x="654" y="302" fill="#6A6F6C" font-size="15" letter-spacing="1">ISABEL Cognitive Operating System</text>
+
+  <!-- sizes -->
+  <text x="56" y="474" fill="#6A6F6C" font-size="13" letter-spacing="2">SCALE</text>
+  <use href="#icosMark" transform="translate(120,552) scale(0.6)"/>
+  <use href="#icosMark" transform="translate(215,552) scale(0.4)"/>
+  <use href="#icosMark" transform="translate(290,552) scale(0.25)"/>
+  <use href="#icosMark" transform="translate(345,552) scale(0.175)"/>
+  <use href="#icosMark" transform="translate(395,552) scale(0.1)"/>
+  <text x="120" y="600" fill="#8A8F8B" font-size="12" text-anchor="middle">96</text>
+  <text x="215" y="600" fill="#8A8F8B" font-size="12" text-anchor="middle">64</text>
+  <text x="290" y="600" fill="#8A8F8B" font-size="12" text-anchor="middle">40</text>
+  <text x="345" y="600" fill="#8A8F8B" font-size="12" text-anchor="middle">28</text>
+  <text x="395" y="600" fill="#8A8F8B" font-size="12" text-anchor="middle">16</text>
+
+  <!-- app icon (inverted, unchanged) -->
+  <rect x="500" y="480" width="144" height="144" rx="32" fill="#6F8F82"/>
+  <rect x="560" y="530" width="24" height="74" rx="12" fill="#25282A"/>
+  <circle cx="572" cy="512" r="15" fill="#8A6D3B"/>
+  <text x="572" y="648" fill="#8A8F8B" font-size="12" text-anchor="middle">app icon</text>
+
+  <!-- on-dark strip -->
+  <rect x="56" y="612" width="848" height="48" rx="10" fill="#25282A"/>
+  <use href="#icosMark" transform="translate(120,636) scale(0.22)"/>
+  <text x="160" y="641" fill="#B9BEBA" font-size="14">on smoky granite — the dark brand background</text>
+</svg>
