@@ -3,7 +3,11 @@
    the fake stubs are intentionally trivial. */
 import type { CoreConfig } from '../config';
 import type { SecretResolver } from '../secrets/secret-resolver';
-import type { DiscordChannelLike, DiscordClientLike } from './discord.adapter';
+import type {
+  DiscordChannelLike,
+  DiscordClientLike,
+  DiscordUserLike,
+} from './discord.adapter';
 import {
   DiscordAdapter,
   normalizeDiscordMessage,
@@ -33,6 +37,10 @@ class FakeClient implements DiscordClientLike {
   readonly channels = {
     fetch: async (id: string): Promise<DiscordChannelLike | null> =>
       this.channelsById.get(id) ?? null,
+  };
+  readonly dmChannel: DiscordChannelLike = new FakeChannel();
+  readonly users: { fetch(id: string): Promise<DiscordUserLike> } = {
+    fetch: async () => ({ createDM: async () => this.dmChannel }),
   };
 
   async login(): Promise<unknown> {
@@ -166,10 +174,36 @@ describe('DiscordAdapter', () => {
   });
 
   it('parses target keys', () => {
-    expect(parseDiscordTargetKey('discord:g:c')).toBe('c');
-    expect(parseDiscordTargetKey('discord:g:c:thread:t')).toBe('t');
-    expect(parseDiscordTargetKey('discord:dm:u1')).toBeNull();
+    expect(parseDiscordTargetKey('discord:g:c')).toEqual({
+      kind: 'channel',
+      id: 'c',
+    });
+    expect(parseDiscordTargetKey('discord:g:c:thread:t')).toEqual({
+      kind: 'channel',
+      id: 't',
+    });
+    expect(parseDiscordTargetKey('discord:dm:u1')).toEqual({
+      kind: 'dm',
+      id: 'u1',
+    });
     expect(parseDiscordTargetKey('nope')).toBeNull();
+  });
+
+  it('sends to a DM by resolving the user to a DM channel', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    const dm = client.dmChannel as FakeChannel;
+    const result = await adapter.send('discord:dm:u1', 'hello dm');
+
+    expect(dm.sent).toEqual(['hello dm']);
+    expect(result.externalMessageId).toBe('msg-1');
   });
 
   it('disconnect stops sending', async () => {

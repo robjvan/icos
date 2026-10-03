@@ -32,12 +32,17 @@ export interface DiscordChannelLike {
   sendTyping?(): Promise<void>;
 }
 
+export interface DiscordUserLike {
+  createDM(): Promise<DiscordChannelLike>;
+}
+
 export interface DiscordClientLike {
   login(token: string): Promise<unknown>;
   destroy(): void | Promise<void>;
   on(event: string, handler: (...args: unknown[]) => void): unknown;
   once(event: string, handler: (...args: unknown[]) => void): unknown;
   channels: { fetch(id: string): Promise<DiscordChannelLike | null> };
+  users: { fetch(id: string): Promise<DiscordUserLike> };
   user?: { tag?: string } | null;
 }
 
@@ -50,21 +55,29 @@ const INTENT_NAMES = [
   'DirectMessages',
 ] as const;
 
+/** A resolved Discord destination. */
+export type DiscordTarget =
+  { kind: 'channel'; id: string } | { kind: 'dm'; id: string };
+
 /**
- * Resolve the channel id to post to from a conversation key:
- *   discord:<guildId>:<channelId>            → channelId
- *   discord:<guildId>:<channelId>:thread:<t> → t
- *   discord:dm:<userId>                      → unsupported here (M16d)
+ * Resolve the destination from a conversation key:
+ *   discord:<guildId>:<channelId>            → channel
+ *   discord:<guildId>:<channelId>:thread:<t> → channel (the thread)
+ *   discord:dm:<userId>                      → dm (resolve the user, open a DM)
  */
-export function parseDiscordTargetKey(conversationKey: string): string | null {
+export function parseDiscordTargetKey(
+  conversationKey: string,
+): DiscordTarget | null {
   const parts = conversationKey.split(':');
   if (parts[0] !== 'discord') return null;
   const threadIndex = parts.indexOf('thread');
-  if (threadIndex !== -1 && threadIndex + 1 < parts.length) {
-    return parts[threadIndex + 1] || null;
+  if (threadIndex !== -1) {
+    const id = parts[threadIndex + 1];
+    return id ? { kind: 'channel', id } : null;
   }
-  if (parts[1] === 'dm') return null; // DM send lands with inbound handling (M16d)
-  return parts[2] || null;
+  const id = parts[2];
+  if (!id) return null;
+  return parts[1] === 'dm' ? { kind: 'dm', id } : { kind: 'channel', id };
 }
 
 /**
@@ -172,15 +185,15 @@ export class DiscordAdapter
     if (!this.client || !this.ready) {
       throw new Error('discord is not connected');
     }
-    const targetId = parseDiscordTargetKey(conversationKey);
-    if (!targetId) {
+    const target = parseDiscordTargetKey(conversationKey);
+    if (!target) {
       throw new Error(
         `unsupported discord conversation key: ${conversationKey}`,
       );
     }
-    const channel = await this.client.channels.fetch(targetId);
+    const channel = await this.resolveChannel(target);
     if (!channel || !channel.isTextBased()) {
-      throw new Error(`discord channel ${targetId} is not text-based`);
+      throw new Error(`discord target ${conversationKey} is not text-based`);
     }
     const sent = await channel.send(body);
     return { externalMessageId: sent.id ?? null };
@@ -192,14 +205,26 @@ export class DiscordAdapter
    */
   async sendTyping(conversationKey: string): Promise<void> {
     if (!this.client || !this.ready) return;
-    const targetId = parseDiscordTargetKey(conversationKey);
-    if (!targetId) return;
+    const target = parseDiscordTargetKey(conversationKey);
+    if (!target) return;
     try {
-      const channel = await this.client.channels.fetch(targetId);
+      const channel = await this.resolveChannel(target);
       await channel?.sendTyping?.();
     } catch {
       // Typing is cosmetic; swallow.
     }
+  }
+
+  /** Fetch the channel for a target; a DM target resolves the user first. */
+  private async resolveChannel(
+    target: DiscordTarget,
+  ): Promise<DiscordChannelLike | null> {
+    if (!this.client) return null;
+    if (target.kind === 'dm') {
+      const user = await this.client.users.fetch(target.id);
+      return await user.createDM();
+    }
+    return await this.client.channels.fetch(target.id);
   }
 
   private async buildClient(): Promise<{
@@ -216,7 +241,12 @@ export class DiscordAdapter
     }
     const mod = await import('discord.js');
     const intents = INTENT_NAMES.map((key) => mod.GatewayIntentBits[key]);
-    const client = new mod.Client({ intents }) as unknown as DiscordClientLike;
+    const client = new mod.Client({
+      intents,
+      // DMs arrive in channels that are not in the cache — without the
+      // Channel partial, Discord never delivers them to the client.
+      partials: [mod.Partials.Channel, mod.Partials.Message, mod.Partials.User],
+    }) as unknown as DiscordClientLike;
     return {
       client,
       readyEvent: mod.Events.ClientReady ?? 'ready',
