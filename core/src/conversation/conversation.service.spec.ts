@@ -2027,6 +2027,34 @@ describe('ConversationService', () => {
       ]);
     });
 
+    it('carries attachments into the streamed turn (M16.2)', async () => {
+      const { service, chatStreamWithTools } = setup();
+      const events: ConversationStreamEvent[] = [];
+
+      await service.converseStream(
+        'see attached',
+        undefined,
+        (event) => events.push(event),
+        undefined,
+        [
+          {
+            url: '/core/attachments/a1',
+            name: 'a.txt',
+            contentType: 'text/plain',
+          },
+        ],
+      );
+
+      const sent = chatStreamWithTools.mock.calls[0]?.[0] as {
+        messages: readonly { role: string; content: string }[];
+      };
+      const band = sent.messages.find(
+        (m) => m.role === 'system' && m.content.includes('<attachments>'),
+      );
+      expect(band?.content).toContain('name: a.txt');
+      expect(band?.content).toContain('url: /core/attachments/a1');
+    });
+
     it('emits error and stores nothing when the LLM fails', async () => {
       const { service, repository } = setup(testConfig(), undefined, () =>
         Promise.reject(new LlmError(502, 'boom', false)),

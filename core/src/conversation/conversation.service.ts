@@ -714,6 +714,7 @@ export class ConversationService {
     sessionId: string | undefined,
     emit: (event: ConversationStreamEvent) => void,
     clientSignal?: AbortSignal,
+    attachments: readonly TurnAttachment[] = [],
   ): Promise<void> {
     // console.error(`🚀🚀🚀 FIRING CONVERSATION`);
     // Commands ride the stream as `meta` → `done` with no `token`
@@ -748,7 +749,12 @@ export class ConversationService {
       return;
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(id, message);
+    const turn = await this.prepareTurn(
+      id,
+      message,
+      undefined,
+      buildAttachmentBand(attachments),
+    );
     const requestId = randomUUID();
     const sink: StreamSink = {
       onToken: (content) => emit({ type: 'token', content }),

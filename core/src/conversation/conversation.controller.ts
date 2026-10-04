@@ -85,6 +85,7 @@ export class ConversationController {
       dto.sessionId,
       send.emit,
       upstream.signal,
+      dto.attachments ?? [],
     );
     send.end();
   }
