@@ -9,6 +9,7 @@ import { ChannelSendService } from './channel-send.service';
 import { CHANNEL_SEND } from './channel-send.port';
 import { ChannelToolSender } from './channel-tool-sender.service';
 import { DiscordAdapter } from './discord.adapter';
+import { EmailAdapter } from './email.adapter';
 import { SqliteChannelRepository } from './sqlite-channel.repository';
 
 /**
@@ -24,10 +25,14 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
     ChannelDatabaseService,
     { provide: ChannelRepository, useClass: SqliteChannelRepository },
     DiscordAdapter,
+    EmailAdapter,
     {
       provide: CHANNEL_ADAPTERS,
-      useFactory: (discord: DiscordAdapter) => [discord],
-      inject: [DiscordAdapter],
+      useFactory: (discord: DiscordAdapter, email: EmailAdapter) => [
+        discord,
+        email,
+      ],
+      inject: [DiscordAdapter, EmailAdapter],
     },
     ChannelDeliveryService,
     ChannelSendService,
@@ -42,6 +47,7 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
     ChannelSendService,
     ChannelToolSender,
     DiscordAdapter,
+    EmailAdapter,
     CHANNEL_SEND,
   ],
 })

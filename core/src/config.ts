@@ -133,6 +133,20 @@ export interface CoreConfig {
   discordPresenceOnline?: string;
   discordPresenceOffline?: string;
   /**
+   * M16.1 email (Brevo transactional API). Outbound-only. The API key
+   * resolves through the secret resolver (`$VAR` / `secret:NAME`), so it can
+   * be set — never viewed — from the vault. A missing key or sender leaves the
+   * channel disabled, never fatal.
+   */
+  brevoApiKey?: string;
+  brevoSenderEmail?: string;
+  brevoSenderName?: string;
+  brevoApiBaseUrl?: string;
+  /** Recipients the agent tool may email; empty disables agent-initiated email. */
+  emailAllowedRecipients?: string[];
+  /** Default subject for a channel send (email has no natural subject). */
+  emailDefaultSubject?: string;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -453,6 +467,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       (env.DISCORD_PRESENCE_ONLINE ?? '').trim() || undefined,
     discordPresenceOffline:
       (env.DISCORD_PRESENCE_OFFLINE ?? '').trim() || undefined,
+    brevoApiKey: (env.BREVO_API_KEY ?? '').trim() || undefined,
+    brevoSenderEmail: (env.BREVO_SENDER_EMAIL ?? '').trim() || undefined,
+    brevoSenderName: (env.BREVO_SENDER_NAME ?? '').trim() || undefined,
+    brevoApiBaseUrl:
+      (env.BREVO_API_BASE_URL ?? '').trim() || 'https://api.brevo.com/v3',
+    emailAllowedRecipients: parseCsv(env.EMAIL_ALLOWED_RECIPIENTS),
+    emailDefaultSubject: (env.EMAIL_DEFAULT_SUBJECT ?? '').trim() || 'ICOS',
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',

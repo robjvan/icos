@@ -74,4 +74,64 @@ describe('ChannelToolSender', () => {
       sender.send({ channel: 'discord', target: 'operator', body: 'x' }),
     ).rejects.toThrow('no_operator_allowlisted');
   });
+
+  it('resolves the email operator to the first allowlisted recipient', async () => {
+    const { sender, calls } = setup({
+      emailAllowedRecipients: ['rob@example.com', 'other@example.com'],
+    });
+
+    await sender.send({ channel: 'email', target: 'operator', body: 'hi' });
+
+    expect(calls[0]).toMatchObject({
+      conversationKey: 'email:rob@example.com',
+    });
+  });
+
+  it('resolves an email user case-insensitively to the canonical address', async () => {
+    const { sender, calls } = setup({
+      emailAllowedRecipients: ['Rob@Example.com'],
+    });
+
+    await sender.send({
+      channel: 'email',
+      target: 'user',
+      id: 'rob@example.com',
+      body: 'hi',
+    });
+
+    expect(calls[0]).toMatchObject({
+      conversationKey: 'email:Rob@Example.com',
+    });
+  });
+
+  it('rejects an unallowlisted email recipient', async () => {
+    const { sender } = setup({ emailAllowedRecipients: ['rob@example.com'] });
+    await expect(
+      sender.send({
+        channel: 'email',
+        target: 'user',
+        id: 'evil@example.com',
+        body: 'x',
+      }),
+    ).rejects.toThrow('target_not_allowed');
+  });
+
+  it('rejects email with a channel target', async () => {
+    const { sender } = setup({ emailAllowedRecipients: ['rob@example.com'] });
+    await expect(
+      sender.send({
+        channel: 'email',
+        target: 'channel',
+        id: 'anything',
+        body: 'x',
+      }),
+    ).rejects.toThrow('email_has_no_channels');
+  });
+
+  it('errors when no email operator is allowlisted', async () => {
+    const { sender } = setup({});
+    await expect(
+      sender.send({ channel: 'email', target: 'operator', body: 'x' }),
+    ).rejects.toThrow('no_operator_allowlisted');
+  });
 });

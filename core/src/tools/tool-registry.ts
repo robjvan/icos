@@ -252,7 +252,7 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     name: 'channel.send',
     version: 1,
     description:
-      'Send a message on a configured channel (e.g. Discord) to the ' +
+      'Send a message on a configured channel (Discord or email) to the ' +
       'operator, or to an allowlisted channel or user. Requires approval.',
     approval: 'required',
     argsSchema: CHANNEL_SEND_SCHEMA,
