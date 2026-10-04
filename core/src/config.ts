@@ -147,6 +147,14 @@ export interface CoreConfig {
   /** Default subject for a channel send (email has no natural subject). */
   emailDefaultSubject?: string;
   /**
+   * M16.2 web attachments. Uploaded files live under the data root
+   * (host-absolute), are written owner-only, and are bounded by size and an
+   * accepted MIME allow-list.
+   */
+  attachmentsDirPath?: string;
+  attachmentsMaxBytes?: number;
+  attachmentsAllowedMimeTypes?: string[];
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -474,6 +482,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       (env.BREVO_API_BASE_URL ?? '').trim() || 'https://api.brevo.com/v3',
     emailAllowedRecipients: parseCsv(env.EMAIL_ALLOWED_RECIPIENTS),
     emailDefaultSubject: (env.EMAIL_DEFAULT_SUBJECT ?? '').trim() || 'ICOS',
+    attachmentsDirPath: resolvePath(
+      env.ATTACHMENTS_DIR_PATH,
+      '~/.icos/data/attachments',
+    ),
+    attachmentsMaxBytes: parsePositiveInt(
+      env.ATTACHMENTS_MAX_BYTES,
+      10 * 1024 * 1024,
+      'ATTACHMENTS_MAX_BYTES',
+    ),
+    attachmentsAllowedMimeTypes: ((): string[] => {
+      const configured = parseCsv(env.ATTACHMENTS_ALLOWED_MIME_TYPES);
+      return configured.length > 0
+        ? configured
+        : DEFAULT_ATTACHMENT_MIME_TYPES;
+    })(),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',
@@ -736,6 +759,18 @@ function parseKindList(raw: string | undefined): string[] {
  * Comma-separated id list (channel/user ids). Empty/unset returns `[]`.
  * Trimmed and deduped; values are kept as-typed.
  */
+/** Accepted upload MIME types when ATTACHMENTS_ALLOWED_MIME_TYPES is unset. */
+const DEFAULT_ATTACHMENT_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'application/json',
+];
+
 function parseCsv(raw: string | undefined): string[] {
   if (raw === undefined || raw.trim() === '') return [];
   return [
