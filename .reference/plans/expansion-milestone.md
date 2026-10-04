@@ -28,9 +28,10 @@ up):
 
 - `web_search` — needs a provider-agnostic backend and a network-egress story.
 - `terminal` — high-risk; likely approval-gated and sandboxed.
-- `vision_analyze` — describe an image for a text-only model. The existing
-  local memory model (`gemma4`) already accepts image input, so this tool can
-  reuse it. **M16.2d (attachment vision) depends on this.**
+- `vision_analyze` — describe an image for a text-only model. Needs a
+  vision-capable model: the configured `gemma4-e4b-mem:latest` does **not**
+  advertise vision (`/api/show`), so pick a build/provider that reports it.
+  **M16.2d (attachment vision) depends on this.**
 - _TBD_: the full list is to be settled when the chunk starts.
 
 **Questions to resolve**

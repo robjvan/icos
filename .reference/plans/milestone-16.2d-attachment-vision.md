@@ -13,10 +13,12 @@
 - **No object store.** Images are base64-encoded in memory — local store for
   web uploads, CDN fetch for Discord. Nothing is hosted and no URLs are passed
   to the model, so no S3/versitygw dependency.
-- **The auxiliary vision model can be the existing local memory model.** The
-  `gemma4` memory model already accepts image input, so a `vision` provider
-  role can point at the same provider — the fallback adds no new dependency and
-  no external cost.
+- **The auxiliary vision model is a `vision` provider role.** *Correction
+  (2026-10-04):* the configured memory model `gemma4-e4b-mem:latest` does
+  **not** advertise vision (`/api/show` → `["completion","tools","thinking"]`),
+  so the fallback needs a vision-capable model (a different local build, or a
+  remote vision provider). The `vision` role remains the right seam; it just
+  points at a model that actually reports `"vision"`.
 - **Depends on EXP-1 (tools):** `vision_analyze` is expected to arrive as a
   tool in the expansion, so this slice consumes it rather than inventing a
   bespoke path.
@@ -92,8 +94,19 @@ fail-soft.
   `image_url`? (Most OpenAI-compatible gateways do; verify live early.) If it
   only accepts http(s), web uploads would need a reachable URL instead of
   base64 — a different design.
-- **Model gating:** per-provider vision capability vs a single
-  `LLM_VISION_ENABLED` flag (multi-role providers exist: conversation/memory).
+- **Model capability — how ICOS learns it (answered 2026-10-04).** It is *not*
+  reliably reported, so a **user-declared capability is the source of truth**:
+  a `vision` flag on the provider entry (or the `vision` role's presence).
+  Auto-detect is opportunistic only:
+  - **Ollama** reports `capabilities` (incl. `"vision"`) via `/api/show` —
+    reliable for local models. *(Finding: the configured
+    `gemma4-e4b-mem:latest` reports `["completion","tools","thinking"]` — no
+    vision. The auxiliary path needs a vision-capable model.)*
+  - **OpenRouter-style** gateways report `architecture.input_modalities`.
+  - **Most OpenAI-compatible gateways** (incl. the current `opencode`
+    endpoint — `/models` returns 404) report nothing.
+  So: default to the declared flag; probe where the provider exposes it; fall
+  back to the flag when the probe is unavailable.
 - **Cost/latency:** images are token-expensive; cap aggressively and note it.
 - **History:** images are attached to the **current** user message only, never
   replayed from history (avoids re-sending bytes every turn). Confirm that is
