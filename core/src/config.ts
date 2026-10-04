@@ -91,6 +91,48 @@ export interface CoreConfig {
    */
   personaDbPath?: string;
   /**
+   * M16 channel store: the unified inbound/outbound message ledger and the
+   * durable outbound delivery queue. A separate file, like persona —
+   * channel traffic is its own subsystem. Optional on the type for callers
+   * that never open it; `loadConfig` always populates it.
+   */
+  channelsDbPath?: string;
+  /**
+   * M16 outbound delivery: the queue drainer's cadence and retry policy.
+   * Optional — the delivery service applies defaults when unset, so test
+   * configs and callers that never send need not carry them.
+   */
+  channelDeliveryEnabled?: boolean;
+  channelDeliveryIntervalMs?: number;
+  channelDeliveryBatch?: number;
+  channelDeliveryMaxAttempts?: number;
+  channelDeliveryBackoffBaseMs?: number;
+  channelDeliveryBackoffCapMs?: number;
+  channelSendMinIntervalMs?: number;
+  /**
+   * M16 Discord channel: the bot token. Accepts a literal value or a secret
+   * reference (`$VAR` / `secret:NAME`), resolved at connect time so a vault
+   * rotation takes effect on reconnect. Optional — no token means the
+   * channel is disabled (and it never blocks boot).
+   */
+  discordBotToken?: string;
+  /**
+   * M16 inbound Discord policy. A guild channel is a chat channel when its
+   * topic contains `<discordStreamMarker> chat` (e.g. `[icos-stream: chat]`),
+   * or when its id (or a thread's parent id) is in `discordAllowedChannelIds`.
+   * Non-empty `discordAllowedUserIds` restricts who is answered; empty means
+   * anyone in an accepted channel. DMs are answered only when allowed.
+   */
+  discordStreamMarker?: string;
+  discordAllowedChannelIds?: string[];
+  discordAllowedUserIds?: string[];
+  discordAllowedGuildIds?: string[];
+  discordAllowDirectMessages?: boolean;
+  discordPresenceEnabled?: boolean;
+  discordStatusChannelId?: string;
+  discordPresenceOnline?: string;
+  discordPresenceOffline?: string;
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -363,6 +405,54 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     sessionDbPath: resolvePath(env.SESSION_DB_PATH, '~/.icos/data/sessions.db'),
     memoryDbPath: resolvePath(env.MEMORY_DB_PATH, '~/.icos/data/memories.db'),
     personaDbPath: resolvePath(env.PERSONA_DB_PATH, '~/.icos/data/persona.db'),
+    channelsDbPath: resolvePath(
+      env.CHANNELS_DB_PATH,
+      '~/.icos/data/channels.db',
+    ),
+    channelDeliveryEnabled: parseBoolean(env.CHANNEL_DELIVERY_ENABLED, true),
+    channelDeliveryIntervalMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_INTERVAL_MS,
+      5000,
+      'CHANNEL_DELIVERY_INTERVAL_MS',
+    ),
+    channelDeliveryBatch: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BATCH,
+      10,
+      'CHANNEL_DELIVERY_BATCH',
+    ),
+    channelDeliveryMaxAttempts: parsePositiveInt(
+      env.CHANNEL_DELIVERY_MAX_ATTEMPTS,
+      5,
+      'CHANNEL_DELIVERY_MAX_ATTEMPTS',
+    ),
+    channelDeliveryBackoffBaseMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BACKOFF_BASE_MS,
+      1000,
+      'CHANNEL_DELIVERY_BACKOFF_BASE_MS',
+    ),
+    channelDeliveryBackoffCapMs: parsePositiveInt(
+      env.CHANNEL_DELIVERY_BACKOFF_CAP_MS,
+      30000,
+      'CHANNEL_DELIVERY_BACKOFF_CAP_MS',
+    ),
+    channelSendMinIntervalMs: parsePositiveInt(
+      env.CHANNEL_SEND_MIN_INTERVAL_MS,
+      250,
+      'CHANNEL_SEND_MIN_INTERVAL_MS',
+    ),
+    discordBotToken: (env.DISCORD_BOT_TOKEN ?? '').trim() || undefined,
+    discordStreamMarker: (env.DISCORD_STREAM_MARKER ?? '').trim() || undefined,
+    discordAllowedChannelIds: parseCsv(env.DISCORD_ALLOWED_CHANNEL_IDS),
+    discordAllowedUserIds: parseCsv(env.DISCORD_ALLOWED_USER_IDS),
+    discordAllowedGuildIds: parseCsv(env.DISCORD_ALLOWED_GUILD_IDS),
+    discordAllowDirectMessages: parseBoolean(env.DISCORD_ALLOW_DMS, true),
+    discordPresenceEnabled: parseBoolean(env.DISCORD_PRESENCE_ENABLED, true),
+    discordStatusChannelId:
+      (env.DISCORD_STATUS_CHANNEL_ID ?? '').trim() || undefined,
+    discordPresenceOnline:
+      (env.DISCORD_PRESENCE_ONLINE ?? '').trim() || undefined,
+    discordPresenceOffline:
+      (env.DISCORD_PRESENCE_OFFLINE ?? '').trim() || undefined,
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',
@@ -619,6 +709,22 @@ function parseKindList(raw: string | undefined): string[] {
     }
   }
   return [...new Set(kinds)];
+}
+
+/**
+ * Comma-separated id list (channel/user ids). Empty/unset returns `[]`.
+ * Trimmed and deduped; values are kept as-typed.
+ */
+function parseCsv(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part !== ''),
+    ),
+  ];
 }
 
 /**

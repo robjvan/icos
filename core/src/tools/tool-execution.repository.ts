@@ -79,6 +79,18 @@ export type RenameOutcome =
   | { ok: true; renamed: RenameResult }
   | { ok: false; failure: { code: 'rename_failed' } };
 
+/**
+ * Native channel.send outcome (M16e.2): the recorded message + delivery
+ * ids on success, a code-only failure otherwise (detail travels the
+ * approval description and logs, never the ledger).
+ */
+export type ChannelSendOutcome =
+  | { ok: true; channelSend: { messageId: string; deliveryId: string } }
+  | {
+      ok: false;
+      failure: { code: 'channel_failed' | 'channel_unavailable' };
+    };
+
 export interface ToolExecutionRecord {
   requestId: string;
   sessionId: string;
@@ -95,7 +107,8 @@ export interface ToolExecutionRecord {
     | 'failed'
     | MirrorOutcomeState;
   validation: ValidationOutcome;
-  execution: ExecutionOutcome | RenameOutcome | McpOutcome | null;
+  execution:
+    ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome | null;
   final: FinalOutcome;
   executionToken: string | null;
   ownership: 'unconfirmed' | 'released' | 'none';
@@ -171,7 +184,10 @@ export class ToolExecutionRepository {
           row.execution_json === null
             ? null
             : (JSON.parse(row.execution_json) as
-                ExecutionOutcome | RenameOutcome),
+                | ExecutionOutcome
+                | RenameOutcome
+                | McpOutcome
+                | ChannelSendOutcome),
         final: JSON.parse(row.final_json) as FinalOutcome,
         executionToken: row.execution_token,
         ownership: row.state === 'executing' ? row.ownership : 'none',
@@ -423,6 +439,79 @@ export class ToolExecutionRepository {
    * flow to the model through the shared final path untouched.
    */
   finishTool(requestId: string, token: string, outcome: McpOutcome): void {
+    this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const result = this.database.connection
+            .prepare(
+              `UPDATE tool_requests
+        SET state = ?, execution_json = ?, final_state = 'pending', final_json = ?
+        WHERE request_id = ? AND state = 'executing' AND execution_token = ?`,
+            )
+            .run(
+              outcome.ok ? 'succeeded' : 'failed',
+              JSON.stringify(outcome),
+              JSON.stringify({ state: 'pending' }),
+              requestId,
+              token,
+            );
+          if (result.changes !== 1) throw new LedgerError('claim_lost');
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Claim an approval-parked native channel.send after grant. Mirrors
+   * claimApprovedTool but for the native arm (no `foreign` marker).
+   */
+  claimChannelSend(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'awaiting_approval' || !record.approvalId)
+            return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            validation.request.name !== 'channel.send' ||
+            'foreign' in validation.request ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'awaiting_approval'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'awaiting_approval' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /** Persist a native channel.send outcome (same shape contract as finishTool). */
+  finishChannelSend(
+    requestId: string,
+    token: string,
+    outcome: ChannelSendOutcome,
+  ): void {
     this.access(() =>
       this.database.connection
         .transaction(() => {

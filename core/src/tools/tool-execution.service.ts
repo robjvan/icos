@@ -11,8 +11,12 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import type {
+  ChannelSendPort,
+  ChannelSendRequest,
+} from '../channels/channel-send.port';
 import { ToolRegistry } from './tool-registry';
-import type { ForeignToolCall } from './tool-registry';
+import type { ChannelSendArgs, ForeignToolCall } from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
 import type {
   ExecutionOutcome,
@@ -30,7 +34,19 @@ export type { ToolExecutionInput } from './tool-execution.repository';
 /** Approval action for foreign (MCP) tool execution. */
 export const MCP_EXECUTE_ACTION = 'mcp.execute';
 
+/** Approval action for a native channel.send. */
+export const CHANNEL_SEND_ACTION = 'channel.send';
+
 const MAX_RESULT_BYTES = 64 * 1024;
+
+/** Human-readable approval description for a channel.send proposal. */
+function describeChannelSend(args: ChannelSendArgs): string {
+  const to =
+    args.target === 'operator'
+      ? 'the operator'
+      : `${args.target} ${args.id ?? ''}`.trim();
+  return `Send a ${args.channel} message to ${to}: ${args.body.slice(0, 300)}`;
+}
 
 @Injectable()
 export class ToolExecutionService {
@@ -48,6 +64,7 @@ export class ToolExecutionService {
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
     private readonly approvalService: ApprovalService,
     private readonly mcp: McpConnectionService,
+    private readonly channels?: ChannelSendPort,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     if (
@@ -90,16 +107,19 @@ export class ToolExecutionService {
     let parkedApprovalId: string | null = null;
     if (!this.ledger.get(input.requestId)) {
       const preview = this.validate(input);
-      if (preview.ok && 'request' in preview && 'foreign' in preview.request) {
+      if (preview.ok && 'request' in preview) {
         const descriptor = this.registry.lookup(preview.request.name);
         if (descriptor && descriptor.approval !== 'none') {
+          const request = preview.request;
+          const foreign = 'foreign' in request;
           const approval = await this.approvalService.create({
             sessionId: input.sessionId,
-            action: MCP_EXECUTE_ACTION,
-            description:
-              `Execute foreign tool ${preview.request.foreign.server}/` +
-              `${preview.request.foreign.tool} (${preview.request.name}) ` +
-              `with args ${JSON.stringify(preview.request.args).slice(0, 500)}`,
+            action: foreign ? MCP_EXECUTE_ACTION : CHANNEL_SEND_ACTION,
+            description: foreign
+              ? `Execute foreign tool ${request.foreign.server}/` +
+                `${request.foreign.tool} (${request.name}) ` +
+                `with args ${JSON.stringify(request.args).slice(0, 500)}`
+              : describeChannelSend(request.args as ChannelSendArgs),
           });
           parkedApprovalId = approval.id;
         }
@@ -245,6 +265,52 @@ export class ToolExecutionService {
     this.ledger.finishTool(requestId, token, outcome);
   }
 
+  /** Execute one claimed native channel.send through the channel port. */
+  private async executeChannelSend(
+    requestId: string,
+    token: string,
+  ): Promise<void> {
+    const claimed = this.required(requestId);
+    const validation = claimed.validation;
+    if (
+      !validation.ok ||
+      !('request' in validation) ||
+      validation.request.name !== 'channel.send' ||
+      'foreign' in validation.request
+    ) {
+      throw new Error('invalid_execution_state');
+    }
+    const args: ChannelSendArgs = validation.request.args;
+    if (!this.channels) {
+      this.ledger.finishChannelSend(requestId, token, {
+        ok: false,
+        failure: { code: 'channel_unavailable' },
+      });
+      return;
+    }
+    const request: ChannelSendRequest = {
+      channel: args.channel,
+      target: args.target,
+      ...(args.id !== undefined ? { id: args.id } : {}),
+      body: args.body,
+    };
+    try {
+      const result = await this.channels.send(request);
+      this.ledger.finishChannelSend(requestId, token, {
+        ok: true,
+        channelSend: {
+          messageId: result.messageId,
+          deliveryId: result.deliveryId,
+        },
+      });
+    } catch {
+      this.ledger.finishChannelSend(requestId, token, {
+        ok: false,
+        failure: { code: 'channel_failed' },
+      });
+    }
+  }
+
   /**
    * Inline rename execution (approval-free policy). Claims the
    * validated record, applies the local title mutation, and persists
@@ -311,6 +377,17 @@ export class ToolExecutionService {
             );
             if (token) {
               await this.executeForeign(requestId, token);
+            }
+          } else if (
+            validated.ok &&
+            'request' in validated &&
+            validated.request.name === 'channel.send'
+          ) {
+            const token = this.ledger.claimChannelSend(requestId, (saved) =>
+              this.validate(saved),
+            );
+            if (token) {
+              await this.executeChannelSend(requestId, token);
             }
           } else {
             const token = this.ledger.claimRename(requestId, (saved) =>
@@ -411,11 +488,18 @@ export class ToolExecutionService {
     if (!validation.ok)
       return { ok: false, failure: { code: validation.failure.code } };
     const descriptor = this.registry.lookup(validation.request.name);
-    // Native tools are all approval-free by policy; anything native
-    // requiring approval fails closed here (there is currently no
-    // such tool). Foreign required-approval tools pass through —
+    // Native tools are approval-free except channel.send (approval-required,
+    // parked in consume). Anything else native requiring approval fails
+    // closed here. Foreign required-approval tools pass through —
     // consumeForeign parks them with a minted approval.
-    if (descriptor?.approval !== 'none' && !('foreign' in validation.request))
+    const nativeApprovalTool =
+      !('foreign' in validation.request) &&
+      validation.request.name === 'channel.send';
+    if (
+      descriptor?.approval !== 'none' &&
+      !('foreign' in validation.request) &&
+      !nativeApprovalTool
+    )
       return { ok: false, failure: { code: 'unpermitted_tool' } };
     try {
       if (

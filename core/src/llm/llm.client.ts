@@ -68,6 +68,25 @@ export class LlmError extends Error {
   }
 }
 
+/**
+ * Extract a human-readable message from an upstream error envelope
+ * (`{ error: { message } }`, `{ error: "..." }`, or `{ message }`).
+ * Returns '' when there is none. Bounded and whitespace-collapsed, and it
+ * never includes request credentials.
+ */
+export function upstreamMessage(value: unknown): string {
+  if (value === null || typeof value !== 'object') return '';
+  const error = (value as { error?: unknown }).error;
+  const candidate =
+    typeof error === 'string'
+      ? error
+      : ((error as { message?: unknown } | undefined)?.message ??
+        (value as { message?: unknown }).message);
+  return typeof candidate === 'string' && candidate.trim()
+    ? candidate.trim().replace(/\s+/g, ' ').slice(0, 200)
+    : '';
+}
+
 @Injectable()
 export class LlmClient {
   constructor(
@@ -176,9 +195,12 @@ export class LlmClient {
       }
       signal.throwIfAborted();
       if (!res.ok) {
+        const detail = await this.readErrorDetail(res);
         throw this.providerError(
           502,
-          'LLM endpoint returned an unsuccessful response',
+          `LLM endpoint returned HTTP ${res.status}${
+            detail ? `: ${detail}` : ''
+          }`,
           res.status >= 500,
         );
       }
@@ -197,7 +219,9 @@ export class LlmClient {
       }
       const text = await this.readResponse(res.body, signal);
       signal.throwIfAborted();
-      return parser.response(parseJson(text));
+      const parsed = parseJson(text);
+      this.throwIfUpstreamError(parsed);
+      return parser.response(parsed);
     } catch (err) {
       if (signal.aborted) {
         throw this.providerError(
@@ -216,6 +240,28 @@ export class LlmClient {
       if (res?.body && !res.body.locked)
         await res.body.cancel().catch(() => undefined);
       controller.abort();
+    }
+  }
+
+  /** Read a bounded, sanitized upstream error message from a failed body. */
+  private async readErrorDetail(res: Response): Promise<string> {
+    try {
+      const text = (await res.text()).slice(0, 2048);
+      try {
+        return upstreamMessage(JSON.parse(text) as unknown);
+      } catch {
+        return '';
+      }
+    } catch {
+      return '';
+    }
+  }
+
+  /** A 200 body carrying an error envelope is not a completion. */
+  private throwIfUpstreamError(parsed: unknown): void {
+    const message = upstreamMessage(parsed);
+    if (message) {
+      throw this.providerError(502, `LLM endpoint error: ${message}`, false);
     }
   }
 

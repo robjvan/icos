@@ -18,6 +18,12 @@ services:
       # is the port mapping above, which is loopback by default.
       HOST: 0.0.0.0
 
+    # Default: run the compiled app as PID 1 so SIGTERM runs Nest's shutdown
+    # hooks (graceful shutdown + the M16m offline announcement). For hot reload
+    # during development, run with CORE_COMMAND="npm run start:dev" — but note
+    # the Nest watcher swallows the signal, so graceful shutdown will not run.
+    command: ${CORE_COMMAND:-node dist/main}
+
     env_file:
       - ./core/.env
 

@@ -1,4 +1,5 @@
 import type {
+  ChannelSendOutcome,
   ExecutionOutcome,
   McpOutcome,
   RenameOutcome,
@@ -19,11 +20,11 @@ export interface RunObservation {
   tool: string;
   args: Record<string, unknown>;
   status: ObservationStatus;
-  result: ExecutionOutcome | RenameOutcome | McpOutcome;
+  result: ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome;
 }
 
 export function observationStatus(
-  execution: ExecutionOutcome | RenameOutcome | McpOutcome,
+  execution: ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome,
 ): ObservationStatus {
   if (execution.ok) return 'succeeded';
   if (execution.failure.code === 'unknown') return 'unknown';
