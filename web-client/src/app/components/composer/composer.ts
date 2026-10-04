@@ -12,6 +12,7 @@ import {
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { LucidePaperclip, LucideSend, LucideX } from '@lucide/angular';
 import type { ComposerSubmission, TurnAttachment } from '../../models/attachment';
+import { toTurnAttachment } from '../../models/attachment';
 import { AttachmentService } from '../../services/attachment.service';
 
 /**
@@ -63,9 +64,10 @@ export class Composer {
     if (files.length > 0) {
       this.uploading.set(true);
       try {
-        refs = await Promise.all(
+        const stored = await Promise.all(
           files.map((file) => this.attachmentsApi.upload(file)),
         );
+        refs = stored.map(toTurnAttachment);
       } catch (error) {
         // Keep the message and files so the user can retry.
         this.uploadError.set(

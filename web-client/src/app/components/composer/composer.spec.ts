@@ -66,7 +66,12 @@ describe('Composer', () => {
 
     expect(upload).toHaveBeenCalledWith(file);
     expect(emitted[0]?.message).toBe('hi');
-    expect(emitted[0]?.attachments[0]?.url).toBe('/core/attachments/a1');
+    expect(emitted[0]?.attachments[0]).toEqual({
+      url: '/core/attachments/a1',
+      name: 'photo.png',
+      contentType: 'image/png',
+      sizeBytes: 1,
+    });
     expect(component.attachments()).toEqual([]);
   });
 

@@ -24,3 +24,19 @@ export interface ComposerSubmission {
   message: string;
   attachments: readonly TurnAttachment[];
 }
+
+/**
+ * Reduce a stored attachment (server response) to the reference a turn
+ * accepts. The request DTO rejects unknown properties, so `id`/`createdAt`
+ * must not be sent.
+ */
+export function toTurnAttachment(stored: StoredAttachment): TurnAttachment {
+  return {
+    url: stored.url,
+    ...(stored.name ? { name: stored.name } : {}),
+    ...(stored.contentType ? { contentType: stored.contentType } : {}),
+    ...(typeof stored.sizeBytes === 'number'
+      ? { sizeBytes: stored.sizeBytes }
+      : {}),
+  };
+}
