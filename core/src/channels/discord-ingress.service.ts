@@ -78,6 +78,7 @@ export class DiscordIngressService implements OnModuleInit {
       // gate, so an unlisted stranger cannot talk to the agent privately.
       return this.isAllowlistedUser(message.authorId);
     }
+    if (!this.guildAllowed(message.guildId)) return false;
     if (!this.guildUserAllowed(message.authorId)) return false;
     // A thread continues an existing conversation (no re-mention). A channel
     // message must mention the bot to start one — otherwise we would answer
@@ -96,12 +97,7 @@ export class DiscordIngressService implements OnModuleInit {
   /** Handle one inbound message: record, run a turn, reply in place. */
   async handle(message: DiscordInbound): Promise<void> {
     if (!this.accepts(message)) {
-      if (message.isDm) {
-        this.logger.log(
-          `Ignoring Discord DM from ${message.authorId} — add the id to ` +
-            'DISCORD_ALLOWED_USER_IDS to allow it',
-        );
-      }
+      await this.recordIgnored(message);
       return;
     }
 
@@ -304,6 +300,75 @@ export class DiscordIngressService implements OnModuleInit {
   private guildUserAllowed(authorId: string): boolean {
     const allowed = this.config.discordAllowedUserIds ?? [];
     return allowed.length === 0 || allowed.includes(authorId);
+  }
+
+  private guildAllowed(guildId: string | null): boolean {
+    const allowed = this.config.discordAllowedGuildIds ?? [];
+    if (allowed.length === 0) return true;
+    return guildId !== null && allowed.includes(guildId);
+  }
+
+  /**
+   * Record + log a message that targeted the bot but failed the policy.
+   * Ambient noise (unmentioned channel chatter) is logged only; a message
+   * actually addressed to the bot (DM, mention, or designated channel) is
+   * written to the message ledger with `ignored` provenance so a rejected
+   * sender is auditable, never silently dropped.
+   */
+  private async recordIgnored(message: DiscordInbound): Promise<void> {
+    const reason = this.rejectReason(message);
+    const addressed =
+      message.isDm || message.mentionsBot || this.isChatChannel(message);
+    if (!addressed) {
+      this.logger.debug(
+        `Ignoring ambient Discord message in channel ${message.channelId}`,
+      );
+      return;
+    }
+    this.logger.log(
+      `Ignoring Discord ${message.isDm ? 'DM' : 'message'} from ` +
+        `${message.authorId}: ${reason}`,
+    );
+    try {
+      await this.repository.recordMessage({
+        channel: 'discord',
+        direction: 'inbound',
+        conversationKey: this.conversationKey(message),
+        peerId: message.authorId,
+        body: message.content,
+        externalId: message.externalId,
+        attachments: message.attachments,
+        provenance: {
+          source: 'discord',
+          authTrust: 'transport',
+          ignored: true,
+          reason,
+          guildId: message.guildId,
+          channelId: message.channelId,
+        },
+      });
+    } catch {
+      // Duplicate or write failure — this is an audit nicety, never a fault.
+    }
+  }
+
+  /** Why an addressed message was rejected (for the audit + log). */
+  private rejectReason(message: DiscordInbound): string {
+    if (message.isDm) {
+      return this.config.discordAllowDirectMessages === false
+        ? 'direct messages are disabled'
+        : 'sender is not in DISCORD_ALLOWED_USER_IDS';
+    }
+    if (!this.guildAllowed(message.guildId)) {
+      return 'guild is not in DISCORD_ALLOWED_GUILD_IDS';
+    }
+    if (!this.guildUserAllowed(message.authorId)) {
+      return 'sender is not in DISCORD_ALLOWED_USER_IDS';
+    }
+    if (!message.isThread && !message.mentionsBot) {
+      return 'channel message did not mention the bot';
+    }
+    return 'channel is not designated for chat';
   }
 
   /** Situational context: where this turn came from, told to the model. */

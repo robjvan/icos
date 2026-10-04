@@ -126,6 +126,7 @@ export interface CoreConfig {
   discordStreamMarker?: string;
   discordAllowedChannelIds?: string[];
   discordAllowedUserIds?: string[];
+  discordAllowedGuildIds?: string[];
   discordAllowDirectMessages?: boolean;
   /**
    * M14b immutable core persona: a human-authored, read-only Markdown
@@ -436,10 +437,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       'CHANNEL_SEND_MIN_INTERVAL_MS',
     ),
     discordBotToken: (env.DISCORD_BOT_TOKEN ?? '').trim() || undefined,
-    discordStreamMarker:
-      (env.DISCORD_STREAM_MARKER ?? '').trim() || undefined,
+    discordStreamMarker: (env.DISCORD_STREAM_MARKER ?? '').trim() || undefined,
     discordAllowedChannelIds: parseCsv(env.DISCORD_ALLOWED_CHANNEL_IDS),
     discordAllowedUserIds: parseCsv(env.DISCORD_ALLOWED_USER_IDS),
+    discordAllowedGuildIds: parseCsv(env.DISCORD_ALLOWED_GUILD_IDS),
     discordAllowDirectMessages: parseBoolean(env.DISCORD_ALLOW_DMS, true),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,

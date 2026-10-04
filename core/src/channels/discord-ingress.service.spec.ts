@@ -27,6 +27,7 @@ function testConfig(
     discordAllowDirectMessages: true,
     discordAllowedChannelIds: [],
     discordAllowedUserIds: [],
+    discordAllowedGuildIds: [],
     ...overrides,
   } as unknown as CoreConfig;
 }
@@ -254,6 +255,35 @@ describe('DiscordIngressService', () => {
         ),
       ).toBe('discord:g1:c1:thread:t1');
     });
+
+    it('rejects a guild that is not allowlisted', () => {
+      const blocked = build(
+        testConfig(dir, { discordAllowedGuildIds: ['g-other'] }),
+        fakeConversation().service,
+      );
+      expect(blocked.accepts(inbound())).toBe(false);
+
+      const allowed = build(
+        testConfig(dir, { discordAllowedGuildIds: ['g1'] }),
+        fakeConversation().service,
+      );
+      expect(allowed.accepts(inbound())).toBe(true);
+    });
+  });
+
+  it('records an ignored sender in the ledger', async () => {
+    const { service: conversation, converse } = fakeConversation();
+    const service = build(
+      testConfig(dir, { discordAllowedGuildIds: ['g-other'] }),
+      conversation,
+    );
+
+    await service.handle(inbound({ content: 'let me in' }));
+
+    expect(converse).not.toHaveBeenCalled();
+    const messages = await repository.listMessages('discord:g1:c1');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.provenance).toMatchObject({ ignored: true });
   });
 
   it('starts a thread for a channel mention and edits the reply into the placeholder', async () => {
@@ -363,7 +393,7 @@ describe('DiscordIngressService', () => {
     expect(adapter.edited[0]?.body).toContain('error');
   });
 
-  it('ignores a message that fails the accept policy', async () => {
+  it('ignores — but records — an addressed message that fails the policy', async () => {
     const { service: conversation, converse } = fakeConversation();
     const service = build(testConfig(dir), conversation);
 
@@ -371,6 +401,24 @@ describe('DiscordIngressService', () => {
 
     expect(converse).not.toHaveBeenCalled();
     expect(adapter.sent).toHaveLength(0);
+    const messages = await repository.listMessages('discord:g1:c1');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.provenance).toMatchObject({ ignored: true });
+  });
+
+  it('does not record ambient (unaddressed) channel chatter', async () => {
+    const { service: conversation, converse } = fakeConversation();
+    const service = build(testConfig(dir), conversation);
+
+    await service.handle(
+      inbound({
+        mentionsBot: false,
+        channelTopic: 'just chatting',
+        parentTopic: 'just chatting',
+      }),
+    );
+
+    expect(converse).not.toHaveBeenCalled();
     expect(await repository.listMessages('discord:g1:c1')).toHaveLength(0);
   });
 
