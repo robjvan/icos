@@ -6,7 +6,7 @@ import {
   SERVER_URL,
   SESSIONS_ENDPOINT,
 } from '../../constants';
-import { mutationHeaders } from '../auth/credentials';
+import { CSRF_HEADER, csrfToken, mutationHeaders } from '../auth/credentials';
 
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}${path}`;
@@ -55,6 +55,20 @@ export class CoreApiService {
       method: 'POST',
       headers: mutationHeaders(),
       body: JSON.stringify(body),
+      credentials: 'include',
+    });
+    return readJson<T>(response, `POST ${endpoint}`);
+  }
+
+  /** POST a multipart form (the browser sets the content type + boundary). */
+  async postForm<T>(endpoint: string, form: FormData): Promise<T> {
+    const headers: Record<string, string> = {};
+    const token = csrfToken();
+    if (token) headers[CSRF_HEADER] = token;
+    const response = await fetch(joinUrl(SERVER_URL, endpoint), {
+      method: 'POST',
+      headers,
+      body: form,
       credentials: 'include',
     });
     return readJson<T>(response, `POST ${endpoint}`);

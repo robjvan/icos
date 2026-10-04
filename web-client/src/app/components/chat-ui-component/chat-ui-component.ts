@@ -14,6 +14,7 @@ import { MessageList } from '../message-list/message-list';
 import { QuestionCard } from '../question-card/question-card';
 import { SessionSidebar } from '../session-sidebar/session-sidebar';
 import { ConversationStore } from '../../services/conversation-store';
+import type { ComposerSubmission } from '../../models/attachment';
 import { RealtimeService } from '../../services/realtime.service';
 
 /**
@@ -67,12 +68,12 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
     this.focusComposer();
   }
 
-  sendMessage(text: string): void {
+  sendMessage(submission: ComposerSubmission): void {
     // Refocus when the turn (including trailing refreshes) completes so the
     // next message starts from the keyboard. Busy-disable may drop focus
     // mid-turn; the finally covers the ready state.
     void this.store
-      .sendMessage(text)
+      .sendMessage(submission)
       .finally(() => {
         // First turn assigns the session id via stream `meta` — track
         // whatever is current so room filtering follows.

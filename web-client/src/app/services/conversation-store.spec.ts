@@ -45,7 +45,12 @@ describe('ConversationStore', () => {
 
   function emit(events: StreamEvent[]): void {
     streams.streamTurn.mockImplementation(
-      (_message: string, _session: string | null, callbacks: StreamCallbacks) => {
+      (
+        _message: string,
+        _session: string | null,
+        _attachments: unknown,
+        callbacks: StreamCallbacks,
+      ) => {
         for (const event of events) {
           callbacks.onEvent(event);
         }
@@ -225,7 +230,12 @@ describe('ConversationStore', () => {
 
   it('should surface stream errors as system messages', async () => {
     streams.streamTurn.mockImplementation(
-      (_message: string, _session: string | null, callbacks: StreamCallbacks) => {
+      (
+        _message: string,
+        _session: string | null,
+        _attachments: unknown,
+        callbacks: StreamCallbacks,
+      ) => {
         callbacks.onError(new Error('boom'));
         return Promise.resolve();
       },

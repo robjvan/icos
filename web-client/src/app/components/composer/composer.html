@@ -5,8 +5,9 @@
       type="button"
       class="attach-btn"
       (click)="openFilePicker()"
-      aria-label="Attach files (local-only placeholder, not uploaded)"
-      title="Attach files (local-only placeholder, not uploaded)"
+      aria-label="Attach files (uploaded on send)"
+      title="Attach files (uploaded on send)"
+      [disabled]="sendDisabled()"
     >
       <svg lucidePaperclip [size]="16" aria-hidden="true"></svg>
     </button>
@@ -22,7 +23,7 @@
       (keydown)="onKeydown($event)"
       aria-label="Message"
     ></textarea>
-    <button id="composer-send" type="submit" [disabled]="busy()">
+    <button id="composer-send" type="submit" [disabled]="sendDisabled()">
       <svg lucideSend [size]="16" aria-hidden="true"></svg>
       {{ sendLabel() }}
     </button>
@@ -32,22 +33,21 @@
     type="file"
     class="visually-hidden"
     multiple
-    accept="image/*,.pdf,.txt,.md,audio/*,video/*"
+    accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json"
     (change)="onFilesSelected($event)"
     aria-label="Choose files to attach"
     tabindex="-1"
   />
   @if (attachments().length > 0) {
-    <div class="attachments" aria-label="Selected attachments (not uploaded)">
-      <span class="badge">local-only · server unimplemented</span>
+    <div class="attachments" aria-label="Selected attachments">
       <ul aria-label="Attached files">
-        @for (name of attachments(); track $index; let i = $index) {
+        @for (file of attachments(); track $index; let i = $index) {
           <li>
-            <span>{{ name }}</span>
+            <span>{{ file.name }}</span>
             <button
               type="button"
               (click)="removeAttachment(i)"
-              [attr.aria-label]="'Remove attachment ' + name"
+              [attr.aria-label]="'Remove attachment ' + file.name"
             >
               <svg lucideX [size]="14" aria-hidden="true"></svg>
             </button>
@@ -55,5 +55,8 @@
         }
       </ul>
     </div>
+  }
+  @if (uploadError(); as error) {
+    <p class="upload-error" role="alert">Attachment upload failed: {{ error }}</p>
   }
 </form>

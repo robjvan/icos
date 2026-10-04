@@ -7,6 +7,7 @@ export const SERVER_URL = 'http://localhost:3000';
 
 // Core endpoint paths (relative). Compose as `${SERVER_URL}${*_ENDPOINT}...`.
 export const CONVERSATION_ENDPOINT = '/core/conversation';
+export const ATTACHMENTS_ENDPOINT = '/core/attachments';
 export const SESSIONS_ENDPOINT = '/core/sessions';
 export const APPROVALS_ENDPOINT = '/core/approvals';
 export const CLARIFICATIONS_ENDPOINT = '/core/clarifications';

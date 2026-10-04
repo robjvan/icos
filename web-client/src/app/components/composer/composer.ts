@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   computed,
+  inject,
   input,
   output,
   signal,
@@ -10,13 +11,15 @@ import {
 } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { LucidePaperclip, LucideSend, LucideX } from '@lucide/angular';
+import type { ComposerSubmission, TurnAttachment } from '../../models/attachment';
+import { AttachmentService } from '../../services/attachment.service';
 
 /**
  * Message composer. Enter sends, Shift+Enter adds a newline.
  *
- * Attachments are a frontend-only placeholder: files are listed locally and
- * never uploaded (no server endpoint exists). They are NOT included in the
- * submitted message.
+ * Attachments are uploaded to the core attachment store on submit (M16.2) and
+ * carried as references with the turn. The server bounds size and content
+ * type; on failure the message and files are kept so the user can retry.
  */
 @Component({
   selector: 'app-composer',
@@ -27,8 +30,9 @@ import { LucidePaperclip, LucideSend, LucideX } from '@lucide/angular';
 })
 export class Composer {
   readonly busy = input(false);
-  readonly submitted = output<string>();
+  readonly submitted = output<ComposerSubmission>();
 
+  private readonly attachmentsApi = inject(AttachmentService);
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
 
@@ -36,25 +40,51 @@ export class Composer {
     message: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
 
-  /** Local-only attachment names. Files never leave the browser. */
-  readonly attachments = signal<readonly string[]>([]);
+  /** Files chosen for the next turn (uploaded on submit). */
+  readonly attachments = signal<readonly File[]>([]);
+  readonly uploading = signal(false);
+  readonly uploadError = signal<string | null>(null);
 
-  readonly sendLabel = computed(() => (this.busy() ? '...' : 'Send'));
+  readonly sendLabel = computed(() => {
+    if (this.uploading()) return 'Uploading…';
+    return this.busy() ? '...' : 'Send';
+  });
 
-  onSubmit(): void {
+  readonly sendDisabled = computed(() => this.busy() || this.uploading());
+
+  async onSubmit(): Promise<void> {
     const message = this.form.controls.message.value.trim();
-    if (!message || this.busy()) {
+    if (!message || this.sendDisabled()) {
       return;
+    }
+    const files = this.attachments();
+    this.uploadError.set(null);
+    let refs: TurnAttachment[] = [];
+    if (files.length > 0) {
+      this.uploading.set(true);
+      try {
+        refs = await Promise.all(
+          files.map((file) => this.attachmentsApi.upload(file)),
+        );
+      } catch (error) {
+        // Keep the message and files so the user can retry.
+        this.uploadError.set(
+          error instanceof Error ? error.message : 'Upload failed',
+        );
+        this.uploading.set(false);
+        return;
+      }
+      this.uploading.set(false);
     }
     this.form.reset();
     this.clearAttachments();
-    this.submitted.emit(message);
+    this.submitted.emit({ message, attachments: refs });
   }
 
   onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      this.onSubmit();
+      void this.onSubmit();
     }
   }
 
@@ -64,9 +94,9 @@ export class Composer {
 
   onFilesSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const names = [...(input.files ?? [])].map((file) => file.name).filter((name) => name !== '');
-    if (names.length > 0) {
-      this.attachments.update((current) => [...current, ...names]);
+    const files = [...(input.files ?? [])];
+    if (files.length > 0) {
+      this.attachments.update((current) => [...current, ...files]);
     }
     input.value = '';
   }
@@ -77,6 +107,7 @@ export class Composer {
 
   clearAttachments(): void {
     this.attachments.set([]);
+    this.uploadError.set(null);
   }
 
   /** Return keyboard focus to the message box (session switch, turn done). */

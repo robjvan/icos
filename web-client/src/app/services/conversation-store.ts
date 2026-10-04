@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import type { Approval } from '../models/approval';
 import type { ApprovalDecision } from '../models/approval';
 import type { Clarification } from '../models/clarification';
+import type { ComposerSubmission } from '../models/attachment';
 import type { ChatMessage, MessageRole } from '../models/message';
 import type { SessionSummary, SessionSearchResult } from '../models/session';
 import type { ParkedResume, StreamEvent } from '../models/stream-event';
@@ -96,8 +97,9 @@ export class ConversationStore {
     await this.refreshQuestions();
   }
 
-  async sendMessage(text: string): Promise<void> {
-    const message = text.trim();
+  async sendMessage(input: string | ComposerSubmission): Promise<void> {
+    const message = (typeof input === 'string' ? input : input.message).trim();
+    const attachments = typeof input === 'string' ? [] : input.attachments;
     if (!message || this.busy()) {
       return;
     }
@@ -105,10 +107,15 @@ export class ConversationStore {
     this.busy.set(true);
     this.startPending('Thinking...');
     try {
-      await this.streams.streamTurn(message, this.sessionId(), {
-        onEvent: (event) => this.handleEvent(event, { resumes: 0 }),
-        onError: (error) => this.failPending(error),
-      });
+      await this.streams.streamTurn(
+        message,
+        this.sessionId(),
+        attachments,
+        {
+          onEvent: (event) => this.handleEvent(event, { resumes: 0 }),
+          onError: (error) => this.failPending(error),
+        },
+      );
     } finally {
       this.busy.set(false);
     }
