@@ -40,7 +40,7 @@ opencode and hermes present a *set of model options*; matching that is the goal.
 - **Endpoint variance**: `/models` shapes differ wildly across gateways; how
   much to normalize vs surface raw?
 - **llama.cpp**: does it expose the mmproj/vision modality via any endpoint?
-  (Directly relevant to serving Gemma4 with vision.)
+  (Ollama does, via `/api/show`; llama.cpp is only needed for custom builds.)
 - **Cache invalidation** and offline/air-gapped behaviour.
 - **Relationship to S4 provider roles** (`conversation`/`memory`/`vision`):
   capabilities are per model, roles are per purpose.

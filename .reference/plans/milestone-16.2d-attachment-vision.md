@@ -13,12 +13,15 @@
 - **No object store.** Images are base64-encoded in memory — local store for
   web uploads, CDN fetch for Discord. Nothing is hosted and no URLs are passed
   to the model, so no S3/versitygw dependency.
-- **The auxiliary vision model is a `vision` provider role.** *Correction
-  (2026-10-04):* the configured memory model `gemma4-e4b-mem:latest` does
-  **not** advertise vision (`/api/show` → `["completion","tools","thinking"]`),
-  so the fallback needs a vision-capable model (a different local build, or a
-  remote vision provider). The `vision` role remains the right seam; it just
-  points at a model that actually reports `"vision"`.
+- **The auxiliary vision model is a `vision` provider role.**
+  *Resolved (2026-10-04):* switching the memory model to the **native Ollama
+  `gemma4:e4b`** (projector packaged) reports
+  `capabilities: ["completion","vision","audio","tools","thinking"]`, and a
+  live probe (a 96×96 PNG → `/api/chat` with `images:[base64]`) returned
+  *"A blue circle is placed on a red background."* — so the local model can
+  serve the auxiliary vision path with no new dependency. (The earlier
+  custom build `gemma4-e4b-mem:latest` lacked the `mmproj` and reported no
+  vision.)
 - **Depends on EXP-1 (tools):** `vision_analyze` is expected to arrive as a
   tool in the expansion, so this slice consumes it rather than inventing a
   bespoke path.
@@ -105,10 +108,12 @@ fail-soft.
   - **OpenRouter-style** gateways report `architecture.input_modalities`.
   - **Most OpenAI-compatible gateways** (incl. the current `opencode`
     endpoint — `/models` returns 404) report nothing.
-  - **Local serving (next session).** A *custom* Ollama model can't bundle an
-    `mmproj` (the multimodal projector), so it won't advertise vision. Try
-    serving Gemma4 via **llama.cpp with the mmproj** and check whether the
-    vision modality is exposed and accepted end to end.
+  - **Local serving (resolved 2026-10-04).** A *custom* Ollama model can't
+    bundle an `mmproj` (the multimodal projector), so it won't advertise
+    vision. The native `gemma4:e4b` includes it: `/api/show` reports `vision`
+    and a live `/api/chat` probe with an image succeeded. (Serving via
+    llama.cpp with an explicit mmproj remains an option if a custom build is
+    ever needed.)
   So: default to the declared flag; probe where the provider exposes it; fall
   back to the flag when the probe is unavailable. (Bundled future slice for
   capability detection **and** model listing:
