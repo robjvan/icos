@@ -105,8 +105,14 @@ fail-soft.
   - **OpenRouter-style** gateways report `architecture.input_modalities`.
   - **Most OpenAI-compatible gateways** (incl. the current `opencode`
     endpoint — `/models` returns 404) report nothing.
+  - **Local serving (next session).** A *custom* Ollama model can't bundle an
+    `mmproj` (the multimodal projector), so it won't advertise vision. Try
+    serving Gemma4 via **llama.cpp with the mmproj** and check whether the
+    vision modality is exposed and accepted end to end.
   So: default to the declared flag; probe where the provider exposes it; fall
-  back to the flag when the probe is unavailable.
+  back to the flag when the probe is unavailable. (Bundled future slice for
+  capability detection **and** model listing:
+  `.reference/plans/provider-model-discovery.md`.)
 - **Cost/latency:** images are token-expensive; cap aggressively and note it.
 - **History:** images are attached to the **current** user message only, never
   replayed from history (avoids re-sending bytes every turn). Confirm that is
