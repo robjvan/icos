@@ -43,7 +43,7 @@
 The e2e uploads a PNG, fetches it back, then sends a turn carrying the ref and
 asserts the model receives the `<attachments>` band.
 
-Totals after this slice: **1098 unit passed, 1 skipped** and **66 e2e passed**
+Totals after this slice: **1099 unit passed, 1 skipped** and **66 e2e passed**
 (core); **187 web-client tests**; `tsc`/`eslint` clean on both.
 
 ## Live — web/API path
@@ -71,6 +71,29 @@ The reply (verbatim):
 
 The model describes the metadata and **explicitly refuses to claim it read the
 contents** — the intended behaviour.
+
+## Live — web UI (stream path)
+
+Driving the real Angular composer end to end caught a second defect. The
+upload worked and the request body carried `attachments` (confirmed in the
+browser network log), but the model saw nothing — because the **stream
+controller never passed `dto.attachments` to `converseStream`**. The web client
+streams; only the non-stream path had been wired. Fixed in `c37a597`
+(attachments threaded through `converseStream`; the non-stream path already
+worked).
+
+After the fix, a live UI turn replied with the metadata and corrected its own
+earlier reasoning:
+
+> …to your question "what metadata do you see **now**": the four fields
+> above… Why my earlier answer diverged: I searched the session transcript for
+> the attachment and got zero matches, then treated "no transcript record" as
+> "no attachment metadata at all." Those are different things… That conflation
+> was my error, not a real absence of data.
+
+Also fixed (client, `eacfa9d`): the composer sent the server's full stored
+object (`id`, `createdAt`, …), which the request DTO rejects
+(`forbidNonWhitelisted`); it now sends references only.
 
 ## Live — Discord inbound
 
