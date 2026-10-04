@@ -16,6 +16,11 @@ import type {
   ChannelSendResult,
 } from './channel-adapter';
 import type { ChannelName } from './channel.types';
+import {
+  DEFAULT_STREAM_MARKER,
+  parseStream,
+  STATUS_STREAM,
+} from './discord.stream';
 import type {
   DiscordInbound,
   DiscordMessageHandler,
@@ -32,10 +37,18 @@ export interface DiscordMessageHandle {
 }
 
 export interface DiscordChannelLike {
+  id?: string;
+  topic?: string | null;
+  guildId?: string | null;
   isTextBased(): boolean;
   send(payload: unknown): Promise<{ id: string }>;
   sendTyping?(): Promise<void>;
   messages?: { fetch(id: string): Promise<DiscordMessageHandle> };
+}
+
+export interface DiscordGuildLike {
+  id: string;
+  channels: { cache: Map<string, DiscordChannelLike> };
 }
 
 export interface DiscordUserLike {
@@ -49,6 +62,7 @@ export interface DiscordClientLike {
   once(event: string, handler: (...args: unknown[]) => void): unknown;
   channels: { fetch(id: string): Promise<DiscordChannelLike | null> };
   users: { fetch(id: string): Promise<DiscordUserLike> };
+  guilds?: { cache: Map<string, DiscordGuildLike> };
   user?: { tag?: string } | null;
 }
 
@@ -108,6 +122,8 @@ export class DiscordAdapter
   private approvalHandler:
     ((decision: { approvalId: string; approved: boolean }) => void) | null =
     null;
+  private readyHandler: (() => void) | null = null;
+  private shutdownHandler: (() => Promise<void>) | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -122,6 +138,9 @@ export class DiscordAdapter
   }
 
   async onModuleDestroy(): Promise<void> {
+    // The farewell runs while the client is still connected; only then do we
+    // tear the client down.
+    await this.runShutdownHook();
     await this.disconnect();
   }
 
@@ -187,6 +206,45 @@ export class DiscordAdapter
     handler: (decision: { approvalId: string; approved: boolean }) => void,
   ): void {
     this.approvalHandler = handler;
+  }
+
+  /**
+   * Register a handler fired once when the gateway becomes ready (M16m).
+   * If the client is already ready, it fires immediately — so a late
+   * registrant never misses the event.
+   */
+  onReady(handler: () => void): void {
+    this.readyHandler = handler;
+    if (this.ready) handler();
+  }
+
+  /** Register a best-effort handler run on graceful shutdown (M16m). */
+  onShutdown(handler: () => Promise<void>): void {
+    this.shutdownHandler = handler;
+  }
+
+  /**
+   * The conversation key of the presence/status channel, or null when none
+   * is configured (M16m). Prefers DISCORD_STATUS_CHANNEL_ID; otherwise the
+   * first channel whose topic carries the `[icos-stream: status]` marker.
+   * The middle key segment is a label — a channel target resolves by id.
+   */
+  statusTarget(): string | null {
+    if (!this.client || !this.ready) return null;
+    const explicit = this.config.discordStatusChannelId?.trim();
+    if (explicit) return `discord:status:${explicit}`;
+    const guilds = this.client.guilds?.cache;
+    if (!guilds) return null;
+    const marker = this.config.discordStreamMarker ?? DEFAULT_STREAM_MARKER;
+    for (const guild of guilds.values()) {
+      for (const channel of guild.channels.cache.values()) {
+        if (parseStream(channel.topic ?? null, marker) !== STATUS_STREAM) {
+          continue;
+        }
+        if (channel.id) return `discord:${guild.id}:${channel.id}`;
+      }
+    }
+    return null;
   }
 
   /** The bot's own Discord tag (e.g. `NigelAgent#5144`), once ready. */
@@ -366,6 +424,32 @@ export class DiscordAdapter
     return await this.client.channels.fetch(target.id);
   }
 
+  private notifyReady(): void {
+    try {
+      this.readyHandler?.();
+    } catch (error) {
+      this.logger.warn(
+        `Discord ready handler failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private async runShutdownHook(): Promise<void> {
+    const handler = this.shutdownHandler;
+    if (!handler) return;
+    try {
+      await handler();
+    } catch (error) {
+      this.logger.warn(
+        `Discord shutdown handler failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
   private async buildClient(): Promise<{
     client: DiscordClientLike;
     readyEvent: string;
@@ -411,6 +495,7 @@ export class DiscordAdapter
       this.selfId =
         (readyClient as { user?: { id?: string } } | null)?.user?.id ?? null;
       this.logger.log(`Discord ready${tag ? `: ${tag}` : ''}`);
+      this.notifyReady();
     });
     client.on('error', (error: unknown) => {
       this.logger.error(

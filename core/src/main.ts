@@ -17,6 +17,10 @@ async function bootstrap() {
   const config = loadConfig();
   const core = await NestFactory.create<INestApplication>(CoreModule);
 
+  // Graceful shutdown (M16m): SIGTERM/SIGINT run onModuleDestroy, so the
+  // Discord adapter can post its farewell before the client tears down.
+  core.enableShutdownHooks();
+
   core.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

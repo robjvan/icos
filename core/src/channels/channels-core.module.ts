@@ -3,6 +3,7 @@ import { coreConfigProvider } from '../config';
 import { CHANNEL_ADAPTERS } from './channel-adapter';
 import { ChannelDatabaseService } from './channel-database.service';
 import { ChannelDeliveryService } from './channel-delivery.service';
+import { ChannelPresenceService } from './channel-presence.service';
 import { ChannelRepository } from './channel.repository';
 import { ChannelSendService } from './channel-send.service';
 import { CHANNEL_SEND } from './channel-send.port';
@@ -31,6 +32,7 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
     ChannelDeliveryService,
     ChannelSendService,
     ChannelToolSender,
+    ChannelPresenceService,
     { provide: CHANNEL_SEND, useExisting: ChannelToolSender },
   ],
   exports: [

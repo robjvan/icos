@@ -128,6 +128,10 @@ export interface CoreConfig {
   discordAllowedUserIds?: string[];
   discordAllowedGuildIds?: string[];
   discordAllowDirectMessages?: boolean;
+  discordPresenceEnabled?: boolean;
+  discordStatusChannelId?: string;
+  discordPresenceOnline?: string;
+  discordPresenceOffline?: string;
   /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
@@ -442,6 +446,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     discordAllowedUserIds: parseCsv(env.DISCORD_ALLOWED_USER_IDS),
     discordAllowedGuildIds: parseCsv(env.DISCORD_ALLOWED_GUILD_IDS),
     discordAllowDirectMessages: parseBoolean(env.DISCORD_ALLOW_DMS, true),
+    discordPresenceEnabled: parseBoolean(env.DISCORD_PRESENCE_ENABLED, true),
+    discordStatusChannelId:
+      (env.DISCORD_STATUS_CHANNEL_ID ?? '').trim() || undefined,
+    discordPresenceOnline:
+      (env.DISCORD_PRESENCE_ONLINE ?? '').trim() || undefined,
+    discordPresenceOffline:
+      (env.DISCORD_PRESENCE_OFFLINE ?? '').trim() || undefined,
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',

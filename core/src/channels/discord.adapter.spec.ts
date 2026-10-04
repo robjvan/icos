@@ -6,6 +6,7 @@ import type { SecretResolver } from '../secrets/secret-resolver';
 import type {
   DiscordChannelLike,
   DiscordClientLike,
+  DiscordGuildLike,
   DiscordUserLike,
 } from './discord.adapter';
 import {
@@ -35,6 +36,9 @@ class FakeChannel implements DiscordChannelLike {
     fetch: async (id: string): Promise<FakeMessageHandle> =>
       this.handles.get(id) ?? new FakeMessageHandle(),
   };
+  id = 'c1';
+  topic: string | null = null;
+  guildId: string | null = 'g1';
   constructor(private readonly textBased = true) {}
   isTextBased(): boolean {
     return this.textBased;
@@ -55,6 +59,9 @@ class FakeClient implements DiscordClientLike {
   readonly channels = {
     fetch: async (id: string): Promise<DiscordChannelLike | null> =>
       this.channelsById.get(id) ?? null,
+  };
+  readonly guilds: { cache: Map<string, DiscordGuildLike> } = {
+    cache: new Map(),
   };
   readonly dmChannel: DiscordChannelLike = new FakeChannel();
   readonly users: { fetch(id: string): Promise<DiscordUserLike> } = {
@@ -341,5 +348,92 @@ describe('DiscordAdapter', () => {
       parentChannelId: 'c1',
       content: 'in a thread',
     });
+  });
+
+  it('fires onReady when ready, and immediately for a late registrant', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    let fired = 0;
+    adapter.onReady(() => fired++);
+
+    await adapter.connect();
+    expect(fired).toBe(0);
+
+    client.emitReady();
+    expect(fired).toBe(1);
+
+    // The client is already ready, so a later registrant fires at once.
+    adapter.onReady(() => fired++);
+    expect(fired).toBe(2);
+  });
+
+  it('resolves an explicit status channel id', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      { discordBotToken: 'tok', discordStatusChannelId: 's1' } as CoreConfig,
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    expect(adapter.statusTarget()).toBe('discord:status:s1');
+  });
+
+  it('finds the status channel by its topic marker', async () => {
+    const client = new FakeClient();
+    const status = new FakeChannel();
+    status.id = 's2';
+    status.topic = 'runtime status [icos-stream: status]';
+    client.guilds.cache.set('g9', {
+      id: 'g9',
+      channels: { cache: new Map([['s2', status]]) },
+    });
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    expect(adapter.statusTarget()).toBe('discord:g9:s2');
+  });
+
+  it('has no status target when none is configured', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    expect(adapter.statusTarget()).toBeNull();
+  });
+
+  it('runs the shutdown hook while still connected, before destroying', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    const seen: boolean[] = [];
+    adapter.onShutdown(async () => {
+      seen.push(adapter.isConnected());
+    });
+    await adapter.onModuleDestroy();
+
+    expect(seen).toEqual([true]);
+    expect(client.destroyed).toBe(true);
   });
 });

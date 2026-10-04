@@ -8,9 +8,12 @@ import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
 import type { ChannelMessage } from './channel.types';
 import { DiscordAdapter } from './discord.adapter';
+import {
+  CHAT_STREAM,
+  DEFAULT_STREAM_MARKER,
+  parseStream,
+} from './discord.stream';
 import type { DiscordInbound } from './discord.types';
-
-const DEFAULT_STREAM_MARKER = '[icos-stream:';
 
 /** A short, safe Discord thread name derived from the message text. */
 function threadName(content: string): string {
@@ -399,16 +402,6 @@ export class DiscordIngressService implements OnModuleInit {
       return true;
     }
     const marker = this.config.discordStreamMarker ?? DEFAULT_STREAM_MARKER;
-    return this.streamOf(message.parentTopic, marker) === 'chat';
-  }
-
-  /** Parse the stream type out of a channel topic: `[icos-stream: chat]`. */
-  private streamOf(topic: string | null, marker: string): string | null {
-    if (!topic) return null;
-    const index = topic.toLowerCase().indexOf(marker.toLowerCase());
-    if (index === -1) return null;
-    const after = topic.slice(index + marker.length).replace(/^\s+/, '');
-    const stream = after.split(/[\s\]]+/)[0];
-    return stream ? stream.toLowerCase() : null;
+    return parseStream(message.parentTopic, marker) === CHAT_STREAM;
   }
 }
