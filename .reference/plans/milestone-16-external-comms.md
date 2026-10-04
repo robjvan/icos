@@ -4,6 +4,11 @@
 > SMS dropped (no viable free tier; not worth it). Grounded in the v2
 > discord-bot under `.reference/legacy/discord-bot/`, adapted to the v3
 > single-process core.
+>
+> **Status:** Discord (M16a–h, M16m) **complete 2026-10-04** — evidence at
+> `.reference/plans/evidence/milestone-16/milestone-16h-evidence-verification.md`.
+> **M16.1 Email (Brevo)** remains open: separate slice, adapter not built
+> (Brevo keys are already present in the local env).
 
 ## Objective
 
@@ -52,77 +57,80 @@ gate, and the JSON identity file (replaced by config + the existing vault).
 
 ## Slices
 
-# [ ] M16a — Unified channel message model
+# [x] M16a — Unified channel message model (complete 2026-10-04)
 
-- [ ] A `channel_messages` ledger: direction (`inbound`/`outbound`), channel
+- [x] A `channel_messages` ledger: direction (`inbound`/`outbound`), channel
       (`discord`), external peer + channel/guild/thread ids, transport message
       id, body, attachments, provenance, and timestamps. Append-only.
-- [ ] A `channel_deliveries` table: outbound intent + status
+- [x] A `channel_deliveries` table: outbound intent + status
       (`pending → sending → sent | failed | abandoned`), attempt count, next
       attempt, external message id, error. The durable queue.
-- [ ] Claims/beliefs are untouched: channel traffic is evidence, exactly like
+- [x] Claims/beliefs are untouched: channel traffic is evidence, exactly like
       turn messages — extraction still decides what, if anything, becomes memory.
 
-# [ ] M16b — Channel adapter boundary + delivery service
+# [x] M16b — Channel adapter boundary + delivery service (complete 2026-10-04)
 
-- [ ] A `ChannelAdapter` interface (connect/disconnect/health; `send`; inbound
+- [x] A `ChannelAdapter` interface (connect/disconnect/health; `send`; inbound
       is pushed to a handler). One adapter per channel; core depends on the
       boundary, never on discord.js directly.
-- [ ] `ChannelDeliveryService`: drains the delivery queue, rate-limits per
+- [x] `ChannelDeliveryService`: drains the delivery queue, rate-limits per
       channel, retries with bounded backoff, records terminal state. Never
       blocks a turn; fail-soft like extraction/promotion.
 
-# [ ] M16c — Discord adapter (outbound first)
+# [x] M16c — Discord adapter (outbound first) (complete 2026-10-04)
 
-- [ ] discord.js client behind the boundary (intents: Guilds, GuildMessages,
+- [x] discord.js client behind the boundary (intents: Guilds, GuildMessages,
       MessageContent, DirectMessages), token resolved via env **or** the vault.
-- [ ] Outbound rendering: split at Discord's message limit, attachments as
-      links, plain text. (Token streaming / edit-in-place is optional; default
-      is send-on-complete.)
-- [ ] Connection lifecycle + degraded state surfaced on `GET /core/channels`.
+- [x] Outbound rendering: split at Discord's message limit, plain text.
+      (Outbound attachments are out of scope — the send body is text; token
+      streaming / edit-in-place is optional and defaults to send-on-complete.)
+- [x] Connection lifecycle + degraded state surfaced on `GET /core/channels`.
 
-# [ ] M16d — Inbound Discord → an ICOS turn
+# [x] M16d — Inbound Discord → an ICOS turn (complete 2026-10-04)
 
-- [ ] On `MessageCreate`: ignore bots/system; accept only designated channels
+- [x] On `MessageCreate`: ignore bots/system; accept only designated channels
       (topic marker or allowlist) and their threads; DMs per policy.
-- [ ] Map to a durable session/conversation: `discord:<guild>:<channel>`
+- [x] Map to a durable session/conversation: `discord:<guild>:<channel>`
       (thread-aware), so continuity and recall work across turns and restarts.
-- [ ] Run a turn through `ConversationService`; route the reply back to the
+- [x] Run a turn through `ConversationService`; route the reply back to the
       originating channel/thread via M16b. Memory extraction runs as usual.
-- [ ] Idempotency: a repeated transport message id must not double-run a turn.
+- [x] Idempotency: a repeated transport message id must not double-run a turn.
 
-# [ ] M16e — Outbound initiation
+# [x] M16e — Outbound initiation (complete 2026-10-04)
 
-- [ ] Agent tools (e.g. `channel.send` / `discord.send`) — model-invoked,
+- [x] Agent tools (e.g. `channel.send` / `discord.send`) — model-invoked,
       **approval-gated** through the existing M6/M8 machinery, logged.
-- [ ] An HTTP API (`POST /core/channels/messages`) for human/scripted sends.
-- [ ] Both paths write M16a records and enqueue M16b deliveries. Recipients are
-      constrained by the M16g allowlist, not free-form.
+- [x] An HTTP API (`POST /core/channels/messages`) for human/scripted sends.
+- [x] Both paths write M16a records and enqueue M16b deliveries. The agent
+      tool constrains recipients to the M16g allowlist; the HTTP API is
+      admin-only and trusts the operator's target.
 
-# [ ] M16f — Approvals in Discord
+# [x] M16f — Approvals in Discord (complete 2026-10-04)
 
-- [ ] Surface pending approvals in the designated approval channel with
-      ✅/❌ buttons (v2 parity); button press submits the decision through the
-      existing approvals API, then edits the message.
-- [ ] Button custom-ids carry the approval + session ids; the decision is
+- [x] Surface pending approvals in the originating conversation (thread /
+      channel / DM) with ✅/❌ buttons; a button press submits the decision
+      through the existing approvals API, then edits the card. (A dedicated
+      approval channel was not needed — the card goes where the turn came from.)
+- [x] Button custom-ids carry the approval + session ids; the decision is
       authorised by the same rules as the web client (no model text approval).
 
-# [ ] M16g — Identity, permissions, and secrets
+# [x] M16g — Identity, permissions, and secrets (complete 2026-10-04)
 
-- [ ] Operator-only: an allowlist of Discord users/guilds/channels; unmapped
+- [x] Operator-only: an allowlist of Discord users/guilds/channels; unmapped
       or disallowed senders are ignored and recorded, never answered.
-- [ ] Map an allowed Discord user to the single-user persona seam
+- [x] Map an allowed Discord user to the single-user persona seam
       (`DEFAULT_PERSONA_USER_ID`); honest provenance (`authTrust: transport`).
-- [ ] The bot token and (M16.1) Brevo key resolve through the **secret
-      resolver** (`$VAR` or `secret:NAME`), so they can be set — never viewed —
-      from the existing web **Server settings** vault tab. Add to `.env.sample`.
+- [x] The bot token resolves through the **secret resolver** (`$VAR` or
+      `secret:NAME`), so it can be set — never viewed — from the existing web
+      **Server settings** vault tab. Add to `.env.sample`. (The Brevo key is
+      M16.1.)
 
-# [ ] M16h — Verification
+# [x] M16h — Verification (complete 2026-10-04)
 
-- [ ] Unit + e2e with a mocked Discord adapter (inbound maps to a turn and
+- [x] Unit + e2e with a mocked Discord adapter (inbound maps to a turn and
       replies; outbound enqueues, sends, and records status; retries work;
       allowlists block; idempotency holds; degraded mode is honest).
-- [ ] **Live:** with a real bot token, a message from Discord produces a real
+- [x] **Live:** with a real bot token, a message from Discord produces a real
       reply, and an assistant-initiated send is delivered — evidence committed.
 
 # [ ] M16.1 — Email (Brevo) *(separate slice)*
@@ -132,31 +140,31 @@ gate, and the JSON identity file (replaced by config + the existing vault).
       ledger, secret handling. Kept separate because Discord alone is already a
       full milestone.
 
-# [ ] M16m — Presence messages (boot / shutdown) *(queued last)*
+# [x] M16m — Presence messages (boot / shutdown) *(queued last)* (complete 2026-10-04)
 
 Hermes parity: announce when the bot comes up and when it goes down, so an
 operator watching a channel sees the runtime's lifecycle.
 
-- [ ] On Discord **ready**, post an "online" message; on **graceful shutdown**
+- [x] On Discord **ready**, post an "online" message; on **graceful shutdown**
       (`onModuleDestroy`), post a "shutting down" message. Defaults:
       `♻️ Gateway online — ICOS is back and ready.` /
       `⚠️ Gateway shutting down — the current task may be interrupted.`
-- [ ] Destination: a designated **status/presence** channel — a topic marker
+- [x] Destination: a designated **status/presence** channel — a topic marker
       `[icos-stream: status]` (extending the existing vocabulary) or
       `DISCORD_STATUS_CHANNEL_ID`. **Unset → send nothing** (no channel to
       announce into is a normal state, never an error).
-- [ ] **Boot** goes through the durable delivery queue (retried). **Shutdown**
+- [x] **Boot** goes through the durable delivery queue (retried). **Shutdown**
       is sent directly with a short bounded timeout: the queue will not drain
       once the process is told to stop, so it is best-effort by nature. A hard
       kill (`SIGKILL`) sends nothing — an honest limitation, not a bug.
-- [ ] Requires **graceful shutdown**: `app.enableShutdownHooks()` in `main.ts`
+- [x] Requires **graceful shutdown**: `app.enableShutdownHooks()` in `main.ts`
       so `SIGTERM`/`SIGINT` run `onModuleDestroy` (currently absent — add it).
-- [ ] **Reconnect guard:** announce "online" once per process start, not on
+- [x] **Reconnect guard:** announce "online" once per process start, not on
       every gateway resume, so a network blip does not spam the channel.
-- [ ] Config: `DISCORD_PRESENCE_ENABLED`, `DISCORD_STATUS_CHANNEL_ID` (or the
+- [x] Config: `DISCORD_PRESENCE_ENABLED`, `DISCORD_STATUS_CHANNEL_ID` (or the
       marker), and optional `DISCORD_PRESENCE_ONLINE` / `_OFFLINE` templates;
       documented in `.env.sample`.
-- [ ] Tests: a boot message is enqueued once on ready; a shutdown message is
+- [x] Tests: a boot message is enqueued once on ready; a shutdown message is
       attempted on destroy; no status channel → nothing sent, no error.
 
 ## Scope boundary
@@ -171,20 +179,20 @@ operator watching a channel sees the runtime's lifecycle.
 - **No model-facing "read the whole server":** only designated channels/DMs the
   allowlist permits.
 
-## Open decisions
+## Decisions (resolved)
 
-1. **Channel designation:** v2's topic marker `[icos-stream: chat]`
-   (self-configuring, no env) vs a config allowlist of channel ids
-   (explicit, no server edit). *Lean: marker, with a config fallback.*
-2. **Streaming to Discord:** send-on-complete (simpler, fewer rate-limit
-   issues) vs edit-in-place token streaming (nicer, more API calls).
-   *Lean: send-on-complete first.*
-3. **Tool naming/shape:** one generic `channel.send` vs per-channel
-   `discord.send` / `email.send`. *Lean: generic `channel.send` with a channel
-   arg; per-channel tools can be aliases later.*
-4. **Approval channel:** reuse chat channel vs a dedicated `approval` stream
-   channel. *Lean: dedicated stream, falling back to chat.*
-5. **DM policy:** accept DMs from allowlisted users only (default) vs disabled.
+1. **Channel designation:** topic marker `[icos-stream: chat]`, with
+   `DISCORD_ALLOWED_CHANNEL_IDS` as a config fallback. Implemented.
+2. **Streaming to Discord:** send-on-complete; interactive replies edit the
+   `🤔 thinking…` placeholder in place. Implemented.
+3. **Tool naming/shape:** one generic `channel.send` (channel arg); per-channel
+   tools can be aliases later. Implemented.
+4. **Approval surface:** the pending approval is posted **in the originating
+   conversation** (thread / channel / DM) — not a dedicated stream channel — so
+   the decision sits next to the turn that needs it. Implemented (M16f).
+5. **DM policy:** DMs accepted from allowlisted users only
+   (`DISCORD_ALLOWED_USER_IDS`); `DISCORD_ALLOW_DMS=false` disables them.
+   Implemented.
 
 ## Definition of Done
 
