@@ -37,6 +37,10 @@ opencode and hermes present a *set of model options*; matching that is the goal.
 
 ## Open questions
 
+- **Deployment/networking:** host-local services (Ollama) must be addressed as
+  `host.docker.internal`, never `localhost`, from the core container. This bit
+  memory extraction (silently failing until fixed 2026-10-04); the discovery
+  slice should surface reachability/health for providers so this is visible.
 - **Endpoint variance**: `/models` shapes differ wildly across gateways; how
   much to normalize vs surface raw?
 - **llama.cpp**: does it expose the mmproj/vision modality via any endpoint?

@@ -114,6 +114,12 @@ fail-soft.
     and a live `/api/chat` probe with an image succeeded. (Serving via
     llama.cpp with an explicit mmproj remains an option if a custom build is
     ever needed.)
+  - **Container networking (fixed 2026-10-04).** The core container must reach
+    the host Ollama at **`host.docker.internal:11434`** — `localhost` is the
+    container itself. `MEMORY_LLM_BASE_URL` pointed at `localhost` and memory
+    extraction was **silently failing** in Docker (`[ollama] LLM endpoint
+    unreachable`). Fixed; verified by a turn that added new candidates
+    (23 → 27). This affects both memory extraction and the future vision path.
   So: default to the declared flag; probe where the provider exposes it; fall
   back to the flag when the probe is unavailable. (Bundled future slice for
   capability detection **and** model listing:
