@@ -164,7 +164,10 @@ export class DiscordIngressService implements OnModuleInit {
       const outcome = await this.conversation.converse(
         message.content,
         knownSessionId ?? undefined,
-        { sourceBand: this.sourceBand(message) },
+        {
+          sourceBand: this.sourceBand(message),
+          attachments: message.attachments,
+        },
       );
       if (!knownSessionId) {
         await this.repository.updateMessageSession(

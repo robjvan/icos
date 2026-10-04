@@ -9,6 +9,7 @@ import type {
   ConversationService,
   TurnOutcome,
 } from '../conversation/conversation.service';
+import type { TurnAttachment } from '../conversation/attachments';
 import type { ApprovalService } from '../approvals/approval.service';
 import { ChannelDatabaseService } from './channel-database.service';
 import type { ChannelDeliveryService } from './channel-delivery.service';
@@ -121,7 +122,11 @@ function fakeConversation(): {
   service: ConversationService;
   converse: jest.Mock<
     Promise<TurnOutcome>,
-    [string, (string | undefined)?, { sourceBand?: string }?]
+    [
+      string,
+      (string | undefined)?,
+      { sourceBand?: string; attachments?: TurnAttachment[] }?,
+    ]
   >;
 } {
   const converse = jest.fn(
@@ -377,6 +382,34 @@ describe('DiscordIngressService', () => {
 
     expect(converse.mock.calls[0]?.[2]?.sourceBand).toContain('Discord');
     expect(converse.mock.calls[0]?.[2]?.sourceBand).toContain('bot#1');
+  });
+
+  it('passes inbound attachments into the turn', async () => {
+    const { service: conversation, converse } = fakeConversation();
+    const service = build(testConfig(dir), conversation);
+
+    await service.handle(
+      inbound({
+        content: 'take a look',
+        attachments: [
+          {
+            url: 'https://cdn.discordapp.com/a.png',
+            name: 'a.png',
+            contentType: 'image/png',
+            sizeBytes: 1234,
+          },
+        ],
+      }),
+    );
+
+    expect(converse.mock.calls[0]?.[2]?.attachments).toEqual([
+      {
+        url: 'https://cdn.discordapp.com/a.png',
+        name: 'a.png',
+        contentType: 'image/png',
+        sizeBytes: 1234,
+      },
+    ]);
   });
 
   it('edits a visible error into the placeholder when the turn fails', async () => {

@@ -41,6 +41,13 @@ export interface ContextMemory {
    */
   sourceBand?: string | null;
   /**
+   * Attachment band (M16.2): a bounded note that this turn arrived with
+   * attachments (metadata only, contents not fetched). Follows the source
+   * band. Optional/absent yields byte-identical context for attachment-free
+   * turns.
+   */
+  attachmentBand?: string | null;
+  /**
    * Persona grounding band (M14d): immutable core first, then evolving
    * identity/user context, as its own provenance-tagged system block —
    * never mixed with the memory bands. Optional/absent yields
@@ -88,6 +95,9 @@ export function buildContext(
   }
   if (memory?.sourceBand) {
     messages.push({ role: 'system', content: memory.sourceBand });
+  }
+  if (memory?.attachmentBand) {
+    messages.push({ role: 'system', content: memory.attachmentBand });
   }
   if (memory?.personaBand) {
     messages.push({ role: 'system', content: memory.personaBand });

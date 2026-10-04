@@ -66,6 +66,8 @@ import type {
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
 import type { ContextMemory } from './context.builder';
+import { buildAttachmentBand } from './attachments';
+import type { TurnAttachment } from './attachments';
 import { SessionStore } from './session.store';
 import type { HistoryMessage } from './session.store';
 
@@ -229,7 +231,7 @@ export class ConversationService {
   async converse(
     message: string,
     sessionId?: string,
-    options?: { sourceBand?: string },
+    options?: { sourceBand?: string; attachments?: readonly TurnAttachment[] },
   ): Promise<TurnOutcome> {
     // Slash commands short-circuit before conversation: no LLM, no
     // transcript writes, no memory extraction.
@@ -245,7 +247,12 @@ export class ConversationService {
       };
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(id, message, options?.sourceBand);
+    const turn = await this.prepareTurn(
+      id,
+      message,
+      options?.sourceBand,
+      buildAttachmentBand(options?.attachments),
+    );
     // Bounded multi-step loop: each step proposes at most one call.
     // Approval-free searches chain (pair appended, propose again);
     // parks, text, and invalid proposals end the turn as before.
@@ -1560,6 +1567,7 @@ export class ConversationService {
     sessionId: string,
     message: string,
     sourceBand?: string,
+    attachmentBand?: string | null,
   ): Promise<{
     history: ChatMessage[];
     skills: ResolvedTurnSkills;
@@ -1581,6 +1589,7 @@ export class ConversationService {
       ...recalled.bands,
       personaBand,
       sourceBand: sourceBand ?? null,
+      attachmentBand: attachmentBand ?? null,
     });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
