@@ -74,6 +74,7 @@ export class ChannelPresenceService implements OnModuleInit {
     if (this.config.discordPresenceEnabled === false) return;
     const target = this.adapter.statusTarget();
     if (!target) return;
+    this.logger.log('Presence: sending shutdown announcement');
     const body = this.config.discordPresenceOffline ?? DEFAULT_PRESENCE_OFFLINE;
     await withTimeout(this.adapter.send(target, body), SHUTDOWN_TIMEOUT_MS);
   }

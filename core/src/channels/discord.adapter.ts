@@ -171,6 +171,7 @@ export class DiscordAdapter
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.logger.log('Discord adapter shutting down');
     // The farewell runs while the client is still connected; only then do we
     // tear the client down.
     await this.runShutdownHook();

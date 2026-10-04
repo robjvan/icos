@@ -28,7 +28,7 @@ a committed test, a command that was run, or a live observation.
 | Outbound send paths | `channel-send.service.spec.ts` (2) + `channel-tool-sender.service.spec.ts` (5) | HTTP send + allowlist-resolved tool send |
 | Approvals in Discord | `discord-ingress.service.spec.ts` (card post + button decision) | card with buttons, decision resumes the parked turn |
 | Permissions + audit | ingress (guild allowlist, ignored-sender ledger) + `channels.controller.spec.ts` (2) | disallowed senders ignored **and recorded**; policy observable |
-| Presence | `channel-presence.service.spec.ts` (8) + `discord.stream.spec.ts` (3) + adapter hooks | online once per boot via the queue; offline best-effort on shutdown; unset → silent |
+| Presence | `channel-presence.service.spec.ts` (8) + `discord.stream.spec.ts` (3) + adapter hooks | online once per boot via the queue; offline on graceful shutdown; live-verified |
 | Live | container logs + `GET /core/channels` + ledger + operator | see §3 |
 
 Totals on the recorded run: **1068 unit passed, 1 skipped** (the opt-in live
@@ -167,12 +167,26 @@ the same `ApprovalService` as the web client, resumes the parked turn, and
 rewrites the card. Operator-observed live end to end (propose `channel.send`
 → card → Approve → the DM was sent and the card flipped to `✅ Approved`).
 
-### Presence (M16m)
+### Presence (M16m) — live-verified
 
-Unit-verified; **not** live-verified because no status channel is configured
-(unset is the designed no-op). To exercise it live: give a channel the topic
-`[icos-stream: status]` (or set `DISCORD_STATUS_CHANNEL_ID`) and restart —
-online is enqueued on `ready`, offline is sent on graceful shutdown.
+Status channel: `DISCORD_STATUS_CHANNEL_ID` = the Exile Boardroom
+(`1500463773645934603`). From the channel on 2026-10-04:
+
+```
+03:26:22  NigelAgent  ♻️ Gateway online — ICOS is back and ready.
+03:26:31  NigelAgent  ⚠️ Gateway shutting down — the current task may be interrupted.
+```
+
+Online is enqueued through the durable queue on `ready` (once per process
+start, reconnect-guarded); offline is sent directly with a 2 s bound on
+graceful shutdown. Unset is a silent no-op.
+
+**Run-mode requirement found here.** The offline announcement needs
+`onModuleDestroy` to run, which needs the signal to reach Nest. The Nest dev
+watcher (`nest start --watch`) runs the app in a child process and swallows
+SIGTERM/SIGINT, so the container now runs the compiled app as PID 1
+(`CMD ["node", "dist/main"]`); hot reload is opt-in via
+`CORE_COMMAND="npm run start:dev"`. See §4.5.
 
 ## 4. Defects found and fixed during verification
 
@@ -195,6 +209,15 @@ online is enqueued on `ready`, offline is sent on graceful shutdown.
    Discord's message limit" was not actually implemented. Fixed in
    `670c495`: `splitForDiscord` (newline → space → hard cut, exact
    reassembly) is now used by both `send` and `edit`.
+5. **Graceful shutdown never ran in the dev container.** `enableShutdownHooks()`
+   was present, but the Nest dev watcher (`nest start --watch`) runs the app in
+   a child process and swallows SIGTERM/SIGINT, so `onModuleDestroy` never ran
+   and the offline announcement never fired (confirmed: no shutdown logs, then
+   no message in the channel). Fixed by making the container run the compiled
+   app as PID 1 (`CMD ["node","dist/main"]`, with `npm run build` in the image);
+   hot reload is opt-in via `CORE_COMMAND="npm run start:dev"`. Re-verified:
+   the Boardroom shows the online message on boot and the shutdown message on
+   `docker compose stop`.
 
 ## 5. What M16 explicitly does not claim
 

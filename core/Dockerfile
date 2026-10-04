@@ -11,9 +11,14 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 COPY . .
+RUN npm run build
 
 # NestJS API port
 EXPOSE 3000
 
-# Run with watch so code changes reload inside compose
-CMD ["npm", "run", "start:dev"]
+# Run the compiled app as PID 1 so SIGTERM/SIGINT reach Nest and its shutdown
+# hooks run (graceful shutdown + the M16m offline announcement). The Nest dev
+# watcher (`nest start --watch`) runs the app in a child process and swallows
+# the signal, so graceful shutdown does not run in that mode. For hot reload,
+# set CORE_COMMAND="npm run start:dev" (docker-compose interpolates it).
+CMD ["node", "dist/main"]
