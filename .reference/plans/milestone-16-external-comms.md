@@ -7,9 +7,10 @@
 >
 > **Status:** Discord (M16a–h, M16m) **complete 2026-10-04** — evidence at
 > `.reference/plans/evidence/milestone-16/milestone-16h-evidence-verification.md`.
-> **Open follow-on slices:** **M16.1 Email (Brevo)** (adapter not built; Brevo
-> keys already in the local env) and **M16.2 Attachments** (recorded but not
-> usable; web upload endpoint absent).
+> **M16.1 Email (Brevo)** **complete 2026-10-04** — evidence at
+> `.reference/plans/evidence/milestone-16/milestone-16.1-evidence-email.md`.
+> **Open follow-on slice:** **M16.2 Attachments** (recorded but not usable; web
+> upload endpoint absent).
 
 ## Objective
 
@@ -134,12 +135,20 @@ gate, and the JSON identity file (replaced by config + the existing vault).
 - [x] **Live:** with a real bot token, a message from Discord produces a real
       reply, and an assistant-initiated send is delivered — evidence committed.
 
-# [ ] M16.1 — Email (Brevo) *(separate slice)*
+# [x] M16.1 — Email (Brevo) *(complete 2026-10-04)*
 
-- [ ] A second `ChannelAdapter` (Brevo transactional API): outbound send with a
+- [x] A second `ChannelAdapter` (Brevo transactional API): outbound send with a
       verified sender; inbound later or absent. Same message model, delivery
       ledger, secret handling. Kept separate because Discord alone is already a
       full milestone.
+- [x] `email:<address>` target; `channel.send` email/operator (first
+      allowlisted recipient) and email/user (allowlisted, case-insensitive);
+      `email/channel` rejected. Admin HTTP path stays trusted.
+- [x] Secret-resolved `BREVO_API_KEY`; `BREVO_SENDER_EMAIL`/`_NAME`,
+      `EMAIL_ALLOWED_RECIPIENTS`, `EMAIL_DEFAULT_SUBJECT`, `BREVO_API_BASE_URL`.
+- [x] Live-verified: message delivered to the operator inbox (see evidence).
+- [ ] *(follow-on, not this slice)* Inbound email; HTML; attachments; per-send
+      subject.
 
 # [ ] M16.2 — Attachments (inbound + web upload) *(added 2026-10-04)*
 
@@ -207,7 +216,8 @@ operator watching a channel sees the runtime's lifecycle.
 
 ## Scope boundary
 
-- **SMS:** dropped (no viable free tier).
+- **SMS:** dropped for M16 (no viable free tier). Note: Brevo offers
+  transactional SMS, so it could be revisited later — not in scope now.
 - **Email:** deferred to M16.1.
 - **No separate service / no broker:** channels live inside `core`.
 - **No proactive/unprompted sends:** the agent sends as part of a turn or an
