@@ -1,8 +1,9 @@
 # Expansion milestone (EXP) — tool surface, Discord commands, skills
 
 > Status: **draft / not started**. Captured 2026-10-04 from operator notes.
-> Sequencing: **M16.1 (email) → EXP → M17**. Scope to be refined when the
-> chunk is picked up; nothing here is committed to a slice breakdown yet.
+> Sequencing: **M16 complete → EXP → M16.2d (attachment vision) → M17**.
+> EXP-1 (tools) should land a `vision_analyze` tool, which M16.2d then consumes
+> as the text-only fallback. Scope to be refined when the chunk is picked up.
 
 ## Why
 
@@ -27,6 +28,9 @@ up):
 
 - `web_search` — needs a provider-agnostic backend and a network-egress story.
 - `terminal` — high-risk; likely approval-gated and sandboxed.
+- `vision_analyze` — describe an image for a text-only model. The existing
+  local memory model (`gemma4`) already accepts image input, so this tool can
+  reuse it. **M16.2d (attachment vision) depends on this.**
 - _TBD_: the full list is to be settled when the chunk starts.
 
 **Questions to resolve**

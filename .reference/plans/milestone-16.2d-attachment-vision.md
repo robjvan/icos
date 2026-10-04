@@ -1,8 +1,25 @@
 # M16.2d — Attachment vision (images to the model)
 
 > Status: **planned / not started**. Follow-on to M16.2 (attachments). Captured
-> 2026-10-04. Not "huge", but it crosses the **LLM protocol boundary**, so it
-> gets its own slice rather than a rushed patch.
+> 2026-10-04. **Sequenced *after* the EXP tool-surface work**, so a
+> `vision_analyze` tool exists as the text-only fallback rather than a special
+> case. Crosses the **LLM protocol boundary**, so it gets its own slice.
+
+## Decision (2026-10-04)
+
+- **Both paths, auto-routed** (Hermes parity): inline base64 when the active
+  conversation model is vision-capable; otherwise an auxiliary **vision** model
+  produces a text description injected into the turn.
+- **No object store.** Images are base64-encoded in memory — local store for
+  web uploads, CDN fetch for Discord. Nothing is hosted and no URLs are passed
+  to the model, so no S3/versitygw dependency.
+- **The auxiliary vision model can be the existing local memory model.** The
+  `gemma4` memory model already accepts image input, so a `vision` provider
+  role can point at the same provider — the fallback adds no new dependency and
+  no external cost.
+- **Depends on EXP-1 (tools):** `vision_analyze` is expected to arrive as a
+  tool in the expansion, so this slice consumes it rather than inventing a
+  bespoke path.
 
 ## Why
 
@@ -58,13 +75,16 @@ fail-soft.
   through `AttachmentStore` (which already validates ids).
 - No non-image content is ever inlined; no OCR in this slice.
 
-## Sub-slices (suggested)
+## Sub-slices (suggested, after EXP-1)
 
 - **M16.2d.1** — content parts in the protocol + `AttachmentImageResolver`
-  (local store) + wiring; tests. This alone makes **web-uploaded images**
-  visible.
+  (local store) + inline path for a vision-capable conversation model; tests.
+  Makes **web-uploaded images** visible.
 - **M16.2d.2** — remote download for Discord CDN images + bounds; tests.
-- **M16.2d.3** — live verification (web UI + Discord) + evidence; docs.
+- **M16.2d.3** — the auto-route fallback: when the conversation model is
+  text-only, invoke the `vision` model (via the `vision_analyze` tool from
+  EXP-1) and inject the description; tests.
+- **M16.2d.4** — live verification (web UI + Discord) + evidence; docs.
 
 ## Open questions
 
