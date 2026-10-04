@@ -101,6 +101,39 @@ export function parseDiscordTargetKey(
 }
 
 /**
+ * Discord's per-message character limit. A longer body is split across
+ * sequential messages rather than being rejected.
+ */
+export const DISCORD_MESSAGE_LIMIT = 2000;
+
+/**
+ * Split `text` into Discord-sized chunks, preferring a newline break, then a
+ * space, then a hard cut. The boundary character is kept in the earlier
+ * chunk, so `chunks.join('')` is exactly `text`.
+ */
+export function splitForDiscord(
+  text: string,
+  limit: number = DISCORD_MESSAGE_LIMIT,
+): string[] {
+  if (text.length <= limit) return [text];
+  const chunks: string[] = [];
+  let rest = text;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf('\n', limit - 1);
+    if (cut < 0) cut = rest.lastIndexOf(' ', limit - 1);
+    if (cut < 0) {
+      chunks.push(rest.slice(0, limit));
+      rest = rest.slice(limit);
+    } else {
+      chunks.push(rest.slice(0, cut + 1));
+      rest = rest.slice(cut + 1);
+    }
+  }
+  if (rest.length > 0) chunks.push(rest);
+  return chunks;
+}
+
+/**
  * M16c Discord adapter (outbound + lifecycle). A discord.js client behind
  * the ChannelAdapter boundary: lazy-loaded so its heavy dependency is never
  * pulled in when Discord is disabled, and fail-soft so a bad token or an
@@ -277,7 +310,11 @@ export class DiscordAdapter
     if (!channel || !channel.isTextBased()) {
       throw new Error(`discord target ${conversationKey} is not text-based`);
     }
-    const sent = await channel.send(body);
+    const chunks = splitForDiscord(body);
+    const sent = await channel.send(chunks[0]);
+    for (const chunk of chunks.slice(1)) {
+      await channel.send(chunk);
+    }
     return { externalMessageId: sent.id ?? null };
   }
 
@@ -309,7 +346,12 @@ export class DiscordAdapter
     try {
       const channel = await this.resolveChannel(target);
       const handle = await channel?.messages?.fetch(messageId);
-      await handle?.edit(body);
+      if (!handle) return;
+      const chunks = splitForDiscord(body);
+      await handle.edit(chunks[0]);
+      for (const chunk of chunks.slice(1)) {
+        await channel?.send(chunk);
+      }
     } catch (error) {
       this.logger.warn(
         `Discord edit failed: ${

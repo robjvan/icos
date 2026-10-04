@@ -13,6 +13,7 @@ import {
   DiscordAdapter,
   normalizeDiscordMessage,
   parseDiscordTargetKey,
+  splitForDiscord,
 } from './discord.adapter';
 import type { DiscordInbound } from './discord.types';
 
@@ -435,5 +436,76 @@ describe('DiscordAdapter', () => {
 
     expect(seen).toEqual([true]);
     expect(client.destroyed).toBe(true);
+  });
+
+  it('splits a body over the Discord limit into sequential messages', async () => {
+    const client = new FakeClient();
+    const channel = new FakeChannel();
+    client.channelsById.set('c1', channel);
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    const line = 'a'.repeat(1200);
+    await adapter.send('discord:g:c1', `${line}\n${line}`);
+
+    expect(channel.sent).toHaveLength(2);
+    expect(channel.sent.every((m) => m.length <= 2000)).toBe(true);
+    expect(channel.sent.join('')).toBe(`${line}\n${line}`);
+  });
+
+  it('edits the placeholder with the first chunk, then sends the overflow', async () => {
+    const client = new FakeClient();
+    const channel = new FakeChannel();
+    const handle = new FakeMessageHandle();
+    channel.handles.set('m1', handle);
+    client.channelsById.set('c1', channel);
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    const line = 'b'.repeat(1200);
+    await adapter.edit('discord:g:c1', 'm1', `${line}\n${line}`);
+
+    expect(handle.edited).toHaveLength(1);
+    expect(handle.edited[0]?.length).toBeLessThanOrEqual(2000);
+    expect(channel.sent).toHaveLength(1);
+  });
+});
+
+describe('splitForDiscord', () => {
+  it('passes a short body through unchanged', () => {
+    expect(splitForDiscord('hello')).toEqual(['hello']);
+  });
+
+  it('splits at a newline and reassembles exactly', () => {
+    const line = 'x'.repeat(1500);
+    const text = `${line}\n${line}\n${line}`;
+    const chunks = splitForDiscord(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((c) => c.length <= 2000)).toBe(true);
+    expect(chunks.join('')).toBe(text);
+  });
+
+  it('falls back to a space, then a hard cut', () => {
+    const words = Array.from({ length: 500 }, () => 'word').join(' ');
+    const chunks = splitForDiscord(words, 100);
+    expect(chunks.every((c) => c.length <= 100)).toBe(true);
+    expect(chunks.join('')).toBe(words);
+
+    const solid = 'z'.repeat(250);
+    expect(splitForDiscord(solid, 100)).toEqual([
+      'z'.repeat(100),
+      'z'.repeat(100),
+      'z'.repeat(50),
+    ]);
   });
 });
