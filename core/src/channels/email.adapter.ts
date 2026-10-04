@@ -129,6 +129,7 @@ export class EmailAdapter
     } else {
       this.ready = true;
       this.statusDetail = 'ready';
+      this.logger.log(`Email channel ready (sender ${this.senderEmail()})`);
     }
     return Promise.resolve();
   }
