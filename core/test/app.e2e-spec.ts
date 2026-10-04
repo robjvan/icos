@@ -46,60 +46,46 @@ describe('Conversation (e2e)', () => {
     toolCalls?: MockToolCall[];
   }
 
-  const chatWithTools = jest.fn<Promise<MockLlmResult>, [unknown]>(() =>
+  const chatWithToolsImpl = (): Promise<MockLlmResult> =>
     Promise.resolve({
       kind: 'text',
       content: 'mock reply',
       model: 'test-model',
-    }),
+    });
+  const chatWithTools = jest.fn<Promise<MockLlmResult>, [unknown]>(
+    chatWithToolsImpl,
   );
   let streamFails = false;
   let extractFails = false;
-  const extract = jest.fn(
-    (
-      input: unknown,
-    ): Promise<
-      {
-        kind: string;
-        subject: string;
-        predicate: string;
-        object: string;
-        confidence: number;
-        importance: number;
-        stability: number;
-        sourceRole: 'user' | 'assistant' | 'unknown';
-      }[]
-    > => {
-      if (extractFails) {
-        return Promise.reject(new Error('extractor down'));
-      }
-      // Only the preference messages yield candidates: every other
-      // turn extracts nothing, so promotion proposals stay scoped to
-      // the tests that assert them.
-      const message = (input as { userMessage?: { content?: string } })
-        .userMessage?.content;
-      if (message === 'I prefer pine') {
-        return Promise.resolve([
-          {
-            kind: 'preference',
-            subject: 'user',
-            predicate: 'prefers',
-            object: 'e2e-rival',
-            confidence: 0.9,
-            importance: 0.7,
-            stability: 0.8,
-            sourceRole: 'user',
-            negated: false,
-          },
-        ]);
-      }
-      if (message !== 'I prefer oak') return Promise.resolve([]);
+  const extractImpl = (
+    input: unknown,
+  ): Promise<
+    {
+      kind: string;
+      subject: string;
+      predicate: string;
+      object: string;
+      confidence: number;
+      importance: number;
+      stability: number;
+      sourceRole: 'user' | 'assistant' | 'unknown';
+    }[]
+  > => {
+    if (extractFails) {
+      return Promise.reject(new Error('extractor down'));
+    }
+    // Only the preference messages yield candidates: every other
+    // turn extracts nothing, so promotion proposals stay scoped to
+    // the tests that assert them.
+    const message = (input as { userMessage?: { content?: string } })
+      .userMessage?.content;
+    if (message === 'I prefer pine') {
       return Promise.resolve([
         {
           kind: 'preference',
           subject: 'user',
           predicate: 'prefers',
-          object: 'e2e-subject',
+          object: 'e2e-rival',
           confidence: 0.9,
           importance: 0.7,
           stability: 0.8,
@@ -107,12 +93,27 @@ describe('Conversation (e2e)', () => {
           negated: false,
         },
       ]);
-    },
-  );
-  const chatStreamWithTools = jest.fn<
-    Promise<MockLlmResult>,
-    [unknown, { onToken: (content: string) => void }]
-  >((request, sink) => {
+    }
+    if (message !== 'I prefer oak') return Promise.resolve([]);
+    return Promise.resolve([
+      {
+        kind: 'preference',
+        subject: 'user',
+        predicate: 'prefers',
+        object: 'e2e-subject',
+        confidence: 0.9,
+        importance: 0.7,
+        stability: 0.8,
+        sourceRole: 'user',
+        negated: false,
+      },
+    ]);
+  };
+  const extract = jest.fn(extractImpl);
+  const chatStreamWithToolsImpl = (
+    request: unknown,
+    sink: { onToken: (content: string) => void },
+  ): Promise<MockLlmResult> => {
     void request;
     if (streamFails) {
       return Promise.reject(new Error('upstream boom'));
@@ -124,7 +125,11 @@ describe('Conversation (e2e)', () => {
       content: 'mock reply',
       model: 'test-model',
     });
-  });
+  };
+  const chatStreamWithTools = jest.fn<
+    Promise<MockLlmResult>,
+    [unknown, { onToken: (content: string) => void }]
+  >(chatStreamWithToolsImpl);
 
   const anyString = expect.any(String) as unknown as string;
 
@@ -216,6 +221,11 @@ describe('Conversation (e2e)', () => {
         mcpTimeoutMs: 30000,
         mcpReconnectBackoffMs: 60000,
         vectorDbPath: join(dir, 'claims-vector-e2e.db'),
+        // M16: keep the channel ledger + durable queue out of the real
+        // ~/.icos data root, and stop the delivery timer — no e2e here
+        // exercises channels.
+        channelsDbPath: join(dir, 'channels.sqlite'),
+        channelDeliveryEnabled: false,
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
         skillsMaxBodyChars: 12000,
@@ -264,15 +274,16 @@ describe('Conversation (e2e)', () => {
   }
 
   beforeEach(async () => {
-    chatWithTools.mockClear();
-    chatWithTools.mockResolvedValue({
-      kind: 'text',
-      content: 'mock reply',
-      model: 'test-model',
-    });
-    chatStreamWithTools.mockClear();
+    // mockReset clears the `*Once` queue too — a leftover one-shot from a
+    // test that consumed fewer calls than it queued must not leak into the
+    // next test (it changes the turn's shape, and 404s follow on).
+    chatWithTools.mockReset();
+    chatWithTools.mockImplementation(chatWithToolsImpl);
+    chatStreamWithTools.mockReset();
+    chatStreamWithTools.mockImplementation(chatStreamWithToolsImpl);
+    extract.mockReset();
+    extract.mockImplementation(extractImpl);
     streamFails = false;
-    extract.mockClear();
     extractFails = false;
     dir = mkdtempSync(join(tmpdir(), 'icos-e2e-'));
     app = await createApp(
