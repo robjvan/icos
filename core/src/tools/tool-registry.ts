@@ -14,7 +14,9 @@ export type ToolName =
   | 'write_file'
   | 'patch'
   | 'web_search'
-  | 'web_extract';
+  | 'web_extract'
+  | 'skills_list'
+  | 'skill_view';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -115,6 +117,11 @@ export interface WebExtractArgs {
   readonly maxBytes?: number;
 }
 
+export interface SkillViewArgs {
+  /** The skill name (directory name / frontmatter name). */
+  readonly name: string;
+}
+
 export type ValidatedToolArgs =
   | SessionSearchArgs
   | SessionRenameArgs
@@ -124,7 +131,8 @@ export type ValidatedToolArgs =
   | WriteFileArgs
   | PatchArgs
   | WebSearchArgs
-  | WebExtractArgs;
+  | WebExtractArgs
+  | SkillViewArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -139,6 +147,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'patch'; readonly args: PatchArgs }
   | { readonly name: 'web_search'; readonly args: WebSearchArgs }
   | { readonly name: 'web_extract'; readonly args: WebExtractArgs }
+  | { readonly name: 'skills_list'; readonly args: Record<string, never> }
+  | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -420,6 +430,27 @@ const WEB_EXTRACT_SCHEMA = deepFreeze({
   },
 } as const);
 
+const SKILLS_LIST_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: [],
+  properties: {},
+} as const);
+
+const SKILL_VIEW_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -509,6 +540,24 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'web',
     argsSchema: WEB_EXTRACT_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skills_list',
+    version: 1,
+    description: 'List the available skills (name, description, version).',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILLS_LIST_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skill_view',
+    version: 1,
+    description:
+      'Read a skill’s full instructions by name. Use skills_list to discover ' +
+      'names.',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILL_VIEW_SCHEMA,
   }),
 ]);
 
@@ -874,6 +923,30 @@ function validateWebExtractArgs(
   };
 }
 
+function validateSkillsListArgs(
+  args: Record<string, unknown>,
+): ParseResult<Record<string, never>> {
+  const unknownField = rejectUnknownFields(args, []);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  return { ok: true, value: Object.freeze({}) };
+}
+
+function validateSkillViewArgs(
+  args: Record<string, unknown>,
+): ParseResult<SkillViewArgs> {
+  const unknownField = rejectUnknownFields(args, ['name']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const name = validText(ownValue(args, 'name'), 'name', MAX_ID_LENGTH);
+  if (!name.ok) {
+    return name;
+  }
+  return { ok: true, value: Object.freeze({ name: name.value }) };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1092,6 +1165,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'web_extract',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skills_list') {
+      const result = validateSkillsListArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skills_list',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skill_view') {
+      const result = validateSkillViewArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skill_view',
           ...base,
           args: result.value,
         }),

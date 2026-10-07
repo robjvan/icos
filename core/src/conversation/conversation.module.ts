@@ -103,6 +103,7 @@ const toolExecutionServiceProvider = {
     mcp: McpConnectionService,
     channels: ChannelSendPort,
     config: CoreConfig,
+    skills: SkillService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -118,6 +119,7 @@ const toolExecutionServiceProvider = {
       approvalService,
       mcp,
       channels,
+      skills,
     ),
   inject: [
     ToolExecutionRepository,
@@ -129,6 +131,7 @@ const toolExecutionServiceProvider = {
     McpConnectionService,
     CHANNEL_SEND,
     CORE_CONFIG,
+    SkillService,
   ],
 };
 

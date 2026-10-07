@@ -53,6 +53,8 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   patch: 'patch',
   web_search: 'web_search',
   web_extract: 'web_extract',
+  skills_list: 'skills_list',
+  skill_view: 'skill_view',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

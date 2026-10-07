@@ -19,6 +19,8 @@ const ALL_TOOLS: readonly ToolName[] = [
   'patch',
   'web_search',
   'web_extract',
+  'skills_list',
+  'skill_view',
 ];
 
 function contextWith(
@@ -70,6 +72,8 @@ describe('ToolRegistry', () => {
       'patch',
       'web_search',
       'web_extract',
+      'skills_list',
+      'skill_view',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -84,6 +88,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('patch')?.approval).toBe('none');
     expect(registry.lookup('web_search')?.approval).toBe('none');
     expect(registry.lookup('web_extract')?.approval).toBe('none');
+    expect(registry.lookup('skills_list')?.approval).toBe('none');
+    expect(registry.lookup('skill_view')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -767,6 +773,44 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('skill tools (M17b)', () => {
+    it('accepts skills_list and skill_view, and rejects bad shapes', () => {
+      const list = expectOk(
+        registry.validate(
+          { name: 'skills_list', version: 1, args: {} },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({ name: 'skills_list' });
+
+      const view = expectOk(
+        registry.validate(
+          {
+            name: 'skill_view',
+            version: 1,
+            args: { name: 'icos-v3-stack' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(view).toMatchObject({
+        name: 'skill_view',
+        args: { name: 'icos-v3-stack' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'skills_list', version: 1, args: { extra: 1 } },
+        { name: 'skill_view', version: 1, args: { name: '   ' } },
+        { name: 'skill_view', version: 1, args: {} },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -809,6 +853,8 @@ describe('ToolRegistry', () => {
         'patch',
         'web_search',
         'web_extract',
+        'skills_list',
+        'skill_view',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

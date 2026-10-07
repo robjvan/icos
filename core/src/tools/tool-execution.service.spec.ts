@@ -19,6 +19,7 @@ import {
   type ToolExecutionInput,
 } from './tool-execution.service';
 import type { ChannelSendPort } from '../channels/channel-send.port';
+import type { SkillService } from '../skills/skill.service';
 
 function input(): ToolExecutionInput {
   return {
@@ -76,7 +77,11 @@ describe('ToolExecutionService SQLite', () => {
     };
   }
 
-  function open(channels?: ChannelSendPort, searxngBaseUrl?: string) {
+  function open(
+    channels?: ChannelSendPort,
+    searxngBaseUrl?: string,
+    skills?: SkillService,
+  ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
       memoryDbPath: join(dir, 'unused.sqlite'),
@@ -113,6 +118,7 @@ describe('ToolExecutionService SQLite', () => {
         callTool: () => Promise.reject(new Error('mcp unwired')),
       } as unknown as McpConnectionService,
       channels,
+      skills,
     );
     return {
       database,
@@ -380,6 +386,44 @@ describe('ToolExecutionService SQLite', () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+
+  it('lists and views skills through the generic native path (M17b)', async () => {
+    const skills = {
+      listDescriptors: () => [
+        { name: 'demo', description: 'A demo skill', version: '1.0.0' },
+      ],
+      loadBody: (name: string) =>
+        Promise.resolve({
+          name,
+          description: 'A demo skill',
+          version: '1.0.0',
+          body: 'Do the demo.',
+          bodyChars: 12,
+        }),
+    } as unknown as SkillService;
+    const { sessions, service } = open(undefined, undefined, skills);
+    await sessions.createSession('s1');
+
+    const list = await service.consume(
+      toolInput('req-skills', 'skills_list', {}),
+    );
+    expect(list.state).toBe('succeeded');
+    expect(list.execution).toMatchObject({
+      ok: true,
+      tool: 'skills_list',
+      result: { skills: [{ name: 'demo', description: 'A demo skill' }] },
+    });
+
+    const view = await service.consume(
+      toolInput('req-skill-view', 'skill_view', { name: 'demo' }),
+    );
+    expect(view.state).toBe('succeeded');
+    expect(view.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_view',
+      result: { name: 'demo', body: 'Do the demo.' },
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

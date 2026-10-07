@@ -22,6 +22,7 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import type { SkillService } from '../skills/skill.service';
 import type {
   ChannelSendPort,
   ChannelSendRequest,
@@ -33,6 +34,7 @@ import type {
   PatchArgs,
   ReadFileArgs,
   SearchFilesArgs,
+  SkillViewArgs,
   ValidatedToolRequest,
   WebExtractArgs,
   WebSearchArgs,
@@ -97,6 +99,7 @@ export class ToolExecutionService {
     private readonly approvalService: ApprovalService,
     private readonly mcp: McpConnectionService,
     private readonly channels?: ChannelSendPort,
+    private readonly skills?: SkillService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -376,6 +379,10 @@ export class ToolExecutionService {
         return this.nativeWebSearch(args as unknown as WebSearchArgs);
       case 'web_extract':
         return this.nativeWebExtract(args as unknown as WebExtractArgs);
+      case 'skills_list':
+        return Promise.resolve(this.nativeSkillsList());
+      case 'skill_view':
+        return this.nativeSkillView(args as unknown as SkillViewArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -539,6 +546,30 @@ export class ToolExecutionService {
       url: args.url,
       text: truncated ? text.slice(0, MAX_EXTRACT_CHARS) : text,
       truncated,
+    };
+  }
+
+  /** List the available skills (name, description, version). */
+  private nativeSkillsList(): unknown {
+    if (!this.skills) throw new Error('skills_unavailable');
+    return {
+      skills: this.skills.listDescriptors().map((d) => ({
+        name: d.name,
+        description: d.description,
+        version: d.version,
+      })),
+    };
+  }
+
+  /** Read a skill's full instructions by name. */
+  private async nativeSkillView(args: SkillViewArgs): Promise<unknown> {
+    if (!this.skills) throw new Error('skills_unavailable');
+    const skill = await this.skills.loadBody(args.name);
+    return {
+      name: skill.name,
+      description: skill.description,
+      version: skill.version,
+      body: skill.body,
     };
   }
 

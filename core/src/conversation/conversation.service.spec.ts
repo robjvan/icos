@@ -367,6 +367,8 @@ describe('ConversationService', () => {
       'search_files',
       'session.rename',
       'session.search',
+      'skill_view',
+      'skills_list',
       'web_extract',
       'web_search',
       'write_file',
@@ -392,6 +394,8 @@ describe('ConversationService', () => {
       'patch',
       'web_search',
       'web_extract',
+      'skills_list',
+      'skill_view',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1043,6 +1047,8 @@ describe('ConversationService', () => {
         'search_files',
         'session.rename',
         'session.search',
+        'skill_view',
+        'skills_list',
         'web_extract',
         'web_search',
         'write_file',
@@ -1064,6 +1070,8 @@ describe('ConversationService', () => {
         'patch',
         'web_search',
         'web_extract',
+        'skills_list',
+        'skill_view',
       ]);
     });
 
