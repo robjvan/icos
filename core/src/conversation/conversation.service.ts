@@ -49,6 +49,9 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
+import type { ToolDescriptor } from '../tools/tool-registry';
+import { resolveToolPolicy } from '../tools/tool-policy';
+import type { ToolPolicyConfig } from '../tools/tool-policy';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -492,8 +495,7 @@ export class ConversationService {
     }
     // M9h continuation: the resolved observation re-enters bounded
     // planning against the run's remaining budget.
-    const descriptors = this.registry.list().slice();
-    const allowedTools = descriptors.map((descriptor) => descriptor.name);
+    const { descriptors, allowedTools } = this.resolveTools();
     const limits = stored.limits;
     const startedAt = Date.now();
     // M9k: split the frozen turn context so the system head rebuilds
@@ -1079,8 +1081,7 @@ export class ConversationService {
         // M9h continuation: bounded planning over remaining budget.
         // Exactly one terminal done follows; intermediate searches emit
         // progress only.
-        const descriptors = this.registry.list().slice();
-        const allowedTools = descriptors.map((descriptor) => descriptor.name);
+        const { descriptors, allowedTools } = this.resolveTools();
         const limits = stored.limits;
         const startedAt = Date.now();
         const sink: StreamSink = {
@@ -1546,6 +1547,7 @@ export class ConversationService {
       maxIterations: this.config.agentMaxIterations,
       progress,
       unavailable: this.describeUnavailableForeign(),
+      disabled: this.disabledToolNames(),
     });
     return assembleTurnMessages({
       baseSystem: turn.baseSystem,
@@ -1567,6 +1569,39 @@ export class ConversationService {
         ? `${head}: ${entry.reason.slice(0, 120)})`
         : `${head})`;
     });
+  }
+
+  /** Tools offered this turn, after enablement policy (M17a). */
+  private resolveTools(): {
+    descriptors: ToolDescriptor[];
+    allowedTools: string[];
+  } {
+    const { offered } = resolveToolPolicy(
+      this.registry.list(),
+      this.toolPolicy(),
+    );
+    return {
+      descriptors: [...offered],
+      allowedTools: offered.map((descriptor) => descriptor.name),
+    };
+  }
+
+  /** Tools known but disabled by policy; declared in the planning frame. */
+  private disabledToolNames(): string[] {
+    const { disabled } = resolveToolPolicy(
+      this.registry.list(),
+      this.toolPolicy(),
+    );
+    return disabled.map((descriptor) => descriptor.name);
+  }
+
+  private toolPolicy(): ToolPolicyConfig {
+    return {
+      enabledToolsets: this.config.toolsEnabledToolsets,
+      disabledToolsets: this.config.toolsDisabledToolsets,
+      enabledTools: this.config.toolsEnabled,
+      disabledTools: this.config.toolsDisabled,
+    };
   }
 
   private async prepareTurn(
@@ -1605,8 +1640,7 @@ export class ConversationService {
       ...toPairMessages(pairs),
       userMessage,
     ];
-    const descriptors = this.registry.list().slice();
-    const allowedTools = descriptors.map((descriptor) => descriptor.name);
+    const { descriptors, allowedTools } = this.resolveTools();
     // Split the static system head (prompt plus catalog) from the rest
     // so M9k rebuilds the planning frame every proposal round instead
     // of letting step counts go stale.

@@ -35,6 +35,8 @@ export interface ToolDescriptor {
   readonly version: 1;
   readonly description: string;
   readonly approval: ApprovalPolicy;
+  /** Enablement grouping (M17a): e.g. `session`, `channel`, `mcp`, `web`. */
+  readonly toolset: string;
   readonly argsSchema: Readonly<{
     type: 'object';
     additionalProperties: false;
@@ -236,6 +238,7 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     description:
       'Search the current session transcript. Returns matching messages.',
     approval: 'none',
+    toolset: 'session',
     argsSchema: SEARCH_SCHEMA,
   }),
   Object.freeze({
@@ -246,6 +249,7 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     // session is benign and reversible. Granular per-tool approval
     // toggles remain future UI work; if that lands, revisit this.
     approval: 'none',
+    toolset: 'session',
     argsSchema: RENAME_SCHEMA,
   }),
   Object.freeze({
@@ -255,6 +259,7 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
       'Send a message on a configured channel (Discord or email) to the ' +
       'operator, or to an allowlisted channel or user. Requires approval.',
     approval: 'required',
+    toolset: 'channel',
     argsSchema: CHANNEL_SEND_SCHEMA,
   }),
 ]);
@@ -407,6 +412,7 @@ export class ToolRegistry {
         version: 1,
         description: descriptor.description,
         approval: descriptor.approval,
+        toolset: 'mcp',
         argsSchema: descriptor.argsSchema,
       })) ?? [];
     return [...DESCRIPTORS, ...foreign];
@@ -436,6 +442,7 @@ export class ToolRegistry {
       version: 1,
       description: foreign.description,
       approval: foreign.approval,
+      toolset: 'mcp',
       argsSchema: foreign.argsSchema,
     };
   }

@@ -304,6 +304,15 @@ export interface CoreConfig {
   /** Backstop turn duration in ms (M9g execution budget). */
   agentMaxTurnDurationMs: number;
   /**
+   * Tool enablement (M17a). `enabledToolsets` is opt-in when non-empty;
+   * `disabledToolsets` always wins; `enabledTools` re-enables a single tool
+   * inside a disabled toolset. Empty everywhere = every tool offered.
+   */
+  toolsEnabledToolsets?: string[];
+  toolsDisabledToolsets?: string[];
+  toolsEnabled?: string[];
+  toolsDisabled?: string[];
+  /**
    * Realtime transport kill-switch. true (default) = attach `/core/events`
    * and deliver notifications; false = noop publisher, no socket, clients
    * fall back to polling. A transport fault must never take the UI down.
@@ -493,9 +502,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     ),
     attachmentsAllowedMimeTypes: ((): string[] => {
       const configured = parseCsv(env.ATTACHMENTS_ALLOWED_MIME_TYPES);
-      return configured.length > 0
-        ? configured
-        : DEFAULT_ATTACHMENT_MIME_TYPES;
+      return configured.length > 0 ? configured : DEFAULT_ATTACHMENT_MIME_TYPES;
     })(),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
@@ -696,6 +703,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       15 * 60 * 1000,
       'AGENT_MAX_TURN_DURATION_MS',
     ),
+    toolsEnabledToolsets: parseCsv(env.TOOLS_ENABLED_TOOLSETS),
+    toolsDisabledToolsets: parseCsv(env.TOOLS_DISABLED_TOOLSETS),
+    toolsEnabled: parseCsv(env.TOOLS_ENABLED),
+    toolsDisabled: parseCsv(env.TOOLS_DISABLED),
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(
       env.REALTIME_HEARTBEAT_MS,
