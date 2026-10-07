@@ -362,6 +362,8 @@ describe('ConversationService', () => {
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
+      'read_file',
+      'search_files',
       'session.rename',
       'session.search',
     ]);
@@ -380,6 +382,8 @@ describe('ConversationService', () => {
       'session.search',
       'session.rename',
       'channel.send',
+      'read_file',
+      'search_files',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1026,6 +1030,8 @@ describe('ConversationService', () => {
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
+        'read_file',
+        'search_files',
         'session.rename',
         'session.search',
       ]);
@@ -1040,6 +1046,8 @@ describe('ConversationService', () => {
         'session.search',
         'session.rename',
         'channel.send',
+        'read_file',
+        'search_files',
       ]);
     });
 

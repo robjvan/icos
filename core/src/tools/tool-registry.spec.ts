@@ -10,7 +10,12 @@ import { ToolRegistry } from './tool-registry';
 
 const SESSION_ID = 'session-1';
 
-const ALL_TOOLS: readonly ToolName[] = ['session.search', 'session.rename'];
+const ALL_TOOLS: readonly ToolName[] = [
+  'session.search',
+  'session.rename',
+  'read_file',
+  'search_files',
+];
 
 function contextWith(
   allowedTools: readonly string[] = ALL_TOOLS,
@@ -55,6 +60,8 @@ describe('ToolRegistry', () => {
       'session.search',
       'session.rename',
       'channel.send',
+      'read_file',
+      'search_files',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -63,6 +70,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('session.search')?.approval).toBe('none');
     expect(registry.lookup('session.rename')?.approval).toBe('none');
     expect(registry.lookup('channel.send')?.approval).toBe('required');
+    expect(registry.lookup('read_file')?.approval).toBe('none');
+    expect(registry.lookup('search_files')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -577,6 +586,63 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('file tools (M17b)', () => {
+    it('accepts read_file and search_files with bounded args', () => {
+      const read = expectOk(
+        registry.validate(
+          {
+            name: 'read_file',
+            version: 1,
+            args: { path: 'notes/a.md', maxBytes: 100 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(read).toMatchObject({
+        name: 'read_file',
+        args: { path: 'notes/a.md', maxBytes: 100 },
+      });
+
+      const search = expectOk(
+        registry.validate(
+          {
+            name: 'search_files',
+            version: 1,
+            args: { query: 'TODO', path: 'src', maxResults: 5 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(search).toMatchObject({
+        name: 'search_files',
+        args: { query: 'TODO', path: 'src', maxResults: 5 },
+      });
+    });
+
+    it('rejects blank paths, unknown fields, and out-of-range bounds', () => {
+      const cases: unknown[] = [
+        { name: 'read_file', version: 1, args: { path: '   ' } },
+        {
+          name: 'read_file',
+          version: 1,
+          args: { path: 'a', maxBytes: 99_999_999 },
+        },
+        { name: 'read_file', version: 1, args: { path: 'a', extra: 1 } },
+        {
+          name: 'search_files',
+          version: 1,
+          args: { query: 'x', maxResults: 999 },
+        },
+        { name: 'search_files', version: 1, args: { query: '' } },
+      ];
+      for (const call of cases) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -613,6 +679,8 @@ describe('ToolRegistry', () => {
         'session.search',
         'session.rename',
         'channel.send',
+        'read_file',
+        'search_files',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

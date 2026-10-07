@@ -5,7 +5,12 @@ import {
 } from '../mcp/mcp-tool-bridge';
 import { validateForeignArgs } from '../mcp/mcp-tool-bridge';
 
-export type ToolName = 'session.search' | 'session.rename' | 'channel.send';
+export type ToolName =
+  | 'session.search'
+  | 'session.rename'
+  | 'channel.send'
+  | 'read_file'
+  | 'search_files';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -62,8 +67,27 @@ export interface ChannelSendArgs {
   readonly body: string;
 }
 
+export interface ReadFileArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Optional cap; the server also enforces its own maximum. */
+  readonly maxBytes?: number;
+}
+
+export interface SearchFilesArgs {
+  /** Regex (or literal) to search for. */
+  readonly query: string;
+  /** Directory to search, relative to the workspace root. Defaults to '.'. */
+  readonly path?: string;
+  readonly maxResults?: number;
+}
+
 export type ValidatedToolArgs =
-  SessionSearchArgs | SessionRenameArgs | ChannelSendArgs;
+  | SessionSearchArgs
+  | SessionRenameArgs
+  | ChannelSendArgs
+  | ReadFileArgs
+  | SearchFilesArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -72,6 +96,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'session.search'; readonly args: SessionSearchArgs }
   | { readonly name: 'session.rename'; readonly args: SessionRenameArgs }
   | { readonly name: 'channel.send'; readonly args: ChannelSendArgs }
+  | { readonly name: 'read_file'; readonly args: ReadFileArgs }
+  | { readonly name: 'search_files'; readonly args: SearchFilesArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -146,6 +172,11 @@ const MAX_QUERY_LENGTH = 500;
 const MAX_TITLE_LENGTH = 200;
 const MAX_BODY_LENGTH = 8000;
 const MAX_ID_LENGTH = 200;
+const MAX_PATH_LENGTH = 500;
+const MAX_READ_BYTES = 256 * 1024;
+const MIN_SEARCH_RESULTS = 1;
+const MAX_SEARCH_RESULTS = 50;
+const DEFAULT_SEARCH_RESULTS = 20;
 
 const NONBLANK_PATTERN = '\\S';
 
@@ -231,6 +262,51 @@ const CHANNEL_SEND_SCHEMA = deepFreeze({
   },
 } as const);
 
+const READ_FILE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    maxBytes: {
+      type: 'integer',
+      minimum: 1,
+      maximum: MAX_READ_BYTES,
+    },
+  },
+} as const);
+
+const SEARCH_FILES_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['query'],
+  properties: {
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    maxResults: {
+      type: 'integer',
+      minimum: MIN_SEARCH_RESULTS,
+      maximum: MAX_SEARCH_RESULTS,
+      default: DEFAULT_SEARCH_RESULTS,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -261,6 +337,25 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'required',
     toolset: 'channel',
     argsSchema: CHANNEL_SEND_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'read_file',
+    version: 1,
+    description:
+      'Read a UTF-8 file from the workspace. Returns bounded content.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: READ_FILE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'search_files',
+    version: 1,
+    description:
+      'Search file contents under the workspace for a pattern. Returns ' +
+      'matching path:line pairs.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: SEARCH_FILES_SCHEMA,
   }),
 ]);
 
@@ -386,6 +481,91 @@ function validateChannelSendArgs(
       target,
       ...(id !== undefined ? { id } : {}),
       body: body.value,
+    }),
+  };
+}
+
+function validateReadFileArgs(
+  args: Record<string, unknown>,
+): ParseResult<ReadFileArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'maxBytes']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  let maxBytes: number | undefined;
+  if (Object.hasOwn(args, 'maxBytes')) {
+    const value = ownValue(args, 'maxBytes');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_READ_BYTES
+    ) {
+      return {
+        ok: false,
+        message: `maxBytes must be an integer between 1 and ${MAX_READ_BYTES}`,
+      };
+    }
+    maxBytes = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      path: path.value,
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    }),
+  };
+}
+
+function validateSearchFilesArgs(
+  args: Record<string, unknown>,
+): ParseResult<SearchFilesArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'query',
+    'path',
+    'maxResults',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const query = validText(ownValue(args, 'query'), 'query', MAX_QUERY_LENGTH);
+  if (!query.ok) {
+    return query;
+  }
+  let path: string | undefined;
+  if (Object.hasOwn(args, 'path')) {
+    const parsed = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    path = parsed.value;
+  }
+  let maxResults: number | undefined;
+  if (Object.hasOwn(args, 'maxResults')) {
+    const value = ownValue(args, 'maxResults');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_SEARCH_RESULTS ||
+      value > MAX_SEARCH_RESULTS
+    ) {
+      return {
+        ok: false,
+        message: `maxResults must be an integer between ${MIN_SEARCH_RESULTS} and ${MAX_SEARCH_RESULTS}`,
+      };
+    }
+    maxResults = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      query: query.value,
+      ...(path !== undefined ? { path } : {}),
+      ...(maxResults !== undefined ? { maxResults } : {}),
     }),
   };
 }
@@ -524,6 +704,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'channel.send',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'read_file') {
+      const result = validateReadFileArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'read_file',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'search_files') {
+      const result = validateSearchFilesArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'search_files',
           ...base,
           args: result.value,
         }),

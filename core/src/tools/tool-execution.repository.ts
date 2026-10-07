@@ -59,6 +59,21 @@ export type McpOutcome =
       };
     };
 
+/**
+ * Generic native-tool outcome (M17b). A bounded JSON result for a native tool
+ * that is not one of the bespoke arms (search/rename/channel.send). Failures
+ * are code-only, like the other arms.
+ */
+export type NativeToolOutcome =
+  | { ok: true; tool: string; result: unknown }
+  | {
+      ok: false;
+      failure: {
+        code:
+          'tool_failed' | 'result_too_large' | 'unavailable' | 'invalid_args';
+      };
+    };
+
 export type FinalOutcome =
   | { state: 'not_required'; result?: Extract<LlmResult, { kind: 'text' }> }
   | { state: 'pending' | 'claimed' }
@@ -108,7 +123,12 @@ export interface ToolExecutionRecord {
     | MirrorOutcomeState;
   validation: ValidationOutcome;
   execution:
-    ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome | null;
+    | ExecutionOutcome
+    | RenameOutcome
+    | McpOutcome
+    | ChannelSendOutcome
+    | NativeToolOutcome
+    | null;
   final: FinalOutcome;
   executionToken: string | null;
   ownership: 'unconfirmed' | 'released' | 'none';
@@ -187,7 +207,8 @@ export class ToolExecutionRepository {
                 | ExecutionOutcome
                 | RenameOutcome
                 | McpOutcome
-                | ChannelSendOutcome),
+                | ChannelSendOutcome
+                | NativeToolOutcome),
         final: JSON.parse(row.final_json) as FinalOutcome,
         executionToken: row.execution_token,
         ownership: row.state === 'executing' ? row.ownership : 'none',
@@ -389,6 +410,50 @@ export class ToolExecutionRepository {
   }
 
   /**
+   * Claim a validated (approval-free) native call for inline execution
+   * (M17b). Mirrors claimTool with the native check (no `foreign` marker):
+   * revalidates inside the claim transaction and invalidates on disagreement.
+   */
+  claimNativeTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'validated') return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            'foreign' in validation.request ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'validated'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'validated' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
    * Claim an approval-parked foreign call after grant. Mirrors
    * claimRename (awaiting_approval start) with the namespaced
    * check: only a granted stored approval executes, exactly once.
@@ -438,7 +503,11 @@ export class ToolExecutionRepository {
    * finishSearch (succeeded/failed + pending final) — outcomes
    * flow to the model through the shared final path untouched.
    */
-  finishTool(requestId: string, token: string, outcome: McpOutcome): void {
+  finishTool(
+    requestId: string,
+    token: string,
+    outcome: McpOutcome | NativeToolOutcome,
+  ): void {
     this.access(() =>
       this.database.connection
         .transaction(() => {

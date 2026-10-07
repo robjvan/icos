@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -75,7 +75,7 @@ describe('ToolExecutionService SQLite', () => {
         chatWithTools: final,
       },
       approvals,
-      {},
+      { workspaceRoot: dir },
       undefined,
       approvalService,
       {
@@ -135,6 +135,72 @@ describe('ToolExecutionService SQLite', () => {
     expect(search).toHaveBeenCalledWith('teal', { sessionId: 's1', limit: 1 });
     expect(final).toHaveBeenCalledTimes(1);
     expect(await sessions.getMessages('s1')).toHaveLength(1);
+  });
+
+  it('reads a workspace file through the generic native path (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'note.txt'), 'hello workspace');
+
+    const record = await service.consume({
+      requestId: 'req-read',
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'read it' }],
+      allowedTools: ['read_file'],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'call-read',
+            name: 'read_file',
+            version: 1,
+            rawArguments: '{"path":"note.txt"}',
+            args: { path: 'note.txt' },
+          },
+        ],
+      },
+    });
+
+    expect(record.state).toBe('succeeded');
+    expect(record.execution).toMatchObject({
+      ok: true,
+      tool: 'read_file',
+      result: { path: 'note.txt', content: 'hello workspace' },
+    });
+  });
+
+  it('refuses a read_file path outside the workspace (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const record = await service.consume({
+      requestId: 'req-escape',
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'read it' }],
+      allowedTools: ['read_file'],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'call-escape',
+            name: 'read_file',
+            version: 1,
+            rawArguments: '{"path":"../outside.txt"}',
+            args: { path: '../outside.txt' },
+          },
+        ],
+      },
+    });
+
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

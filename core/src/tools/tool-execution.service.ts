@@ -1,4 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import type { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
@@ -16,7 +19,13 @@ import type {
   ChannelSendRequest,
 } from '../channels/channel-send.port';
 import { ToolRegistry } from './tool-registry';
-import type { ChannelSendArgs, ForeignToolCall } from './tool-registry';
+import type {
+  ChannelSendArgs,
+  ForeignToolCall,
+  ReadFileArgs,
+  SearchFilesArgs,
+  ValidatedToolRequest,
+} from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
 import type {
   ExecutionOutcome,
@@ -24,6 +33,7 @@ import type {
   FinalOutcome,
   McpOutcome,
   MirrorOutcomeState,
+  NativeToolOutcome,
   ToolExecutionInput,
   ToolExecutionRecord,
   ValidationOutcome,
@@ -38,6 +48,8 @@ export const MCP_EXECUTE_ACTION = 'mcp.execute';
 export const CHANNEL_SEND_ACTION = 'channel.send';
 
 const MAX_RESULT_BYTES = 64 * 1024;
+const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
+const MAX_SEARCH_LINE_CHARS = 200;
 
 /** Human-readable approval description for a channel.send proposal. */
 function describeChannelSend(args: ChannelSendArgs): string {
@@ -51,6 +63,7 @@ function describeChannelSend(args: ChannelSendArgs): string {
 @Injectable()
 export class ToolExecutionService {
   private readonly searchTimeoutMs: number;
+  private readonly workspaceRoot: string;
   private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
@@ -59,7 +72,7 @@ export class ToolExecutionService {
     private readonly registry: ToolRegistry,
     private readonly llm: Pick<LlmClient, 'chatWithTools'>,
     private readonly approvals: Pick<ApprovalRepository, 'getApproval'>,
-    options: { searchTimeoutMs?: number } = {},
+    options: { searchTimeoutMs?: number; workspaceRoot?: string } = {},
     private readonly streamer:
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
     private readonly approvalService: ApprovalService,
@@ -67,6 +80,7 @@ export class ToolExecutionService {
     private readonly channels?: ChannelSendPort,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
+    this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     if (
       !Number.isInteger(this.searchTimeoutMs) ||
       this.searchTimeoutMs < 1 ||
@@ -141,6 +155,16 @@ export class ToolExecutionService {
           : null;
       if (request && 'foreign' in request) {
         return this.consumeForeign(record, request, options);
+      }
+      // M17b: native approval-free tools other than the bespoke
+      // search/rename/channel.send arms take the generic native path.
+      if (
+        request &&
+        request.name !== 'session.search' &&
+        request.name !== 'session.rename' &&
+        request.name !== 'channel.send'
+      ) {
+        return this.consumeNative(record, request, options);
       }
       if (request?.name === 'session.rename') {
         record = this.renameInline(record);
@@ -231,6 +255,205 @@ export class ToolExecutionService {
       return this.required(record.requestId);
     }
     return this.maybeFinal(record.requestId, options);
+  }
+
+  /**
+   * Native (approval-free) inline path (M17b). Claim, execute through the
+   * native dispatcher, then finish with a generic outcome — the same shape
+   * contract as the foreign path.
+   */
+  private async consumeNative(
+    record: ToolExecutionRecord,
+    request: ValidatedToolRequest,
+    options: {
+      sink?: StreamSink;
+      signal?: AbortSignal;
+      skipFinal?: boolean;
+    },
+  ): Promise<ToolExecutionRecord> {
+    const descriptor = this.registry.lookup(request.name);
+    if (!descriptor || descriptor.approval !== 'none') {
+      throw new Error('native_parking_bypassed');
+    }
+    const token = this.ledger.claimNativeTool(record.requestId, (saved) =>
+      this.validate(saved),
+    );
+    if (token) {
+      await this.executeNativeTool(record.requestId, token);
+    }
+    if (options.skipFinal) {
+      return this.required(record.requestId);
+    }
+    return this.maybeFinal(record.requestId, options);
+  }
+
+  /** Execute one claimed native call through the native dispatcher. */
+  private async executeNativeTool(
+    requestId: string,
+    token: string,
+  ): Promise<void> {
+    const claimed = this.required(requestId);
+    const validation = claimed.validation;
+    if (
+      !validation.ok ||
+      !('request' in validation) ||
+      'foreign' in validation.request
+    ) {
+      throw new Error('invalid_execution_state');
+    }
+    const name = validation.request.name;
+    let outcome: NativeToolOutcome;
+    try {
+      const result = await this.dispatchNative(
+        name,
+        validation.request.args as unknown as Record<string, unknown>,
+      );
+      const serialized = JSON.stringify(result);
+      if (Buffer.byteLength(serialized) > MAX_RESULT_BYTES) {
+        outcome = { ok: false, failure: { code: 'result_too_large' } };
+      } else {
+        outcome = {
+          ok: true,
+          tool: name,
+          result: JSON.parse(serialized) as unknown,
+        };
+      }
+    } catch (error) {
+      outcome = {
+        ok: false,
+        failure: {
+          code:
+            error instanceof Error && error.message === 'result_too_large'
+              ? 'result_too_large'
+              : 'tool_failed',
+        },
+      };
+    }
+    this.ledger.finishTool(requestId, token, outcome);
+  }
+
+  /** Dispatch a native tool by name (M17b). */
+  private dispatchNative(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    switch (name) {
+      case 'read_file':
+        return Promise.resolve(
+          this.nativeReadFile(args as unknown as ReadFileArgs),
+        );
+      case 'search_files':
+        return Promise.resolve(
+          this.nativeSearchFiles(args as unknown as SearchFilesArgs),
+        );
+      default:
+        return Promise.reject(new Error(`unknown_native_tool: ${name}`));
+    }
+  }
+
+  /** Read a bounded UTF-8 file, confined to the workspace root. */
+  private nativeReadFile(args: ReadFileArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    const stat = statSync(file);
+    if (!stat.isFile()) throw new Error('not_a_file');
+    const maxBytes = args.maxBytes ?? MAX_RESULT_BYTES;
+    const content = readFileSync(file, 'utf8');
+    const truncated = Buffer.byteLength(content) > maxBytes;
+    return {
+      path: args.path,
+      bytes: stat.size,
+      truncated,
+      content: truncated ? content.slice(0, maxBytes) : content,
+    };
+  }
+
+  /** Search file contents under the workspace, bounded. */
+  private nativeSearchFiles(args: SearchFilesArgs): unknown {
+    const root = this.resolveWithinWorkspace(args.path ?? '.');
+    const maxResults = args.maxResults ?? 20;
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(args.query, 'i');
+    } catch {
+      pattern = new RegExp(
+        args.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        'i',
+      );
+    }
+    const matches: { path: string; line: number; text: string }[] = [];
+    const walk = (dir: string): void => {
+      if (matches.length >= maxResults) return;
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (matches.length >= maxResults) return;
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === '.git') continue;
+          walk(join(dir, entry.name));
+        } else if (entry.isFile()) {
+          this.searchOneFile(
+            join(dir, entry.name),
+            root,
+            pattern,
+            matches,
+            maxResults,
+          );
+        }
+      }
+    };
+    walk(root);
+    return { query: args.query, matches };
+  }
+
+  private searchOneFile(
+    full: string,
+    root: string,
+    pattern: RegExp,
+    matches: { path: string; line: number; text: string }[],
+    maxResults: number,
+  ): void {
+    let content: string;
+    try {
+      if (statSync(full).size > MAX_SEARCH_FILE_BYTES) return;
+      content = readFileSync(full, 'utf8');
+    } catch {
+      return;
+    }
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
+      const line = lines[i];
+      if (line !== undefined && pattern.test(line)) {
+        matches.push({
+          path: relative(root, full),
+          line: i + 1,
+          text: line.slice(0, MAX_SEARCH_LINE_CHARS),
+        });
+      }
+    }
+  }
+
+  /**
+   * Resolve a tool path against the workspace root and refuse anything that
+   * escapes it (M17b). Symlinks are resolved so a link cannot point out.
+   */
+  private resolveWithinWorkspace(input: string): string {
+    const root = realpathSync(this.workspaceRoot);
+    const candidate = resolve(root, input);
+    let real = candidate;
+    try {
+      real = realpathSync(candidate);
+    } catch {
+      // Not existing yet (e.g. a write target); the lexical check stands.
+    }
+    const rel = relative(root, real);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error('path_outside_workspace');
+    }
+    return real;
   }
 
   /** Execute one claimed foreign call through its MCP server. */

@@ -313,6 +313,11 @@ export interface CoreConfig {
   toolsEnabled?: string[];
   toolsDisabled?: string[];
   /**
+   * Filesystem root the file tools may read/search/write (M17b). A path that
+   * resolves outside this root is refused. Default `~/.icos/workspace`.
+   */
+  toolsWorkspaceRoot?: string;
+  /**
    * Realtime transport kill-switch. true (default) = attach `/core/events`
    * and deliver notifications; false = noop publisher, no socket, clients
    * fall back to polling. A transport fault must never take the UI down.
@@ -707,6 +712,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     toolsDisabledToolsets: parseCsv(env.TOOLS_DISABLED_TOOLSETS),
     toolsEnabled: parseCsv(env.TOOLS_ENABLED),
     toolsDisabled: parseCsv(env.TOOLS_DISABLED),
+    toolsWorkspaceRoot: resolvePath(
+      env.TOOLS_WORKSPACE_ROOT,
+      '~/.icos/workspace',
+    ),
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(
       env.REALTIME_HEARTBEAT_MS,

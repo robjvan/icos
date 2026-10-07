@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { coreConfigProvider } from '../config';
+import { CORE_CONFIG, coreConfigProvider } from '../config';
+import type { CoreConfig } from '../config';
 import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
@@ -101,6 +102,7 @@ const toolExecutionServiceProvider = {
     approvalService: ApprovalService,
     mcp: McpConnectionService,
     channels: ChannelSendPort,
+    config: CoreConfig,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -108,7 +110,7 @@ const toolExecutionServiceProvider = {
       registry,
       llm,
       approvals,
-      {},
+      { workspaceRoot: config.toolsWorkspaceRoot },
       llm,
       approvalService,
       mcp,
@@ -123,6 +125,7 @@ const toolExecutionServiceProvider = {
     ApprovalService,
     McpConnectionService,
     CHANNEL_SEND,
+    CORE_CONFIG,
   ],
 };
 
