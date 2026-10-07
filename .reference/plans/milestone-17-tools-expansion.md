@@ -1,8 +1,8 @@
 # M17 — Tools Expansion
 
 > Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
-> layer); M17b.1–4 (files, web, skills) — with live evidence under
-> `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:** todo/clarify,
+> layer); M17b.1–5 (files, web, skills, todo) — with live evidence under
+> `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:** clarify,
 > memory/session_search, vision/image. **Tiers 2–3:** not started. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
@@ -172,6 +172,14 @@ enable/disable-able **per session** so only relevant skills reach the turn.
 Pre-seeding = adapt into a seed bundle → `~/.icos/skills/`; lint frontmatter
 (the known `icos-legacy` `bad-frontmatter` skip is the cautionary tale); declare
 each skill's external CLI dependencies (many are macOS-only).
+
+## Follow-ups (noted 2026-10-07)
+
+- **Runtime skills don't load:** only 2 of 20 `SKILL.md` in `~/.icos/skills/`
+  load (frontmatter / name-mismatch skips). Adapt the files — **M18**.
+- **Rejected-call retry:** a validation-rejected tool call
+  (`invalid_call_count`) counts as a prior attempt, so an immediate retry hits
+  `repeated_call`. Consider not counting rejected proposals as prior attempts.
 
 ## Open questions
 
