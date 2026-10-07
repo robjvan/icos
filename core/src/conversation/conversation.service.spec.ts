@@ -48,6 +48,14 @@ import { buildPlanningBlock } from '../agent/planning-context';
 import type { ConversationStreamEvent } from './conversation.service';
 import { FakeSessionRepository } from './fake-session.repository';
 import { SessionStore } from './session.store';
+import type { AttachmentImageResolver } from './attachment-images';
+
+/** Test helper: the string content of a message (multimodal-safe). */
+function textOf(message: { content: unknown }): string {
+  return typeof message.content === 'string'
+    ? message.content
+    : JSON.stringify(message.content);
+}
 import {
   answeredClarifyRecord,
   clarifyProposal,
@@ -345,6 +353,9 @@ function setup(
         audit: () => Promise.resolve(0),
       } as unknown as HallucinationGuardService,
       new NoopPublisher(),
+      {
+        resolve: () => Promise.resolve({ parts: [], description: null }),
+      } as unknown as AttachmentImageResolver,
     ),
     repository,
     chatWithTools,
@@ -433,7 +444,7 @@ describe('ConversationService', () => {
     await service.converse('find teal');
 
     const sent = chatWithTools.mock.calls[0][0];
-    const system = String(sent.messages[0].content);
+    const system = textOf(sent.messages[0]);
     expect(system).toContain('Goal for this turn: find teal');
     expect(system).toContain('session.search (runs immediately)');
     expect(system).toContain('session.rename (runs immediately)');
@@ -898,7 +909,7 @@ describe('ConversationService', () => {
       expect(result.status).toBe('ok');
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name)).toContain('mcp_files_read');
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'mcp_files_read (pauses for human approval and ends your turn)',
       );
       const consumed = tools.consume.mock.calls[0][0];
@@ -973,7 +984,7 @@ describe('ConversationService', () => {
         toolCalls: [{ id: 'inv-foreign-1', name: 'mcp_files_read' }],
       });
       expect(tail[1]).toMatchObject({ role: 'tool', callId: 'inv-foreign-1' });
-      expect(JSON.parse(String(tail[1].content))).toMatchObject({
+      expect(JSON.parse(textOf(tail[1]))).toMatchObject({
         ok: true,
         mcp: { server: 'files', tool: 'read' },
       });
@@ -1082,10 +1093,10 @@ describe('ConversationService', () => {
         'web_search',
         'write_file',
       ]);
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'Unavailable (do not propose):',
       );
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'mcp_files_* (server "files" failed: refused)',
       );
       const consumed = tools.consume.mock.calls[0][0];

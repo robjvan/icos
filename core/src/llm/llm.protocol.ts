@@ -1,6 +1,11 @@
 import type { ToolDescriptor, ToolName } from '../tools/tool-registry';
 import { LlmError } from './llm.client';
-import type { ChatMessage, StreamSink } from './llm.client';
+import type {
+  ChatMessage,
+  LlmContentPart,
+  MultimodalUserMessage,
+  StreamSink,
+} from './llm.client';
 
 export interface LlmToolCall {
   readonly id: string;
@@ -13,6 +18,7 @@ export interface LlmToolCall {
 
 export type LlmMessage =
   | ChatMessage
+  | MultimodalUserMessage
   | {
       role: 'assistant';
       content: string | null;
@@ -67,6 +73,9 @@ const MAX_TOTAL_ARGUMENT_BYTES = 256 * 1024;
 export const MAX_SSE_BUFFER_BYTES = 128 * 1024;
 const MAX_METADATA_CHARS = 128;
 const MAX_REASONING_CHARS = 200_000;
+const MAX_CONTENT_PARTS = 8;
+const MAX_PART_TEXT_CHARS = 64 * 1024;
+const MAX_IMAGE_URL_CHARS = 12 * 1024 * 1024;
 
 export function protocolError(): LlmError {
   return new LlmError(
@@ -208,11 +217,43 @@ export class ToolOffer {
             : {}),
         };
       }
+      if (Array.isArray(message.content)) {
+        if (message.role !== 'user') throw protocolError();
+        return { role: 'user', content: this.contentParts(message.content) };
+      }
       if (typeof message.content !== 'string') throw protocolError();
       return { role: message.role, content: message.content };
     });
     if (pending.size) throw protocolError();
     return result;
+  }
+
+  /** Validate and normalize multimodal user content parts (M16.2d). */
+  private contentParts(content: readonly LlmContentPart[]): unknown[] {
+    if (content.length === 0 || content.length > MAX_CONTENT_PARTS)
+      throw protocolError();
+    return content.map((part) => {
+      if (part.type === 'text') {
+        if (
+          typeof part.text !== 'string' ||
+          part.text.length === 0 ||
+          part.text.length > MAX_PART_TEXT_CHARS
+        )
+          throw protocolError();
+        return { type: 'text', text: part.text };
+      }
+      if (part.type === 'image_url') {
+        const url = part.image_url?.url;
+        if (
+          typeof url !== 'string' ||
+          url.length === 0 ||
+          url.length > MAX_IMAGE_URL_CHARS
+        )
+          throw protocolError();
+        return { type: 'image_url', image_url: { url } };
+      }
+      throw protocolError();
+    });
   }
 }
 

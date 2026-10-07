@@ -233,6 +233,12 @@ export interface CoreConfig {
   visionUserAgent?: string;
   visionLlmTimeoutMs?: number;
   /**
+   * M16.2d: whether the conversation model accepts image input. True
+   * (default) inlines image attachments into the turn; false routes them
+   * through the auxiliary vision role as a text description instead.
+   */
+  llmVisionEnabled?: boolean;
+  /**
    * M17b.9 image generation. Provider-agnostic: `IMAGE_GEN_PROVIDER` selects
    * a backend (`openai` for now; `comfyui` later), `IMAGE_GEN_BASE_URL` the
    * endpoint, `IMAGE_GEN_API_KEY` a literal or a `$VAR`/`secret:NAME`
@@ -690,6 +696,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       60000,
       'VISION_LLM_TIMEOUT_MS',
     ),
+    llmVisionEnabled: parseBoolean(env.LLM_VISION_ENABLED, true),
     imageGenProvider:
       (env.IMAGE_GEN_PROVIDER ?? '').trim().toLowerCase() || undefined,
     imageGenBaseUrl:

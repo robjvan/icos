@@ -26,6 +26,7 @@ const MAX_FIELD = 200;
  */
 export function buildAttachmentBand(
   attachments?: readonly TurnAttachment[],
+  imagesIncluded = false,
 ): string | null {
   const present = (attachments ?? []).filter((item) => item.url !== '');
   if (present.length === 0) return null;
@@ -41,9 +42,11 @@ export function buildAttachmentBand(
     return `- ${fields.join(' | ')}`;
   });
   const omitted = present.length - shown.length;
-  const header =
-    'The turn arrived with attachment metadata below. Contents are NOT ' +
-    'fetched — these are references only; do not claim to have read them.';
+  const header = imagesIncluded
+    ? 'The turn arrived with attachment metadata below. Image contents are ' +
+      'included with this message; other contents are references only.'
+    : 'The turn arrived with attachment metadata below. Contents are NOT ' +
+      'fetched — these are references only; do not claim to have read them.';
   const footer = omitted > 0 ? `\n(+${omitted} more omitted)` : '';
   return `<attachments>\n${header}\n${lines.join('\n')}${footer}\n</attachments>`;
 }

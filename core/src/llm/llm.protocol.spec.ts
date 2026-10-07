@@ -1,5 +1,6 @@
 import { ToolRegistry } from '../tools/tool-registry';
 import { LlmClient, LlmError } from './llm.client';
+import { ToolOffer } from './llm.protocol';
 import type { LlmMessage, LlmToolRequest } from './llm.protocol';
 
 const tools = new ToolRegistry().list();
@@ -846,5 +847,52 @@ describe('M8b tool protocol', () => {
     const onToken = jest.fn();
     await rejected(client().chatStream({ messages: [] }, { onToken }));
     expect(onToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('M16.2d multimodal content parts', () => {
+  it('normalizes user text + image parts through the tool offer', () => {
+    const offer = new ToolOffer({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'what is this?' },
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/png;base64,AAAA' },
+            },
+          ],
+        },
+      ],
+      tools: [],
+    });
+    expect(offer.body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this?' },
+          {
+            type: 'image_url',
+            image_url: { url: 'data:image/png;base64,AAAA' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('rejects empty or malformed content parts', () => {
+    const build =
+      (content: unknown): (() => void) =>
+      () =>
+        new ToolOffer({
+          messages: [{ role: 'user', content } as unknown as LlmMessage],
+          tools: [],
+        });
+    expect(build([])).toThrow(LlmError);
+    expect(build([{ type: 'text', text: '' }])).toThrow(LlmError);
+    expect(build([{ type: 'image_url', image_url: { url: '' } }])).toThrow(
+      LlmError,
+    );
   });
 });

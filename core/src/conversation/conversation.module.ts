@@ -7,6 +7,8 @@ import { ApprovalsController } from '../approvals/approvals.controller';
 import { PersonaModule } from '../persona/persona.module';
 import { PersonaRepository } from '../persona/persona.repository';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
+import { AttachmentImageResolver } from './attachment-images';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
 import { ClarificationsController } from '../clarifications/clarifications.controller';
@@ -166,7 +168,12 @@ const toolExecutionServiceProvider = {
 };
 
 @Module({
-  imports: [RealtimeModule, PersonaModule, ChannelsCoreModule],
+  imports: [
+    RealtimeModule,
+    PersonaModule,
+    ChannelsCoreModule,
+    AttachmentsModule,
+  ],
   controllers: [
     ConversationController,
     SessionsController,
@@ -263,6 +270,7 @@ const toolExecutionServiceProvider = {
     visionLlmClientProvider,
     VisionService,
     ImageGenService,
+    AttachmentImageResolver,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

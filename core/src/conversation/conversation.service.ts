@@ -71,6 +71,8 @@ import { buildContext } from './context.builder';
 import type { ContextMemory } from './context.builder';
 import { buildAttachmentBand } from './attachments';
 import type { TurnAttachment } from './attachments';
+import { AttachmentImageResolver } from './attachment-images';
+import type { ResolvedTurnImages } from './attachment-images';
 import { SessionStore } from './session.store';
 import type { HistoryMessage } from './session.store';
 
@@ -243,6 +245,7 @@ export class ConversationService {
     private readonly personaStager: PersonaCandidateStager,
     private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
+    private readonly attachmentImages: AttachmentImageResolver,
   ) {}
 
   async converse(
@@ -268,7 +271,7 @@ export class ConversationService {
       id,
       message,
       options?.sourceBand,
-      buildAttachmentBand(options?.attachments),
+      options?.attachments,
     );
     // Bounded multi-step loop: each step proposes at most one call.
     // Approval-free searches chain (pair appended, propose again);
@@ -803,12 +806,7 @@ export class ConversationService {
       return;
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(
-      id,
-      message,
-      undefined,
-      buildAttachmentBand(attachments),
-    );
+    const turn = await this.prepareTurn(id, message, undefined, attachments);
     const requestId = randomUUID();
     const sink: StreamSink = {
       onToken: (content) => emit({ type: 'token', content }),
@@ -1700,11 +1698,41 @@ export class ConversationService {
     };
   }
 
+  /**
+   * M16.2d: attach inline image parts (vision-capable conversation model)
+   * or append the vision role's descriptions (text-only fallback) to the
+   * final user message. Returns the message unchanged when there is
+   * nothing to attach.
+   */
+  private withTurnImages(
+    message: LlmMessage,
+    images: ResolvedTurnImages,
+  ): LlmMessage {
+    if (message.role !== 'user' || typeof message.content !== 'string') {
+      return message;
+    }
+    if (images.parts.length > 0) {
+      return {
+        role: 'user',
+        content: [{ type: 'text', text: message.content }, ...images.parts],
+      };
+    }
+    if (images.description) {
+      return {
+        role: 'user',
+        content:
+          `${message.content}\n\n<image-descriptions>\n` +
+          `${images.description}\n</image-descriptions>`,
+      };
+    }
+    return message;
+  }
+
   private async prepareTurn(
     sessionId: string,
     message: string,
     sourceBand?: string,
-    attachmentBand?: string | null,
+    attachments?: readonly TurnAttachment[],
   ): Promise<{
     history: ChatMessage[];
     skills: ResolvedTurnSkills;
@@ -1722,15 +1750,23 @@ export class ConversationService {
     const personaBand = await this.personaGrounding.band(
       DEFAULT_PERSONA_USER_ID,
     );
+    const images = await this.attachmentImages.resolve(attachments);
+    const attachmentBand = buildAttachmentBand(
+      attachments,
+      images.parts.length > 0,
+    );
     const textMessages = this.prepareMessages(history, message, skills, {
       ...recalled.bands,
       personaBand,
       sourceBand: sourceBand ?? null,
-      attachmentBand: attachmentBand ?? null,
+      attachmentBand,
     });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
-    const userMessage = textMessages[textMessages.length - 1];
+    const userMessage = this.withTurnImages(
+      textMessages[textMessages.length - 1],
+      images,
+    );
     const toolMessages: LlmMessage[] = [
       ...textMessages.slice(0, -1),
       ...toPairMessages(pairs),

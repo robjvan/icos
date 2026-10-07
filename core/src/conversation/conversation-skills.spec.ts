@@ -33,6 +33,7 @@ import {
 import { buildPlanningBlock } from '../agent/planning-context';
 import { FakeSessionRepository } from './fake-session.repository';
 import { SessionStore } from './session.store';
+import type { AttachmentImageResolver } from './attachment-images';
 import {
   stubAgentRuns,
   stubToolExecution,
@@ -172,6 +173,9 @@ async function setup(
     } as unknown as PersonaCandidateStager,
     { audit: () => Promise.resolve(0) } as unknown as HallucinationGuardService,
     new NoopPublisher(),
+    {
+      resolve: () => Promise.resolve({ parts: [], description: null }),
+    } as unknown as AttachmentImageResolver,
   );
   return {
     service,
