@@ -48,7 +48,7 @@ export class SqliteTodoRepository extends TodoRepository {
     const rows = this.database
       .prepare(
         `SELECT ${COLUMNS} FROM session_todos
-          WHERE session_id = ? ORDER BY created_at, id`,
+          WHERE session_id = ? ORDER BY created_at, rowid`,
       )
       .all(sessionId) as TodoRow[];
     return rows.map(mapRow);
