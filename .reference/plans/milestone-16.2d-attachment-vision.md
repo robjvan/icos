@@ -1,9 +1,11 @@
 # M16.2d — Attachment vision (images to the model)
 
-> Status: **planned / not started**. Follow-on to M16.2 (attachments). Captured
-> 2026-10-04. **Sequenced *after* the EXP tool-surface work**, so a
-> `vision_analyze` tool exists as the text-only fallback rather than a special
-> case. Crosses the **LLM protocol boundary**, so it gets its own slice.
+> Status: **done / verified** (2026-10-07). Sub-slices **M16.2d.1–.4**
+> implemented and live-verified (inline + fallback). Evidence:
+> `.reference/plans/evidence/milestone-16.2d/attachment-vision-evidence.md`.
+> Follow-on to M16.2 (attachments). Captured 2026-10-04. Sequenced *after* the
+> EXP tool-surface work — `vision_analyze` (M17b.8) is the text-only fallback
+> rather than a special case. Crosses the **LLM protocol boundary**.
 
 ## Decision (2026-10-04)
 
