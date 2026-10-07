@@ -1,9 +1,9 @@
 # M17 — Tools Expansion
 
 > Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
-> layer); M17b.1–5 (files, web, skills, todo) — with live evidence under
+> layer); M17b.1–6 (files, web, skills, todo, memory) — with live evidence under
 > `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:** clarify,
-> memory/session_search, vision/image. **Tiers 2–3:** not started. Captured
+> vision/image. **Tiers 2–3:** not started. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
@@ -104,12 +104,13 @@ Toolsets/enable/disable, availability/requirements, approval tiers, planning-
 frame declaration of disabled tools. Unlocks M18 and M19.
 
 ### M17b — Tier 1 tools (TS-native, low risk, high value)
-- **Files**: `read_file`, `write_file`, `patch`, `search_files`
-- **Web**: `web_search`, `web_extract`
-- **Todo**: `todo`
+- **Files**: `read_file`, `write_file`, `patch`, `search_files` — *done (M17b.1–2)*
+- **Web**: `web_search`, `web_extract` — *done (M17b.3)*
+- **Todo**: `todo` — *done (M17b.5)*
 - **Clarify**: `clarify` (expose the existing M6 clarification flow as a tool)
 - **Session/memory**: extend `session.search`; add a model-facing `memory` tool
-- **Skill view/list**: `skill_view`, `skills_list`
+  (`beliefs` / `recall` / `persona` / `candidates`) — *done (M17b.6)*
+- **Skill view/list**: `skill_view`, `skills_list` — *done (M17b.4)*
 - **Vision**: `vision_analyze` (lands with M16.2d; local `gemma4` or a provider)
 - **Image**: `image_generate` (FAL API + vault key)
 
