@@ -181,6 +181,11 @@ each skill's external CLI dependencies (many are macOS-only).
 - **Rejected-call retry:** a validation-rejected tool call
   (`invalid_call_count`) counts as a prior attempt, so an immediate retry hits
   `repeated_call`. Consider not counting rejected proposals as prior attempts.
+- **`session.search` is current-session only:** "do you remember when we talked
+  about X" only works if X is in the live session. Cross-session transcript
+  search (an option on `session.search`, or a wider `memory` layer) is a gap —
+  decide when episodic recall matters. Beliefs/recall cover durable facts;
+  episodes live only in transcripts.
 
 ## Open questions
 
