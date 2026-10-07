@@ -1390,6 +1390,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: [{ ...call }],
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tool: {
         role: 'tool',
@@ -1426,6 +1429,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: [{ ...proposal.toolCalls[0], id: observation.invocationId }],
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tool: {
         role: 'tool',
@@ -1458,6 +1464,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: proposal.toolCalls.map((call) => ({ ...call })),
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tools: proposal.toolCalls.map((call): LlmMessage => ({
         role: 'tool',
@@ -1491,6 +1500,9 @@ export class ConversationService {
       role: 'assistant',
       content: proposal.content,
       toolCalls: [{ ...proposal.toolCalls[0], id: record.invocationId }],
+      ...(proposal.reasoningContent
+        ? { reasoningContent: proposal.reasoningContent }
+        : {}),
     };
     const toolSummary: ToolSummary = {
       invocationId: record.invocationId,

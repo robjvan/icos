@@ -892,6 +892,10 @@ export class ToolExecutionService {
           role: 'assistant',
           content: proposal.content,
           toolCalls: [{ ...proposal.toolCalls[0], id: record.invocationId }],
+          ...(typeof proposal.reasoningContent === 'string' &&
+          proposal.reasoningContent.length > 0
+            ? { reasoningContent: proposal.reasoningContent }
+            : {}),
         },
         {
           role: 'tool',

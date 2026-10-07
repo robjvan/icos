@@ -17,6 +17,11 @@ export type LlmMessage =
       role: 'assistant';
       content: string | null;
       toolCalls: readonly LlmToolCall[];
+      /**
+       * Thinking models (e.g. deepseek via opencode) require the reasoning
+       * that accompanied a tool call to be passed back on the next request.
+       */
+      reasoningContent?: string;
     }
   | { role: 'tool'; callId: string; content: string };
 
@@ -27,6 +32,8 @@ export type LlmResult =
       content: string | null;
       model: string;
       toolCalls: readonly LlmToolCall[];
+      /** Echoed back on the assistant tool-call message (see LlmMessage). */
+      reasoningContent?: string;
     };
 
 export interface LlmToolRequest {
@@ -52,6 +59,7 @@ const MAX_ARGUMENT_BYTES = 64 * 1024;
 const MAX_TOTAL_ARGUMENT_BYTES = 256 * 1024;
 export const MAX_SSE_BUFFER_BYTES = 128 * 1024;
 const MAX_METADATA_CHARS = 128;
+const MAX_REASONING_CHARS = 200_000;
 
 export function protocolError(): LlmError {
   return new LlmError(
@@ -183,7 +191,15 @@ export class ToolOffer {
             function: { name: alias, arguments: call.rawArguments },
           };
         });
-        return { role: 'assistant', content: message.content, tool_calls };
+        return {
+          role: 'assistant',
+          content: message.content,
+          tool_calls,
+          ...(typeof message.reasoningContent === 'string' &&
+          message.reasoningContent.length > 0
+            ? { reasoning_content: message.reasoningContent }
+            : {}),
+        };
       }
       if (typeof message.content !== 'string') throw protocolError();
       return { role: message.role, content: message.content };
@@ -202,6 +218,7 @@ interface PendingCall {
 
 export class CompletionParser {
   private content: string | null = null;
+  private reasoning: string | null = null;
   private readonly calls = new Map<number, PendingCall>();
   private finish: string | null = null;
   private done = false;
@@ -291,6 +308,9 @@ export class CompletionParser {
         content: this.content,
         model: this.model,
         toolCalls,
+        ...(this.reasoning !== null && this.reasoning.length > 0
+          ? { reasoningContent: this.reasoning }
+          : {}),
       };
     }
     if (this.offer && this.finish !== 'stop') throw protocolError();
@@ -353,6 +373,11 @@ export class CompletionParser {
     }
     if (typeof message.content === 'string')
       this.content = (this.content ?? '') + message.content;
+    if (message.reasoning_content !== undefined) {
+      if (typeof message.reasoning_content !== 'string') throw protocolError();
+      this.reasoning = (this.reasoning ?? '') + message.reasoning_content;
+      if (this.reasoning.length > MAX_REASONING_CHARS) throw protocolError();
+    }
   }
 
   private addCall(value: unknown, position?: number): void {
