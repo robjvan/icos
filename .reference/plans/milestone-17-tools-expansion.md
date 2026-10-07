@@ -81,6 +81,18 @@ Open Questions.
 Every keyed tool (web search, FAL, docker registry, …) resolves through the
 existing **vault/secret resolver**; catalogs hold references only.
 
+### D. Workspace & KB (note, 2026-10-06)
+
+The file tools are confined to `TOOLS_WORKSPACE_ROOT`. The operator intends a
+**KB folder as a child of the workspace** (e.g. `<root>/kb/`), so the agent
+reaches it under the one root — no second boundary, no S3.
+
+Consequence to decide: if the workspace is the agent's own sandbox, then file
+**writes inside it can be approval-free** ("unfettered KB access" implies this);
+otherwise writes stay gated and the KB needs a carve-out. This choice also
+decides whether `write_file`/`patch` need the native approval-parking path at
+all.
+
 ## Slices (by tier)
 
 ### M17a — Enablement & policy layer
