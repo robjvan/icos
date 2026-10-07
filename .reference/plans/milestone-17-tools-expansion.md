@@ -1,6 +1,10 @@
 # M17 — Tools Expansion
 
-> Status: **planned / not started**. Captured 2026-10-05. Source material:
+> Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
+> layer); M17b.1–3 (files, web) — with live evidence under
+> `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:** todo/clarify,
+> memory/session_search, skill view/list, vision/image. **Tiers 2–3:** not
+> started. Captured 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
 > Related: **M18 Skills Adoption**, **M19 Dynamic MCP toolsets**, **M16.2d
