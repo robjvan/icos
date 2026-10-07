@@ -1,9 +1,10 @@
 # M17 — Tools Expansion
 
 > Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
-> layer); M17b.1–7 (files, web, skills, todo, memory, clarify) — with live
+> layer); M17b.1–8 (files, web, skills, todo, memory, clarify, vision) — with live
 > evidence under `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:**
-> vision/image. **Tiers 2–3:** not started. Captured
+> image_generate (live test deferred — no credits/hardware). **Tiers 2–3:** not
+> started. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
@@ -112,8 +113,10 @@ frame declaration of disabled tools. Unlocks M18 and M19.
 - **Session/memory**: extend `session.search`; add a model-facing `memory` tool
   (`beliefs` / `recall` / `persona` / `candidates`) — *done (M17b.6)*
 - **Skill view/list**: `skill_view`, `skills_list` — *done (M17b.4)*
-- **Vision**: `vision_analyze` (lands with M16.2d; local `gemma4` or a provider)
-- **Image**: `image_generate` (FAL API + vault key)
+- **Vision**: `vision_analyze` — *done (M17b.8; auxiliary `VISION_LLM_*` role,
+  local `gemma4:e4b`)*
+- **Image**: `image_generate` (provider-agnostic: ComfyUI preferred, OpenAI/FAL;
+  key via env/vault; live test deferred — no credits/hardware)
 
 ### M17c — Tier 2 tools (design + guardrails)
 - **Terminal**: `terminal`, `process_manage` (subprocess + cwd jail + approval)
