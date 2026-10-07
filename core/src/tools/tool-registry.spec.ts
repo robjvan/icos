@@ -24,6 +24,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'todo',
   'memory',
   'clarify',
+  'vision_analyze',
 ];
 
 function contextWith(
@@ -80,6 +81,7 @@ describe('ToolRegistry', () => {
       'todo',
       'memory',
       'clarify',
+      'vision_analyze',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -99,6 +101,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('todo')?.approval).toBe('none');
     expect(registry.lookup('memory')?.approval).toBe('none');
     expect(registry.lookup('clarify')?.approval).toBe('none');
+    expect(registry.lookup('vision_analyze')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1008,6 +1011,56 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('vision_analyze tool (M17b.8)', () => {
+    it('accepts a path or url and rejects bad shapes', () => {
+      const byPath = expectOk(
+        registry.validate(
+          { name: 'vision_analyze', version: 1, args: { path: 'pic.png' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(byPath).toMatchObject({
+        name: 'vision_analyze',
+        args: { path: 'pic.png' },
+      });
+
+      const byUrl = expectOk(
+        registry.validate(
+          {
+            name: 'vision_analyze',
+            version: 1,
+            args: { url: 'https://x/y.png', prompt: 'What is this?' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(byUrl).toMatchObject({
+        name: 'vision_analyze',
+        args: { url: 'https://x/y.png', prompt: 'What is this?' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'vision_analyze', version: 1, args: {} },
+        {
+          name: 'vision_analyze',
+          version: 1,
+          args: { path: 'a.png', url: 'https://x/y.png' },
+        },
+        { name: 'vision_analyze', version: 1, args: { path: '   ' } },
+        {
+          name: 'vision_analyze',
+          version: 1,
+          args: { url: 'https://x/y.png', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1055,6 +1108,7 @@ describe('ToolRegistry', () => {
         'todo',
         'memory',
         'clarify',
+        'vision_analyze',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

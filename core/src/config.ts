@@ -220,6 +220,19 @@ export interface CoreConfig {
   memoryUserAgent?: string;
   memoryLlmTimeoutMs: number;
   /**
+   * M17b.8 vision role: an auxiliary image-capable model that answers
+   * `vision_analyze` on behalf of a text-only chat model. Optional in the
+   * type (test literals omit it); the loader always populates it, and the
+   * endpoint falls back VISION_* → MEMORY_* → LLM_*.
+   */
+  visionProvider?: string;
+  visionLlmBaseUrl?: string;
+  visionLlmModel?: string;
+  visionLlmApiKey?: string;
+  visionLlmHeaders?: Record<string, string>;
+  visionUserAgent?: string;
+  visionLlmTimeoutMs?: number;
+  /**
    * M10c promotion authority. false (default) = every promotion needs
    * a human approval; true admits NEW claims of the configured kinds
    * without approval. REINFORCE/CONTRADICT always require approval.
@@ -619,6 +632,49 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.MEMORY_LLM_TIMEOUT_MS,
       60000,
       'MEMORY_LLM_TIMEOUT_MS',
+    ),
+    // M17b.8 vision role: own client, own values; each falls back to its
+    // memory counterpart, which falls back to the conversation endpoint.
+    visionProvider:
+      (
+        env.VISION_PROVIDER ??
+        env.MEMORY_PROVIDER ??
+        env.LLM_PROVIDER ??
+        'ollama'
+      )
+        .trim()
+        .toLowerCase() || 'ollama',
+    visionLlmBaseUrl: (
+      env.VISION_LLM_BASE_URL ??
+      env.MEMORY_LLM_BASE_URL ??
+      llmBaseUrl
+    )
+      .trim()
+      .replace(/\/+$/, ''),
+    visionLlmModel:
+      (env.VISION_LLM_MODEL ?? env.MEMORY_LLM_MODEL ?? '').trim() || llmModel,
+    visionLlmApiKey:
+      (
+        env.VISION_LLM_API_KEY ??
+        env.MEMORY_LLM_API_KEY ??
+        env.LLM_API_KEY ??
+        ''
+      ).trim() || undefined,
+    visionLlmHeaders: parseHeaders(
+      env.VISION_LLM_HEADERS ?? env.MEMORY_LLM_HEADERS ?? env.LLM_HEADERS,
+      'VISION_LLM_HEADERS',
+    ),
+    visionUserAgent:
+      (
+        env.VISION_USER_AGENT ??
+        env.MEMORY_USER_AGENT ??
+        env.LLM_USER_AGENT ??
+        ''
+      ).trim() || undefined,
+    visionLlmTimeoutMs: parsePositiveInt(
+      env.VISION_LLM_TIMEOUT_MS,
+      60000,
+      'VISION_LLM_TIMEOUT_MS',
     ),
     memoryPromotionAuto: parseBoolean(env.MEMORY_PROMOTION_AUTO, false),
     memoryPromotionAutoKinds: parseKindList(env.MEMORY_PROMOTION_AUTO_KINDS),

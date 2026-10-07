@@ -28,6 +28,7 @@ import type { ClaimRepository } from '../memory/claim.repository';
 import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import type { RecallResult, RecallService } from '../memory/recall.service';
 import type { PersonaRepository } from '../persona/persona.repository';
+import type { VisionService } from '../vision/vision.service';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -102,6 +103,7 @@ describe('ToolExecutionService SQLite', () => {
       persona?: PersonaRepository;
     } = {},
     clarifications?: ClarificationService,
+    vision?: VisionService,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -156,6 +158,7 @@ describe('ToolExecutionService SQLite', () => {
       memory.recall,
       memory.candidates,
       memory.persona,
+      vision,
     );
     return {
       database,
@@ -699,6 +702,74 @@ describe('ToolExecutionService SQLite', () => {
         options: ['a', 'b'],
       },
     });
+  });
+
+  it('analyzes a workspace image through the vision role (M17b.8)', async () => {
+    type VisionInput = { prompt: string; dataUrl: string };
+    const analyze = jest.fn<
+      Promise<{ text: string; model: string }>,
+      [VisionInput]
+    >(() => Promise.resolve({ text: 'A teal square.', model: 'v' }));
+    const vision = { analyze } as unknown as VisionService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      vision,
+    );
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const result = await service.consume(
+      toolInput('req-vision', 'vision_analyze', {
+        path: 'pic.png',
+        prompt: 'What?',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'vision_analyze',
+      result: {
+        path: 'pic.png',
+        mime: 'image/png',
+        model: 'v',
+        text: 'A teal square.',
+      },
+    });
+    expect(analyze).toHaveBeenCalledTimes(1);
+    const call = analyze.mock.calls[0][0];
+    expect(call.prompt).toBe('What?');
+    expect(call.dataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('rejects an unsupported image type (M17b.8)', async () => {
+    const analyze = jest.fn();
+    const vision = { analyze } as unknown as VisionService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      vision,
+    );
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'notes.txt'), 'hello');
+
+    const result = await service.consume(
+      toolInput('req-vision-bad', 'vision_analyze', { path: 'notes.txt' }),
+    );
+    expect(result.state).toBe('failed');
+    expect(result.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+    expect(analyze).not.toHaveBeenCalled();
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

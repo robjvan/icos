@@ -68,6 +68,19 @@ export function memoryEndpointConfig(config: CoreConfig): LlmEndpointConfig {
   };
 }
 
+/** Map the VISION_* role configuration to endpoint values (M17b.8). */
+export function visionEndpointConfig(config: CoreConfig): LlmEndpointConfig {
+  return {
+    provider: config.visionProvider ?? config.memoryProvider,
+    llmBaseUrl: config.visionLlmBaseUrl ?? config.memoryLlmBaseUrl,
+    llmModel: config.visionLlmModel ?? config.memoryLlmModel,
+    llmApiKey: config.visionLlmApiKey ?? config.memoryLlmApiKey,
+    headers: config.visionLlmHeaders ?? config.memoryLlmHeaders,
+    userAgent: config.visionUserAgent ?? config.memoryUserAgent,
+    llmTimeoutMs: config.visionLlmTimeoutMs ?? config.memoryLlmTimeoutMs,
+  };
+}
+
 /**
  * LLM provider registry (S4). Loads `providers.json` and resolves the
  * active conversation/memory endpoints **on demand** — so a reload, a
@@ -118,6 +131,15 @@ export class ProviderRegistryService implements OnModuleInit {
   /** Endpoint for the memory/extraction role. */
   memoryEndpoint(): LlmEndpointConfig {
     return this.endpointFor('memory');
+  }
+
+  /**
+   * Endpoint for the vision role (M17b.8). Env-only for now
+   * (`VISION_LLM_*`, falling back to `MEMORY_LLM_*` then `LLM_*`); a
+   * provider-catalog role is a follow-up.
+   */
+  visionEndpoint(): LlmEndpointConfig {
+    return visionEndpointConfig(this.config);
   }
 
   /** Operator-visible status: names/models/presence, never values. */

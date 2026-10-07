@@ -1,5 +1,9 @@
 import { createRequire } from 'node:module';
-import type { ChatMessage, LlmEndpointConfig } from './llm.client';
+import type {
+  ChatMessage,
+  LlmEndpointConfig,
+  MultimodalUserMessage,
+} from './llm.client';
 
 /**
  * Provider id prefix that opts into OpenCode session affinity.
@@ -20,7 +24,7 @@ export interface LlmRequestContext {
  * without inspecting sessions, databases, or HTTP internals.
  */
 export interface LlmChatRequest {
-  messages: ChatMessage[];
+  messages: readonly (ChatMessage | MultimodalUserMessage)[];
   sessionId?: string;
 }
 

@@ -18,6 +18,7 @@ import { HostHealthProvider } from '../commands/host-health';
 import {
   conversationLlmClientProvider,
   memoryLlmClientProvider,
+  visionLlmClientProvider,
 } from '../llm/llm-client.providers';
 import { LlmMemoryCandidateExtractor } from '../memory/llm-memory-candidate-extractor';
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
@@ -76,6 +77,7 @@ import { TodoRepository } from '../session/todo.repository';
 import { SqliteTodoRepository } from '../session/sqlite-todo.repository';
 import { SkillService } from '../skills/skill.service';
 import { SkillsController } from '../skills/skills.controller';
+import { VisionService } from '../vision/vision.service';
 import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
@@ -113,6 +115,7 @@ const toolExecutionServiceProvider = {
     recall: RecallService,
     candidates: MemoryCandidateRepository,
     persona: PersonaRepository,
+    vision: VisionService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -135,6 +138,7 @@ const toolExecutionServiceProvider = {
       recall,
       candidates,
       persona,
+      vision,
     ),
   inject: [
     ToolExecutionRepository,
@@ -153,6 +157,7 @@ const toolExecutionServiceProvider = {
     RecallService,
     MemoryCandidateRepository,
     PersonaRepository,
+    VisionService,
   ],
 };
 
@@ -251,6 +256,8 @@ const toolExecutionServiceProvider = {
     ClarificationService,
     memoryLlmClientProvider,
     conversationLlmClientProvider,
+    visionLlmClientProvider,
+    VisionService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

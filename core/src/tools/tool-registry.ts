@@ -19,7 +19,8 @@ export type ToolName =
   | 'skill_view'
   | 'todo'
   | 'memory'
-  | 'clarify';
+  | 'clarify'
+  | 'vision_analyze';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -141,6 +142,15 @@ export interface ClarifyArgs {
   readonly ttlMs?: number;
 }
 
+export interface VisionAnalyzeArgs {
+  /** Workspace-relative image path. Exactly one of path/url. */
+  readonly path?: string;
+  /** http(s) image URL. Exactly one of path/url. */
+  readonly url?: string;
+  /** Optional instruction; defaults to a describe prompt. */
+  readonly prompt?: string;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -171,7 +181,8 @@ export type ValidatedToolArgs =
   | SkillViewArgs
   | TodoArgs
   | MemoryArgs
-  | ClarifyArgs;
+  | ClarifyArgs
+  | VisionAnalyzeArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -191,6 +202,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'todo'; readonly args: TodoArgs }
   | { readonly name: 'memory'; readonly args: MemoryArgs }
   | { readonly name: 'clarify'; readonly args: ClarifyArgs }
+  | { readonly name: 'vision_analyze'; readonly args: VisionAnalyzeArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -584,6 +596,32 @@ const CLARIFY_SCHEMA = deepFreeze({
   },
 } as const);
 
+const VISION_ANALYZE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: [],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -721,6 +759,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'agent',
     argsSchema: CLARIFY_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'vision_analyze',
+    version: 1,
+    description:
+      'Analyze an image with the vision model and return a text description. ' +
+      'Provide a workspace path or an http(s) URL.',
+    approval: 'none',
+    toolset: 'vision',
+    argsSchema: VISION_ANALYZE_SCHEMA,
   }),
 ]);
 
@@ -1300,6 +1348,50 @@ function validateClarifyArgs(
   };
 }
 
+function validateVisionAnalyzeArgs(
+  args: Record<string, unknown>,
+): ParseResult<VisionAnalyzeArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'url', 'prompt']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const hasPath = Object.hasOwn(args, 'path');
+  const hasUrl = Object.hasOwn(args, 'url');
+  if (hasPath === hasUrl) {
+    return { ok: false, message: 'provide exactly one of "path" or "url"' };
+  }
+  let path: string | undefined;
+  if (hasPath) {
+    const parsed = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    path = parsed.value;
+  }
+  let url: string | undefined;
+  if (hasUrl) {
+    const parsed = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+    if (!parsed.ok) return parsed;
+    url = parsed.value;
+  }
+  let prompt: string | undefined;
+  if (Object.hasOwn(args, 'prompt')) {
+    const parsed = validText(
+      ownValue(args, 'prompt'),
+      'prompt',
+      MAX_QUESTION_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    prompt = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      ...(path !== undefined ? { path } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(prompt !== undefined ? { prompt } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1588,6 +1680,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'clarify',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'vision_analyze') {
+      const result = validateVisionAnalyzeArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'vision_analyze',
           ...base,
           args: result.value,
         }),

@@ -35,6 +35,7 @@ import type { PersonaRepository } from '../persona/persona.repository';
 import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import type { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
+import type { VisionService } from '../vision/vision.service';
 import type {
   ChannelSendPort,
   ChannelSendRequest,
@@ -50,6 +51,7 @@ import type {
   SkillViewArgs,
   TodoArgs,
   ValidatedToolRequest,
+  VisionAnalyzeArgs,
   WebExtractArgs,
   WebSearchArgs,
   WriteFileArgs,
@@ -82,6 +84,18 @@ const WEB_TIMEOUT_MS = 15_000;
 const MAX_EXTRACT_CHARS = 32 * 1024;
 const MEMORY_DEFAULT_LIMIT = 20;
 const MEMORY_FILTER_SCAN_LIMIT = 200;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const VISION_FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_VISION_PROMPT =
+  'Describe this image in detail, including any text, objects, people, and context.';
+const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+const ALLOWED_IMAGE_MIMES = new Set(Object.values(IMAGE_MIME_BY_EXT));
 
 /** Human-readable approval description for a channel.send proposal. */
 function describeChannelSend(args: ChannelSendArgs): string {
@@ -124,6 +138,12 @@ function surfaceView(surface: SurfaceResult): Record<string, unknown> {
   };
 }
 
+/** MIME for a supported image path, by extension; undefined otherwise. */
+function imageMimeForPath(file: string): string | undefined {
+  const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
+  return IMAGE_MIME_BY_EXT[ext];
+}
+
 @Injectable()
 export class ToolExecutionService {
   private readonly searchTimeoutMs: number;
@@ -154,6 +174,7 @@ export class ToolExecutionService {
     private readonly recall?: RecallService,
     private readonly candidates?: MemoryCandidateRepository,
     private readonly persona?: PersonaRepository,
+    private readonly vision?: VisionService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -473,6 +494,8 @@ export class ToolExecutionService {
         return this.nativeTodo(args as unknown as TodoArgs, sessionId);
       case 'memory':
         return this.nativeMemory(args as unknown as MemoryArgs);
+      case 'vision_analyze':
+        return this.nativeVisionAnalyze(args);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -820,6 +843,86 @@ export class ToolExecutionService {
         return claim ? { ...claimView(claim), score } : { id, score };
       }),
     );
+  }
+
+  /** Analyze an image with the vision role (M17b.8). */
+  private async nativeVisionAnalyze(args: VisionAnalyzeArgs): Promise<unknown> {
+    if (!this.vision) throw new Error('vision_unavailable');
+    const prompt = args.prompt ?? DEFAULT_VISION_PROMPT;
+    const image =
+      args.path !== undefined
+        ? this.readWorkspaceImage(args.path)
+        : args.url !== undefined
+          ? await this.fetchImage(args.url)
+          : undefined;
+    if (!image) throw new Error('invalid_args');
+    const analysis = await this.vision.analyze({
+      dataUrl: `data:${image.mime};base64,${image.bytes.toString('base64')}`,
+      prompt,
+    });
+    return {
+      ...(args.path !== undefined ? { path: args.path } : { url: args.url }),
+      mime: image.mime,
+      model: analysis.model,
+      text: analysis.text,
+    };
+  }
+
+  /** Read a bounded workspace image, inferring MIME from its extension. */
+  private readWorkspaceImage(input: string): { mime: string; bytes: Buffer } {
+    const file = this.resolveWithinWorkspace(input);
+    const stat = statSync(file);
+    if (!stat.isFile()) throw new Error('not_a_file');
+    if (stat.size > MAX_IMAGE_BYTES) throw new Error('image_too_large');
+    const mime = imageMimeForPath(file);
+    if (!mime) throw new Error('unsupported_image_type');
+    return { mime, bytes: readFileSync(file) };
+  }
+
+  /** Fetch a bounded http(s) image, honoring the MIME allow-list. */
+  private async fetchImage(
+    input: string,
+  ): Promise<{ mime: string; bytes: Buffer }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(input);
+    } catch {
+      throw new Error('invalid_url');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('invalid_url');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(parsed, {
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+      if (!res.ok) throw new Error('image_fetch_failed');
+      const mime = (res.headers.get('content-type') ?? '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new Error('unsupported_image_type');
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.byteLength > MAX_IMAGE_BYTES)
+        throw new Error('image_too_large');
+      return { mime, bytes };
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message === 'unsupported_image_type' ||
+          err.message === 'image_too_large')
+      ) {
+        throw err;
+      }
+      throw new Error('image_fetch_failed');
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

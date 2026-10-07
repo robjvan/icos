@@ -7,6 +7,7 @@ import {
   memoryEndpointConfig,
 } from '../providers/provider-registry.service';
 import { MEMORY_LLM_CLIENT } from '../memory/llm-memory-candidate-extractor';
+import { VISION_LLM_CLIENT } from '../vision/vision.service';
 
 export { conversationEndpointConfig, memoryEndpointConfig };
 
@@ -54,5 +55,28 @@ export const memoryLlmClientProvider = {
   provide: MEMORY_LLM_CLIENT,
   useFactory: (registry: ProviderRegistryService): LlmClient =>
     new MemoryLlmClient(registry),
+  inject: [ProviderRegistryService],
+};
+
+/**
+ * Vision role (M17b.8): an auxiliary image-capable model that answers
+ * `vision_analyze`. Env-configured (`VISION_LLM_*`) with fallback to the
+ * memory then conversation endpoint.
+ */
+@Injectable()
+export class VisionLlmClient extends LlmClient {
+  constructor(private readonly registry: ProviderRegistryService) {
+    super(registry.visionEndpoint());
+  }
+
+  protected override endpoint(): LlmEndpointConfig {
+    return this.registry.visionEndpoint();
+  }
+}
+
+export const visionLlmClientProvider = {
+  provide: VISION_LLM_CLIENT,
+  useFactory: (registry: ProviderRegistryService): LlmClient =>
+    new VisionLlmClient(registry),
   inject: [ProviderRegistryService],
 };
