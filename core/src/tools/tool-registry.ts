@@ -10,7 +10,9 @@ export type ToolName =
   | 'session.rename'
   | 'channel.send'
   | 'read_file'
-  | 'search_files';
+  | 'search_files'
+  | 'write_file'
+  | 'patch';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -82,12 +84,31 @@ export interface SearchFilesArgs {
   readonly maxResults?: number;
 }
 
+export interface WriteFileArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Full UTF-8 content to write (bounded). */
+  readonly content: string;
+}
+
+export interface PatchArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Exact text to find (must be unique unless replaceAll). */
+  readonly oldString: string;
+  /** Replacement text. */
+  readonly newString: string;
+  readonly replaceAll?: boolean;
+}
+
 export type ValidatedToolArgs =
   | SessionSearchArgs
   | SessionRenameArgs
   | ChannelSendArgs
   | ReadFileArgs
-  | SearchFilesArgs;
+  | SearchFilesArgs
+  | WriteFileArgs
+  | PatchArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -98,6 +119,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'channel.send'; readonly args: ChannelSendArgs }
   | { readonly name: 'read_file'; readonly args: ReadFileArgs }
   | { readonly name: 'search_files'; readonly args: SearchFilesArgs }
+  | { readonly name: 'write_file'; readonly args: WriteFileArgs }
+  | { readonly name: 'patch'; readonly args: PatchArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -174,6 +197,7 @@ const MAX_BODY_LENGTH = 8000;
 const MAX_ID_LENGTH = 200;
 const MAX_PATH_LENGTH = 500;
 const MAX_READ_BYTES = 256 * 1024;
+const MAX_CONTENT_LENGTH = 256 * 1024;
 const MIN_SEARCH_RESULTS = 1;
 const MAX_SEARCH_RESULTS = 50;
 const DEFAULT_SEARCH_RESULTS = 20;
@@ -307,6 +331,38 @@ const SEARCH_FILES_SCHEMA = deepFreeze({
   },
 } as const);
 
+const WRITE_FILE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'content'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    content: { type: 'string', maxLength: MAX_CONTENT_LENGTH },
+  },
+} as const);
+
+const PATCH_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'oldString', 'newString'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    oldString: { type: 'string', minLength: 1, maxLength: MAX_CONTENT_LENGTH },
+    newString: { type: 'string', maxLength: MAX_CONTENT_LENGTH },
+    replaceAll: { type: 'boolean', default: false },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -356,6 +412,26 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'files',
     argsSchema: SEARCH_FILES_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'write_file',
+    version: 1,
+    description:
+      'Write (or overwrite) a UTF-8 file in the workspace. Creates parent ' +
+      'directories as needed.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: WRITE_FILE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'patch',
+    version: 1,
+    description:
+      'Replace an exact string in a workspace file. Fails if the string is ' +
+      'absent, or ambiguous unless replaceAll is set.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: PATCH_SCHEMA,
   }),
 ]);
 
@@ -570,6 +646,85 @@ function validateSearchFilesArgs(
   };
 }
 
+function validateWriteFileArgs(
+  args: Record<string, unknown>,
+): ParseResult<WriteFileArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'content']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  const content = ownValue(args, 'content');
+  if (typeof content !== 'string') {
+    return { ok: false, message: 'content must be a string' };
+  }
+  if (content.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `content must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  return { ok: true, value: Object.freeze({ path: path.value, content }) };
+}
+
+function validatePatchArgs(
+  args: Record<string, unknown>,
+): ParseResult<PatchArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'path',
+    'oldString',
+    'newString',
+    'replaceAll',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  const oldString = ownValue(args, 'oldString');
+  if (typeof oldString !== 'string' || oldString.length === 0) {
+    return { ok: false, message: 'oldString must be a non-empty string' };
+  }
+  if (oldString.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `oldString must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  const newString = ownValue(args, 'newString');
+  if (typeof newString !== 'string') {
+    return { ok: false, message: 'newString must be a string' };
+  }
+  if (newString.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `newString must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  let replaceAll: boolean | undefined;
+  if (Object.hasOwn(args, 'replaceAll')) {
+    const value = ownValue(args, 'replaceAll');
+    if (typeof value !== 'boolean') {
+      return { ok: false, message: 'replaceAll must be a boolean' };
+    }
+    replaceAll = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      path: path.value,
+      oldString,
+      newString,
+      ...(replaceAll !== undefined ? { replaceAll } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -732,6 +887,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'search_files',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'write_file') {
+      const result = validateWriteFileArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'write_file',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'patch') {
+      const result = validatePatchArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'patch',
           ...base,
           args: result.value,
         }),

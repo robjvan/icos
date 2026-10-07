@@ -362,10 +362,12 @@ describe('ConversationService', () => {
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
+      'patch',
       'read_file',
       'search_files',
       'session.rename',
       'session.search',
+      'write_file',
     ]);
     expect(sent.messages[0]).toEqual({
       role: 'system',
@@ -384,6 +386,8 @@ describe('ConversationService', () => {
       'channel.send',
       'read_file',
       'search_files',
+      'write_file',
+      'patch',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1030,10 +1034,12 @@ describe('ConversationService', () => {
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
+        'patch',
         'read_file',
         'search_files',
         'session.rename',
         'session.search',
+        'write_file',
       ]);
       expect(String(sent.messages[0].content)).toContain(
         'Unavailable (do not propose):',
@@ -1048,6 +1054,8 @@ describe('ConversationService', () => {
         'channel.send',
         'read_file',
         'search_files',
+        'write_file',
+        'patch',
       ]);
     });
 

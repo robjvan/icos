@@ -15,6 +15,8 @@ const ALL_TOOLS: readonly ToolName[] = [
   'session.rename',
   'read_file',
   'search_files',
+  'write_file',
+  'patch',
 ];
 
 function contextWith(
@@ -62,6 +64,8 @@ describe('ToolRegistry', () => {
       'channel.send',
       'read_file',
       'search_files',
+      'write_file',
+      'patch',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -72,6 +76,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('channel.send')?.approval).toBe('required');
     expect(registry.lookup('read_file')?.approval).toBe('none');
     expect(registry.lookup('search_files')?.approval).toBe('none');
+    expect(registry.lookup('write_file')?.approval).toBe('none');
+    expect(registry.lookup('patch')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -641,6 +647,68 @@ describe('ToolRegistry', () => {
         ).toBe('invalid_args');
       }
     });
+
+    it('accepts write_file and patch, and rejects bad shapes', () => {
+      const write = expectOk(
+        registry.validate(
+          {
+            name: 'write_file',
+            version: 1,
+            args: { path: 'a.txt', content: 'hi' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(write).toMatchObject({
+        name: 'write_file',
+        args: { path: 'a.txt', content: 'hi' },
+      });
+
+      const patch = expectOk(
+        registry.validate(
+          {
+            name: 'patch',
+            version: 1,
+            args: {
+              path: 'a.txt',
+              oldString: 'hi',
+              newString: 'bye',
+              replaceAll: true,
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(patch).toMatchObject({
+        name: 'patch',
+        args: { oldString: 'hi', newString: 'bye', replaceAll: true },
+      });
+
+      const bad: unknown[] = [
+        { name: 'write_file', version: 1, args: { path: 'a', content: 1 } },
+        { name: 'write_file', version: 1, args: { path: '  ', content: 'x' } },
+        {
+          name: 'patch',
+          version: 1,
+          args: { path: 'a', oldString: '', newString: 'x' },
+        },
+        {
+          name: 'patch',
+          version: 1,
+          args: {
+            path: 'a',
+            oldString: 'x',
+            newString: 'y',
+            replaceAll: 'yes',
+          },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
   });
 
   describe('foreign delegation (M13b)', () => {
@@ -681,6 +749,8 @@ describe('ToolRegistry', () => {
         'channel.send',
         'read_file',
         'search_files',
+        'write_file',
+        'patch',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

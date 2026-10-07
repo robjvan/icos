@@ -1,7 +1,15 @@
 import { isDeepStrictEqual } from 'node:util';
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import type { Dirent } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import type { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
@@ -22,9 +30,11 @@ import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
   ForeignToolCall,
+  PatchArgs,
   ReadFileArgs,
   SearchFilesArgs,
   ValidatedToolRequest,
+  WriteFileArgs,
 } from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
 import type {
@@ -346,6 +356,12 @@ export class ToolExecutionService {
         return Promise.resolve(
           this.nativeSearchFiles(args as unknown as SearchFilesArgs),
         );
+      case 'write_file':
+        return Promise.resolve(
+          this.nativeWriteFile(args as unknown as WriteFileArgs),
+        );
+      case 'patch':
+        return Promise.resolve(this.nativePatch(args as unknown as PatchArgs));
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -436,24 +452,60 @@ export class ToolExecutionService {
     }
   }
 
+  /** Write (or overwrite) a workspace file, creating parent directories. */
+  private nativeWriteFile(args: WriteFileArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, args.content, 'utf8');
+    return { path: args.path, bytes: Buffer.byteLength(args.content) };
+  }
+
+  /** Replace an exact string in a workspace file (unique unless replaceAll). */
+  private nativePatch(args: PatchArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    let content: string;
+    try {
+      content = readFileSync(file, 'utf8');
+    } catch {
+      throw new Error('not_a_file');
+    }
+    const count = content.split(args.oldString).length - 1;
+    if (count === 0) throw new Error('old_string_not_found');
+    if (count > 1 && args.replaceAll !== true) {
+      throw new Error('old_string_not_unique');
+    }
+    const next =
+      args.replaceAll === true
+        ? content.split(args.oldString).join(args.newString)
+        : content.replace(args.oldString, args.newString);
+    writeFileSync(file, next, 'utf8');
+    return {
+      path: args.path,
+      replacements: args.replaceAll === true ? count : 1,
+    };
+  }
+
   /**
    * Resolve a tool path against the workspace root and refuse anything that
-   * escapes it (M17b). Symlinks are resolved so a link cannot point out.
+   * escapes it (M17b). For a not-yet-existing path (a write target), the
+   * deepest existing ancestor is resolved, so a symlinked parent cannot point
+   * out; the remaining segments cannot be symlinks yet.
    */
   private resolveWithinWorkspace(input: string): string {
     const root = realpathSync(this.workspaceRoot);
     const candidate = resolve(root, input);
-    let real = candidate;
-    try {
-      real = realpathSync(candidate);
-    } catch {
-      // Not existing yet (e.g. a write target); the lexical check stands.
+    let probe = candidate;
+    while (!existsSync(probe)) {
+      const parent = dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
     }
-    const rel = relative(root, real);
+    const realAncestor = existsSync(probe) ? realpathSync(probe) : root;
+    const rel = relative(root, realAncestor);
     if (rel.startsWith('..') || isAbsolute(rel)) {
       throw new Error('path_outside_workspace');
     }
-    return real;
+    return candidate;
   }
 
   /** Execute one claimed foreign call through its MCP server. */

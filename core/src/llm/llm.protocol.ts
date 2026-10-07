@@ -42,6 +42,8 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   'channel.send': 'channel_send',
   read_file: 'read_file',
   search_files: 'search_files',
+  write_file: 'write_file',
+  patch: 'patch',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

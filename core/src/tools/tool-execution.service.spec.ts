@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -47,6 +47,34 @@ describe('ToolExecutionService SQLite', () => {
   let dir: string;
   const databases: SessionDatabaseService[] = [];
   const final = jest.fn<Promise<LlmResult>, [LlmToolRequest]>();
+
+  function toolInput(
+    requestId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): ToolExecutionInput {
+    const rawArguments = JSON.stringify(args);
+    return {
+      requestId,
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'do it' }],
+      allowedTools: [name],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: `${requestId}-call`,
+            name,
+            version: 1,
+            rawArguments,
+            args,
+          },
+        ],
+      },
+    };
+  }
 
   function open(channels?: ChannelSendPort) {
     const config = {
@@ -196,6 +224,54 @@ describe('ToolExecutionService SQLite', () => {
       },
     });
 
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('writes and patches a workspace file through the generic native path (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const write = await service.consume(
+      toolInput('req-write', 'write_file', {
+        path: 'sub/a.txt',
+        content: 'hello',
+      }),
+    );
+    expect(write.state).toBe('succeeded');
+    expect(write.execution).toMatchObject({
+      ok: true,
+      tool: 'write_file',
+      result: { path: 'sub/a.txt', bytes: 5 },
+    });
+    expect(readFileSync(join(dir, 'sub/a.txt'), 'utf8')).toBe('hello');
+
+    const patch = await service.consume(
+      toolInput('req-patch', 'patch', {
+        path: 'sub/a.txt',
+        oldString: 'hello',
+        newString: 'bye',
+      }),
+    );
+    expect(patch.state).toBe('succeeded');
+    expect(readFileSync(join(dir, 'sub/a.txt'), 'utf8')).toBe('bye');
+  });
+
+  it('fails a patch when the string is absent (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'a.txt'), 'hello');
+
+    const record = await service.consume(
+      toolInput('req-patch-miss', 'patch', {
+        path: 'a.txt',
+        oldString: 'nope',
+        newString: 'x',
+      }),
+    );
     expect(record.state).toBe('failed');
     expect(record.execution).toMatchObject({
       ok: false,
