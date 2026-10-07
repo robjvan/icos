@@ -233,6 +233,20 @@ export interface CoreConfig {
   visionUserAgent?: string;
   visionLlmTimeoutMs?: number;
   /**
+   * M17b.9 image generation. Provider-agnostic: `IMAGE_GEN_PROVIDER` selects
+   * a backend (`openai` for now; `comfyui` later), `IMAGE_GEN_BASE_URL` the
+   * endpoint, `IMAGE_GEN_API_KEY` a literal or a `$VAR`/`secret:NAME`
+   * reference resolved at call time. Unconfigured = the tool reports
+   * unavailable (never a fake success).
+   */
+  imageGenProvider?: string;
+  imageGenBaseUrl?: string;
+  imageGenModel?: string;
+  imageGenApiKey?: string;
+  imageGenTimeoutMs?: number;
+  /** Where generated images are written; defaults to the tools workspace. */
+  imageGenOutputDir?: string;
+  /**
    * M10c promotion authority. false (default) = every promotion needs
    * a human approval; true admits NEW claims of the configured kinds
    * without approval. REINFORCE/CONTRADICT always require approval.
@@ -676,6 +690,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       60000,
       'VISION_LLM_TIMEOUT_MS',
     ),
+    imageGenProvider:
+      (env.IMAGE_GEN_PROVIDER ?? '').trim().toLowerCase() || undefined,
+    imageGenBaseUrl:
+      (env.IMAGE_GEN_BASE_URL ?? '').trim().replace(/\/+$/, '') || undefined,
+    imageGenModel: (env.IMAGE_GEN_MODEL ?? '').trim() || undefined,
+    imageGenApiKey: (env.IMAGE_GEN_API_KEY ?? '').trim() || undefined,
+    imageGenTimeoutMs: parsePositiveInt(
+      env.IMAGE_GEN_TIMEOUT_MS,
+      120000,
+      'IMAGE_GEN_TIMEOUT_MS',
+    ),
+    imageGenOutputDir: (env.IMAGE_GEN_OUTPUT_DIR ?? '').trim() || undefined,
     memoryPromotionAuto: parseBoolean(env.MEMORY_PROMOTION_AUTO, false),
     memoryPromotionAutoKinds: parseKindList(env.MEMORY_PROMOTION_AUTO_KINDS),
     memoryProspectiveConfidenceThreshold: parseScore(

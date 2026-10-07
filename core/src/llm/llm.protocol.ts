@@ -59,6 +59,7 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   memory: 'memory',
   clarify: 'clarify',
   vision_analyze: 'vision_analyze',
+  image_generate: 'image_generate',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

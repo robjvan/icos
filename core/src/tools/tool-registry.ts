@@ -20,7 +20,8 @@ export type ToolName =
   | 'todo'
   | 'memory'
   | 'clarify'
-  | 'vision_analyze';
+  | 'vision_analyze'
+  | 'image_generate';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -151,6 +152,13 @@ export interface VisionAnalyzeArgs {
   readonly prompt?: string;
 }
 
+export interface ImageGenerateArgs {
+  /** What to draw. */
+  readonly prompt: string;
+  /** Optional `WxH` size, e.g. "1024x1024". */
+  readonly size?: string;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -182,7 +190,8 @@ export type ValidatedToolArgs =
   | TodoArgs
   | MemoryArgs
   | ClarifyArgs
-  | VisionAnalyzeArgs;
+  | VisionAnalyzeArgs
+  | ImageGenerateArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -203,6 +212,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'memory'; readonly args: MemoryArgs }
   | { readonly name: 'clarify'; readonly args: ClarifyArgs }
   | { readonly name: 'vision_analyze'; readonly args: VisionAnalyzeArgs }
+  | { readonly name: 'image_generate'; readonly args: ImageGenerateArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -294,6 +304,8 @@ const MAX_CLARIFY_OPTIONS = 4;
 const MAX_OPTION_LENGTH = 200;
 const MIN_CLARIFY_TTL_MS = 1000;
 const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
+const IMAGE_SIZE_PATTERN = '^[0-9]{2,5}x[0-9]{2,5}$';
+const MAX_IMAGE_SIZE_LENGTH = 11;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -622,6 +634,26 @@ const VISION_ANALYZE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const IMAGE_GENERATE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt'],
+  properties: {
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+    size: {
+      type: 'string',
+      pattern: IMAGE_SIZE_PATTERN,
+      minLength: 3,
+      maxLength: MAX_IMAGE_SIZE_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -769,6 +801,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'vision',
     argsSchema: VISION_ANALYZE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'image_generate',
+    version: 1,
+    description:
+      'Generate an image from a text prompt and save it to the workspace. ' +
+      'Returns the saved path.',
+    approval: 'none',
+    toolset: 'image',
+    argsSchema: IMAGE_GENERATE_SCHEMA,
   }),
 ]);
 
@@ -1392,6 +1434,45 @@ function validateVisionAnalyzeArgs(
   };
 }
 
+function validateImageGenerateArgs(
+  args: Record<string, unknown>,
+): ParseResult<ImageGenerateArgs> {
+  const unknownField = rejectUnknownFields(args, ['prompt', 'size']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const prompt = validText(
+    ownValue(args, 'prompt'),
+    'prompt',
+    MAX_QUESTION_LENGTH,
+  );
+  if (!prompt.ok) {
+    return prompt;
+  }
+  let size: string | undefined;
+  if (Object.hasOwn(args, 'size')) {
+    const parsed = validText(
+      ownValue(args, 'size'),
+      'size',
+      MAX_IMAGE_SIZE_LENGTH,
+    );
+    if (!parsed.ok) {
+      return parsed;
+    }
+    if (!new RegExp(IMAGE_SIZE_PATTERN).test(parsed.value)) {
+      return { ok: false, message: 'size must look like "1024x1024"' };
+    }
+    size = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      prompt: prompt.value,
+      ...(size !== undefined ? { size } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1694,6 +1775,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'vision_analyze',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'image_generate') {
+      const result = validateImageGenerateArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'image_generate',
           ...base,
           args: result.value,
         }),

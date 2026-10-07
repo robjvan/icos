@@ -36,6 +36,8 @@ import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import type { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
 import type { VisionService } from '../vision/vision.service';
+import { ImageGenError } from '../image/image-gen.service';
+import type { ImageGenService } from '../image/image-gen.service';
 import type {
   ChannelSendPort,
   ChannelSendRequest,
@@ -44,6 +46,7 @@ import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
   ForeignToolCall,
+  ImageGenerateArgs,
   MemoryArgs,
   PatchArgs,
   ReadFileArgs,
@@ -175,6 +178,7 @@ export class ToolExecutionService {
     private readonly candidates?: MemoryCandidateRepository,
     private readonly persona?: PersonaRepository,
     private readonly vision?: VisionService,
+    private readonly imageGen?: ImageGenService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -454,7 +458,9 @@ export class ToolExecutionService {
           code:
             error instanceof Error && error.message === 'result_too_large'
               ? 'result_too_large'
-              : 'tool_failed',
+              : error instanceof Error && error.message.endsWith('_unavailable')
+                ? 'unavailable'
+                : 'tool_failed',
         },
       };
     }
@@ -496,6 +502,8 @@ export class ToolExecutionService {
         return this.nativeMemory(args as unknown as MemoryArgs);
       case 'vision_analyze':
         return this.nativeVisionAnalyze(args);
+      case 'image_generate':
+        return this.nativeImageGenerate(args as unknown as ImageGenerateArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -866,6 +874,27 @@ export class ToolExecutionService {
       model: analysis.model,
       text: analysis.text,
     };
+  }
+
+  /** Generate an image via the configured backend (M17b.9). */
+  private async nativeImageGenerate(args: ImageGenerateArgs): Promise<unknown> {
+    if (!this.imageGen) throw new Error('image_gen_unavailable');
+    try {
+      const image = await this.imageGen.generate({
+        prompt: args.prompt,
+        ...(args.size !== undefined ? { size: args.size } : {}),
+      });
+      return {
+        path: image.path,
+        provider: image.provider,
+        model: image.model,
+        bytes: image.bytes,
+      };
+    } catch (err) {
+      throw new Error(
+        err instanceof ImageGenError ? err.code : 'image_gen_failed',
+      );
+    }
   }
 
   /** Read a bounded workspace image, inferring MIME from its extension. */

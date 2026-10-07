@@ -377,6 +377,7 @@ describe('ConversationService', () => {
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
       'clarify',
+      'image_generate',
       'memory',
       'patch',
       'read_file',
@@ -418,6 +419,7 @@ describe('ConversationService', () => {
       'memory',
       'clarify',
       'vision_analyze',
+      'image_generate',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1065,6 +1067,7 @@ describe('ConversationService', () => {
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
         'clarify',
+        'image_generate',
         'memory',
         'patch',
         'read_file',
@@ -1102,6 +1105,7 @@ describe('ConversationService', () => {
         'memory',
         'clarify',
         'vision_analyze',
+        'image_generate',
       ]);
     });
 

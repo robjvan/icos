@@ -78,6 +78,7 @@ import { SqliteTodoRepository } from '../session/sqlite-todo.repository';
 import { SkillService } from '../skills/skill.service';
 import { SkillsController } from '../skills/skills.controller';
 import { VisionService } from '../vision/vision.service';
+import { ImageGenService } from '../image/image-gen.service';
 import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
@@ -116,6 +117,7 @@ const toolExecutionServiceProvider = {
     candidates: MemoryCandidateRepository,
     persona: PersonaRepository,
     vision: VisionService,
+    imageGen: ImageGenService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -139,6 +141,7 @@ const toolExecutionServiceProvider = {
       candidates,
       persona,
       vision,
+      imageGen,
     ),
   inject: [
     ToolExecutionRepository,
@@ -158,6 +161,7 @@ const toolExecutionServiceProvider = {
     MemoryCandidateRepository,
     PersonaRepository,
     VisionService,
+    ImageGenService,
   ],
 };
 
@@ -258,6 +262,7 @@ const toolExecutionServiceProvider = {
     conversationLlmClientProvider,
     visionLlmClientProvider,
     VisionService,
+    ImageGenService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

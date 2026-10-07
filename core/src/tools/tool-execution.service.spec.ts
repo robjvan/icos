@@ -29,6 +29,7 @@ import type { MemoryCandidateRepository } from '../memory/memory-candidate.repos
 import type { RecallResult, RecallService } from '../memory/recall.service';
 import type { PersonaRepository } from '../persona/persona.repository';
 import type { VisionService } from '../vision/vision.service';
+import type { ImageGenService } from '../image/image-gen.service';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -104,6 +105,7 @@ describe('ToolExecutionService SQLite', () => {
     } = {},
     clarifications?: ClarificationService,
     vision?: VisionService,
+    imageGen?: ImageGenService,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -159,6 +161,7 @@ describe('ToolExecutionService SQLite', () => {
       memory.candidates,
       memory.persona,
       vision,
+      imageGen,
     );
     return {
       database,
@@ -388,7 +391,7 @@ describe('ToolExecutionService SQLite', () => {
     expect(record.state).toBe('failed');
     expect(record.execution).toMatchObject({
       ok: false,
-      failure: { code: 'tool_failed' },
+      failure: { code: 'unavailable' },
     });
   });
 
@@ -770,6 +773,65 @@ describe('ToolExecutionService SQLite', () => {
       failure: { code: 'tool_failed' },
     });
     expect(analyze).not.toHaveBeenCalled();
+  });
+
+  it('generates an image through the image backend (M17b.9)', async () => {
+    const generate = jest.fn(() =>
+      Promise.resolve({
+        path: '/w/generated/x.png',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        bytes: 4,
+      }),
+    );
+    const imageGen = { generate } as unknown as ImageGenService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      imageGen,
+    );
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-img', 'image_generate', {
+        prompt: 'a teal square',
+        size: '512x512',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'image_generate',
+      result: {
+        path: '/w/generated/x.png',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        bytes: 4,
+      },
+    });
+    expect(generate).toHaveBeenCalledWith({
+      prompt: 'a teal square',
+      size: '512x512',
+    });
+  });
+
+  it('reports image_generate unavailable when unconfigured (M17b.9)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-img-none', 'image_generate', { prompt: 'x' }),
+    );
+    expect(result.state).toBe('failed');
+    expect(result.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'unavailable' },
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

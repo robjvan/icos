@@ -25,6 +25,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'memory',
   'clarify',
   'vision_analyze',
+  'image_generate',
 ];
 
 function contextWith(
@@ -82,6 +83,7 @@ describe('ToolRegistry', () => {
       'memory',
       'clarify',
       'vision_analyze',
+      'image_generate',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -102,6 +104,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('memory')?.approval).toBe('none');
     expect(registry.lookup('clarify')?.approval).toBe('none');
     expect(registry.lookup('vision_analyze')?.approval).toBe('none');
+    expect(registry.lookup('image_generate')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1061,6 +1064,60 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('image_generate tool (M17b.9)', () => {
+    it('accepts a prompt with an optional size and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          {
+            name: 'image_generate',
+            version: 1,
+            args: { prompt: 'a teal square' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'image_generate',
+        args: { prompt: 'a teal square' },
+      });
+
+      const sized = expectOk(
+        registry.validate(
+          {
+            name: 'image_generate',
+            version: 1,
+            args: { prompt: 'a teal square', size: '512x512' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(sized).toMatchObject({
+        name: 'image_generate',
+        args: { prompt: 'a teal square', size: '512x512' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'image_generate', version: 1, args: {} },
+        { name: 'image_generate', version: 1, args: { prompt: '   ' } },
+        {
+          name: 'image_generate',
+          version: 1,
+          args: { prompt: 'x', size: 'big' },
+        },
+        {
+          name: 'image_generate',
+          version: 1,
+          args: { prompt: 'x', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1109,6 +1166,7 @@ describe('ToolRegistry', () => {
         'memory',
         'clarify',
         'vision_analyze',
+        'image_generate',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({
