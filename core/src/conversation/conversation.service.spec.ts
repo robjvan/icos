@@ -362,6 +362,7 @@ describe('ConversationService', () => {
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
+      'memory',
       'patch',
       'read_file',
       'search_files',
@@ -398,6 +399,7 @@ describe('ConversationService', () => {
       'skills_list',
       'skill_view',
       'todo',
+      'memory',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1044,6 +1046,7 @@ describe('ConversationService', () => {
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
+        'memory',
         'patch',
         'read_file',
         'search_files',
@@ -1076,6 +1079,7 @@ describe('ConversationService', () => {
         'skills_list',
         'skill_view',
         'todo',
+        'memory',
       ]);
     });
 

@@ -22,6 +22,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'skills_list',
   'skill_view',
   'todo',
+  'memory',
 ];
 
 function contextWith(
@@ -76,6 +77,7 @@ describe('ToolRegistry', () => {
       'skills_list',
       'skill_view',
       'todo',
+      'memory',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -93,6 +95,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('skills_list')?.approval).toBe('none');
     expect(registry.lookup('skill_view')?.approval).toBe('none');
     expect(registry.lookup('todo')?.approval).toBe('none');
+    expect(registry.lookup('memory')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -861,6 +864,90 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('memory tool (M17b)', () => {
+    it('accepts each layer and rejects bad shapes', () => {
+      const beliefs = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'beliefs', status: 'active' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(beliefs).toMatchObject({
+        name: 'memory',
+        args: { layer: 'beliefs', status: 'active' },
+      });
+
+      const recall = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'recall', query: 'sweaters' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(recall).toMatchObject({
+        name: 'memory',
+        args: { layer: 'recall', query: 'sweaters' },
+      });
+
+      const persona = expectOk(
+        registry.validate(
+          { name: 'memory', version: 1, args: { layer: 'persona' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(persona).toMatchObject({
+        name: 'memory',
+        args: { layer: 'persona' },
+      });
+
+      const candidates = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'candidates', limit: 5 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(candidates).toMatchObject({
+        name: 'memory',
+        args: { layer: 'candidates', limit: 5 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'memory', version: 1, args: {} },
+        { name: 'memory', version: 1, args: { layer: 'nope' } },
+        { name: 'memory', version: 1, args: { layer: 'recall' } },
+        {
+          name: 'memory',
+          version: 1,
+          args: { layer: 'persona', status: 'active' },
+        },
+        {
+          name: 'memory',
+          version: 1,
+          args: { layer: 'beliefs', status: 'nope' },
+        },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', limit: 0 } },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', limit: 999 } },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -906,6 +993,7 @@ describe('ToolRegistry', () => {
         'skills_list',
         'skill_view',
         'todo',
+        'memory',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

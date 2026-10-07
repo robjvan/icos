@@ -5,6 +5,7 @@ import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
 import { PersonaModule } from '../persona/persona.module';
+import { PersonaRepository } from '../persona/persona.repository';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
@@ -107,6 +108,10 @@ const toolExecutionServiceProvider = {
     config: CoreConfig,
     skills: SkillService,
     todos: TodoRepository,
+    claims: ClaimRepository,
+    recall: RecallService,
+    candidates: MemoryCandidateRepository,
+    persona: PersonaRepository,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -124,6 +129,10 @@ const toolExecutionServiceProvider = {
       channels,
       skills,
       todos,
+      claims,
+      recall,
+      candidates,
+      persona,
     ),
   inject: [
     ToolExecutionRepository,
@@ -137,6 +146,10 @@ const toolExecutionServiceProvider = {
     CORE_CONFIG,
     SkillService,
     TodoRepository,
+    ClaimRepository,
+    RecallService,
+    MemoryCandidateRepository,
+    PersonaRepository,
   ],
 };
 

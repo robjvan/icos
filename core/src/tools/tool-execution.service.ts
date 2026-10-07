@@ -22,6 +22,16 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import type { ClaimRepository } from '../memory/claim.repository';
+import type { Claim } from '../memory/claim';
+import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import type {
+  RecallResult,
+  RecallService,
+  SurfaceResult,
+} from '../memory/recall.service';
+import type { PersonaRepository } from '../persona/persona.repository';
+import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import type { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
 import type {
@@ -32,6 +42,7 @@ import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
   ForeignToolCall,
+  MemoryArgs,
   PatchArgs,
   ReadFileArgs,
   SearchFilesArgs,
@@ -68,6 +79,8 @@ const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
 const MAX_SEARCH_LINE_CHARS = 200;
 const WEB_TIMEOUT_MS = 15_000;
 const MAX_EXTRACT_CHARS = 32 * 1024;
+const MEMORY_DEFAULT_LIMIT = 20;
+const MEMORY_FILTER_SCAN_LIMIT = 200;
 
 /** Human-readable approval description for a channel.send proposal. */
 function describeChannelSend(args: ChannelSendArgs): string {
@@ -76,6 +89,38 @@ function describeChannelSend(args: ChannelSendArgs): string {
       ? 'the operator'
       : `${args.target} ${args.id ?? ''}`.trim();
   return `Send a ${args.channel} message to ${to}: ${args.body.slice(0, 300)}`;
+}
+
+/** Compact, model-facing view of one belief. */
+function claimView(claim: Claim): Record<string, unknown> {
+  return {
+    id: claim.id,
+    subject: claim.subject,
+    predicate: claim.predicate,
+    object: claim.object,
+    status: claim.status,
+    category: claim.category,
+    origin: claim.origin,
+    confidence: claim.confidence,
+    negated: claim.negated,
+  };
+}
+
+/** Case-insensitive substring match across a belief's triple and entities. */
+function claimMatches(claim: Claim, query: string): boolean {
+  const needle = query.toLowerCase();
+  return [claim.subject, claim.predicate, claim.object, ...claim.entities].some(
+    (value) => value.toLowerCase().includes(needle),
+  );
+}
+
+/** Surface availability summary for a recall result. */
+function surfaceView(surface: SurfaceResult): Record<string, unknown> {
+  return {
+    available: surface.available,
+    ...(surface.reason !== undefined ? { reason: surface.reason } : {}),
+    hits: surface.hits.length,
+  };
 }
 
 @Injectable()
@@ -103,6 +148,10 @@ export class ToolExecutionService {
     private readonly channels?: ChannelSendPort,
     private readonly skills?: SkillService,
     private readonly todos?: TodoRepository,
+    private readonly claims?: ClaimRepository,
+    private readonly recall?: RecallService,
+    private readonly candidates?: MemoryCandidateRepository,
+    private readonly persona?: PersonaRepository,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -390,6 +439,8 @@ export class ToolExecutionService {
         return this.nativeSkillView(args as unknown as SkillViewArgs);
       case 'todo':
         return this.nativeTodo(args as unknown as TodoArgs, sessionId);
+      case 'memory':
+        return this.nativeMemory(args as unknown as MemoryArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -604,6 +655,139 @@ export class ToolExecutionService {
       case 'clear':
         return { cleared: await this.todos.clear(sessionId) };
     }
+  }
+
+  /** Inspect the memory layers manually (M17b). */
+  private async nativeMemory(args: MemoryArgs): Promise<unknown> {
+    const limit = args.limit ?? MEMORY_DEFAULT_LIMIT;
+    const query = args.query;
+    switch (args.layer) {
+      case 'recall': {
+        if (!query) throw new Error('query_required');
+        if (!this.recall) throw new Error('memory_unavailable');
+        const result = await this.recall.recall(query, limit);
+        return {
+          query: result.query.text,
+          beliefs: await this.hydrateRecall(result, limit),
+          surfaces: {
+            lexical: surfaceView(result.lexical),
+            semantic: surfaceView(result.semantic),
+            associative: surfaceView(result.associative),
+            kb: { available: result.kb.available, hits: result.kb.hits.length },
+          },
+        };
+      }
+      case 'beliefs': {
+        if (!this.claims) throw new Error('memory_unavailable');
+        const claims = await this.claims.listClaims({
+          limit: query ? MEMORY_FILTER_SCAN_LIMIT : limit,
+          ...(args.status ? { status: args.status } : {}),
+        });
+        const filtered = query
+          ? claims.filter((claim) => claimMatches(claim, query))
+          : claims;
+        return { beliefs: filtered.slice(0, limit).map(claimView) };
+      }
+      case 'persona': {
+        if (!this.persona) throw new Error('memory_unavailable');
+        const userId = DEFAULT_PERSONA_USER_ID;
+        const [records, userFacts, relationship, core] = await Promise.all([
+          this.persona.listRecords(userId, limit),
+          this.persona.listUserFacts(userId, limit),
+          this.persona.getRelationship(userId),
+          this.persona.getCoreState(),
+        ]);
+        return {
+          core: core
+            ? {
+                loaded: core.loaded,
+                entryCount: core.entryCount,
+                path: core.path,
+                reason: core.reason,
+              }
+            : null,
+          records: records.map((record) => ({
+            id: record.recordId,
+            category: record.category,
+            content: record.content,
+            confidence: record.confidence,
+            sensitivity: record.sensitivity,
+            protected: record.protected,
+          })),
+          userFacts: userFacts.map((fact) => ({
+            id: fact.memoryId,
+            content: fact.content,
+            confidence: fact.confidence,
+          })),
+          relationship: relationship
+            ? {
+                trustLevel: relationship.trustLevel,
+                emotionalTemperature: relationship.emotionalTemperature,
+                activeNicknames: relationship.activeNicknames,
+                recentDevelopments: relationship.recentDevelopments,
+              }
+            : null,
+        };
+      }
+      case 'candidates': {
+        if (!this.candidates) throw new Error('memory_unavailable');
+        const list = await this.candidates.listCandidates(undefined, {
+          limit,
+        });
+        return {
+          candidates: list.map((candidate) => ({
+            id: candidate.id,
+            kind: candidate.kind,
+            subject: candidate.subject,
+            predicate: candidate.predicate,
+            object: candidate.object,
+            confidence: candidate.confidence,
+            importance: candidate.importance,
+            sourceRole: candidate.sourceRole,
+            negated: candidate.negated,
+            extractedAt: candidate.extractedAt,
+            sessionId: candidate.source.sessionId,
+          })),
+        };
+      }
+    }
+  }
+
+  /**
+   * Ranked recall hits hydrated into belief views: unique claim ids across
+   * the three surfaces, sorted by best raw score, loaded from the claim
+   * store. Ids that no longer resolve degrade to a bare id + score.
+   */
+  private async hydrateRecall(
+    result: RecallResult,
+    limit: number,
+  ): Promise<unknown[]> {
+    const scores = new Map<string, number>();
+    for (const surface of [
+      result.lexical,
+      result.semantic,
+      result.associative,
+    ]) {
+      for (const hit of surface.hits) {
+        const previous = scores.get(hit.claimId);
+        if (previous === undefined || hit.score > previous) {
+          scores.set(hit.claimId, hit.score);
+        }
+      }
+    }
+    const ordered = [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+    const claims = this.claims;
+    if (!claims) {
+      return ordered.map(([id, score]) => ({ id, score }));
+    }
+    return Promise.all(
+      ordered.map(async ([id, score]) => {
+        const claim = await claims.getClaim(id);
+        return claim ? { ...claimView(claim), score } : { id, score };
+      }),
+    );
   }
 
   /**

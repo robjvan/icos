@@ -21,6 +21,11 @@ import {
 import type { ChannelSendPort } from '../channels/channel-send.port';
 import type { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
+import type { Claim } from '../memory/claim';
+import type { ClaimRepository } from '../memory/claim.repository';
+import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import type { RecallResult, RecallService } from '../memory/recall.service';
+import type { PersonaRepository } from '../persona/persona.repository';
 
 function input(): ToolExecutionInput {
   return {
@@ -83,6 +88,12 @@ describe('ToolExecutionService SQLite', () => {
     searxngBaseUrl?: string,
     skills?: SkillService,
     todos?: TodoRepository,
+    memory: {
+      claims?: ClaimRepository;
+      recall?: RecallService;
+      candidates?: MemoryCandidateRepository;
+      persona?: PersonaRepository;
+    } = {},
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -122,6 +133,10 @@ describe('ToolExecutionService SQLite', () => {
       channels,
       skills,
       todos,
+      memory.claims,
+      memory.recall,
+      memory.candidates,
+      memory.persona,
     );
     return {
       database,
@@ -474,6 +489,161 @@ describe('ToolExecutionService SQLite', () => {
       ok: true,
       tool: 'todo',
       result: { todo: { id: 't1', status: 'done' } },
+    });
+  });
+
+  it('inspects the memory layers through the generic native path (M17b)', async () => {
+    const claim = {
+      id: 'c1',
+      subject: 'user',
+      predicate: 'likes',
+      object: 'cashmere sweaters',
+      status: 'active',
+      category: 'preference',
+      origin: 'user',
+      confidence: 0.8,
+      negated: false,
+      entities: ['cashmere sweaters'],
+    } as unknown as Claim;
+    const otherClaim = {
+      ...claim,
+      id: 'c2',
+      predicate: 'dislikes',
+      object: 'wool',
+      entities: ['wool'],
+    };
+    const claims = {
+      listClaims: () => Promise.resolve([claim, otherClaim]),
+      getClaim: (id: string) => Promise.resolve(id === 'c1' ? claim : null),
+    } as unknown as ClaimRepository;
+    const recall = {
+      recall: () =>
+        Promise.resolve({
+          query: { text: 'sweaters', tokens: ['sweaters'] },
+          lexical: {
+            surface: 'lexical',
+            available: true,
+            hits: [{ claimId: 'c1', score: 0.9, surface: 'lexical' }],
+          },
+          semantic: {
+            surface: 'semantic',
+            available: false,
+            reason: 'down',
+            hits: [],
+          },
+          associative: { surface: 'associative', available: true, hits: [] },
+          kb: { available: false, hits: [] },
+        } as unknown as RecallResult),
+    } as unknown as RecallService;
+    const candidates = {
+      listCandidates: () =>
+        Promise.resolve([
+          {
+            id: 'm1',
+            kind: 'preference',
+            subject: 'user',
+            predicate: 'likes',
+            object: 'cashmere',
+            confidence: 0.7,
+            importance: 0.5,
+            sourceRole: 'user',
+            negated: false,
+            extractedAt: 'now',
+            source: { sessionId: 's1', messageId: 1, role: 'user' },
+          },
+        ]),
+    } as unknown as MemoryCandidateRepository;
+    const persona = {
+      listRecords: () =>
+        Promise.resolve([
+          {
+            recordId: 'r1',
+            category: 'identity',
+            content: 'goes by Rob',
+            confidence: 0.9,
+            sensitivity: 'normal',
+            protected: false,
+          },
+        ]),
+      listUserFacts: () =>
+        Promise.resolve([
+          { memoryId: 'f1', content: 'middle name is James', confidence: 0.9 },
+        ]),
+      getRelationship: () =>
+        Promise.resolve({
+          trustLevel: 0.6,
+          emotionalTemperature: 0.4,
+          activeNicknames: ['Rob'],
+          recentDevelopments: [],
+        }),
+      getCoreState: () =>
+        Promise.resolve({
+          path: '/core.md',
+          hash: 'abc',
+          entryCount: 11,
+          loaded: true,
+          reason: null,
+          updatedAt: 'now',
+        }),
+    } as unknown as PersonaRepository;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { claims, recall, candidates, persona },
+    );
+    await sessions.createSession('s1');
+
+    const beliefs = await service.consume(
+      toolInput('req-mem-beliefs', 'memory', {
+        layer: 'beliefs',
+        query: 'wool',
+      }),
+    );
+    expect(beliefs.state).toBe('succeeded');
+    expect(beliefs.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { beliefs: [{ id: 'c2' }] },
+    });
+
+    const ranked = await service.consume(
+      toolInput('req-mem-recall', 'memory', {
+        layer: 'recall',
+        query: 'sweaters',
+      }),
+    );
+    expect(ranked.state).toBe('succeeded');
+    expect(ranked.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { beliefs: [{ id: 'c1', score: 0.9 }] },
+    });
+
+    const personaResult = await service.consume(
+      toolInput('req-mem-persona', 'memory', { layer: 'persona' }),
+    );
+    expect(personaResult.state).toBe('succeeded');
+    expect(personaResult.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: {
+        core: { loaded: true, entryCount: 11 },
+        records: [{ id: 'r1' }],
+        userFacts: [{ id: 'f1' }],
+        relationship: { trustLevel: 0.6 },
+      },
+    });
+
+    const candidateResult = await service.consume(
+      toolInput('req-mem-candidates', 'memory', { layer: 'candidates' }),
+    );
+    expect(candidateResult.state).toBe('succeeded');
+    expect(candidateResult.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { candidates: [{ id: 'm1', kind: 'preference' }] },
     });
   });
 

@@ -56,6 +56,7 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   skills_list: 'skills_list',
   skill_view: 'skill_view',
   todo: 'todo',
+  memory: 'memory',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

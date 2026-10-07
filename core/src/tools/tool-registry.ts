@@ -17,7 +17,8 @@ export type ToolName =
   | 'web_extract'
   | 'skills_list'
   | 'skill_view'
-  | 'todo';
+  | 'todo'
+  | 'memory';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -130,6 +131,23 @@ export type TodoArgs =
   | { readonly action: 'complete'; readonly id: string }
   | { readonly action: 'remove'; readonly id: string };
 
+export type MemoryBeliefStatus =
+  'candidate' | 'active' | 'contradicted' | 'retired';
+
+export interface MemoryArgs {
+  /**
+   * Which memory layer to inspect: `beliefs` (epistemic claims, direct),
+   * `recall` (ranked multi-surface retrieval, needs a query), `persona`
+   * (curated identity / user model / relationship), `candidates` (raw
+   * extracted candidates).
+   */
+  readonly layer: 'beliefs' | 'persona' | 'candidates' | 'recall';
+  readonly query?: string;
+  /** Beliefs only. */
+  readonly status?: MemoryBeliefStatus;
+  readonly limit?: number;
+}
+
 export type ValidatedToolArgs =
   | SessionSearchArgs
   | SessionRenameArgs
@@ -141,7 +159,8 @@ export type ValidatedToolArgs =
   | WebSearchArgs
   | WebExtractArgs
   | SkillViewArgs
-  | TodoArgs;
+  | TodoArgs
+  | MemoryArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -159,6 +178,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'skills_list'; readonly args: Record<string, never> }
   | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
   | { readonly name: 'todo'; readonly args: TodoArgs }
+  | { readonly name: 'memory'; readonly args: MemoryArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -241,6 +261,9 @@ const MAX_SEARCH_RESULTS = 50;
 const DEFAULT_SEARCH_RESULTS = 20;
 const MAX_WEB_RESULTS = 10;
 const DEFAULT_WEB_RESULTS = 5;
+const MIN_MEMORY_LIMIT = 1;
+const MAX_MEMORY_LIMIT = 50;
+const DEFAULT_MEMORY_LIMIT = 20;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -485,6 +508,34 @@ const TODO_SCHEMA = deepFreeze({
   },
 } as const);
 
+const MEMORY_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['layer'],
+  properties: {
+    layer: {
+      type: 'string',
+      enum: ['beliefs', 'persona', 'candidates', 'recall'],
+    },
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    status: {
+      type: 'string',
+      enum: ['candidate', 'active', 'contradicted', 'retired'],
+    },
+    limit: {
+      type: 'integer',
+      minimum: MIN_MEMORY_LIMIT,
+      maximum: MAX_MEMORY_LIMIT,
+      default: DEFAULT_MEMORY_LIMIT,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -602,6 +653,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'todo',
     argsSchema: TODO_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'memory',
+    version: 1,
+    description:
+      'Inspect memory: beliefs (epistemic claims), recall (ranked retrieval ' +
+      'across lexical/semantic/associative), persona, or raw candidates.',
+    approval: 'none',
+    toolset: 'memory',
+    argsSchema: MEMORY_SCHEMA,
   }),
 ]);
 
@@ -1025,6 +1086,95 @@ function validateTodoArgs(
   };
 }
 
+function validateMemoryArgs(
+  args: Record<string, unknown>,
+): ParseResult<MemoryArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'layer',
+    'query',
+    'status',
+    'limit',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const layer = ownValue(args, 'layer');
+  if (
+    layer !== 'beliefs' &&
+    layer !== 'persona' &&
+    layer !== 'candidates' &&
+    layer !== 'recall'
+  ) {
+    return {
+      ok: false,
+      message: 'layer must be "beliefs", "persona", "candidates", or "recall"',
+    };
+  }
+  let query: string | undefined;
+  if (Object.hasOwn(args, 'query')) {
+    const parsed = validText(
+      ownValue(args, 'query'),
+      'query',
+      MAX_QUERY_LENGTH,
+    );
+    if (!parsed.ok) {
+      return parsed;
+    }
+    query = parsed.value;
+  }
+  if (layer === 'recall' && query === undefined) {
+    return { ok: false, message: 'query is required for the recall layer' };
+  }
+  let status: MemoryBeliefStatus | undefined;
+  if (Object.hasOwn(args, 'status')) {
+    if (layer !== 'beliefs') {
+      return {
+        ok: false,
+        message: 'status applies to the beliefs layer only',
+      };
+    }
+    const value = ownValue(args, 'status');
+    if (
+      value !== 'candidate' &&
+      value !== 'active' &&
+      value !== 'contradicted' &&
+      value !== 'retired'
+    ) {
+      return {
+        ok: false,
+        message:
+          'status must be "candidate", "active", "contradicted", or "retired"',
+      };
+    }
+    status = value;
+  }
+  let limit: number | undefined;
+  if (Object.hasOwn(args, 'limit')) {
+    const value = ownValue(args, 'limit');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_MEMORY_LIMIT ||
+      value > MAX_MEMORY_LIMIT
+    ) {
+      return {
+        ok: false,
+        message: `limit must be an integer between ${MIN_MEMORY_LIMIT} and ${MAX_MEMORY_LIMIT}`,
+      };
+    }
+    limit = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      layer,
+      ...(query !== undefined ? { query } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1285,6 +1435,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'todo',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'memory') {
+      const result = validateMemoryArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'memory',
           ...base,
           args: result.value,
         }),
