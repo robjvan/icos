@@ -1752,7 +1752,7 @@ describe('Conversation (e2e)', () => {
         ),
       );
       expect(chained).toBeDefined();
-      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(11);
+      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(12);
       const toolMessage = (
         chained?.[0] as {
           messages: { role: string; callId?: string; content: string }[];

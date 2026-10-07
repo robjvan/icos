@@ -189,6 +189,20 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session
 ON agent_runs(session_id);
+
+-- M17b: per-session todo list (the todo tool). Working memory for the
+-- current session; rows cascade with the session.
+CREATE TABLE IF NOT EXISTS session_todos (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_todos_session
+ON session_todos(session_id, status, created_at);
 `;
 
 /**
@@ -769,6 +783,7 @@ const SCHEMAS: Record<
       'clarification_events',
       'tool_requests',
       'agent_runs',
+      'session_todos',
     ],
     triggers: [
       'messages_ai',

@@ -16,7 +16,8 @@ export type ToolName =
   | 'web_search'
   | 'web_extract'
   | 'skills_list'
-  | 'skill_view';
+  | 'skill_view'
+  | 'todo';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -122,6 +123,13 @@ export interface SkillViewArgs {
   readonly name: string;
 }
 
+export type TodoArgs =
+  | { readonly action: 'list' }
+  | { readonly action: 'clear' }
+  | { readonly action: 'add'; readonly text: string }
+  | { readonly action: 'complete'; readonly id: string }
+  | { readonly action: 'remove'; readonly id: string };
+
 export type ValidatedToolArgs =
   | SessionSearchArgs
   | SessionRenameArgs
@@ -132,7 +140,8 @@ export type ValidatedToolArgs =
   | PatchArgs
   | WebSearchArgs
   | WebExtractArgs
-  | SkillViewArgs;
+  | SkillViewArgs
+  | TodoArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -149,6 +158,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'web_extract'; readonly args: WebExtractArgs }
   | { readonly name: 'skills_list'; readonly args: Record<string, never> }
   | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
+  | { readonly name: 'todo'; readonly args: TodoArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -451,6 +461,30 @@ const SKILL_VIEW_SCHEMA = deepFreeze({
   },
 } as const);
 
+const TODO_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'add', 'complete', 'remove', 'clear'],
+    },
+    text: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BODY_LENGTH,
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -558,6 +592,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'skills',
     argsSchema: SKILL_VIEW_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'todo',
+    version: 1,
+    description:
+      'Manage a todo list for the current session: list, add, complete, ' +
+      'remove, or clear items.',
+    approval: 'none',
+    toolset: 'todo',
+    argsSchema: TODO_SCHEMA,
   }),
 ]);
 
@@ -947,6 +991,40 @@ function validateSkillViewArgs(
   return { ok: true, value: Object.freeze({ name: name.value }) };
 }
 
+function validateTodoArgs(
+  args: Record<string, unknown>,
+): ParseResult<TodoArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'text', 'id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list' || action === 'clear') {
+    return { ok: true, value: Object.freeze({ action }) };
+  }
+  if (action === 'add') {
+    const text = validText(ownValue(args, 'text'), 'text', MAX_BODY_LENGTH);
+    if (!text.ok) {
+      return text;
+    }
+    return {
+      ok: true,
+      value: Object.freeze({ action: 'add', text: text.value }),
+    };
+  }
+  if (action === 'complete' || action === 'remove') {
+    const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+    if (!id.ok) {
+      return id;
+    }
+    return { ok: true, value: Object.freeze({ action, id: id.value }) };
+  }
+  return {
+    ok: false,
+    message: 'action must be "list", "add", "complete", "remove", or "clear"',
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1193,6 +1271,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'skill_view',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'todo') {
+      const result = validateTodoArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'todo',
           ...base,
           args: result.value,
         }),

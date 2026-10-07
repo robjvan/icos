@@ -23,6 +23,7 @@ import type {
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
 import type { SkillService } from '../skills/skill.service';
+import type { TodoRepository } from '../session/todo.repository';
 import type {
   ChannelSendPort,
   ChannelSendRequest,
@@ -35,6 +36,7 @@ import type {
   ReadFileArgs,
   SearchFilesArgs,
   SkillViewArgs,
+  TodoArgs,
   ValidatedToolRequest,
   WebExtractArgs,
   WebSearchArgs,
@@ -100,6 +102,7 @@ export class ToolExecutionService {
     private readonly mcp: McpConnectionService,
     private readonly channels?: ChannelSendPort,
     private readonly skills?: SkillService,
+    private readonly todos?: TodoRepository,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -330,6 +333,7 @@ export class ToolExecutionService {
       const result = await this.dispatchNative(
         name,
         validation.request.args as unknown as Record<string, unknown>,
+        claimed.sessionId,
       );
       const serialized = JSON.stringify(result);
       if (Buffer.byteLength(serialized) > MAX_RESULT_BYTES) {
@@ -359,6 +363,7 @@ export class ToolExecutionService {
   private dispatchNative(
     name: string,
     args: Record<string, unknown>,
+    sessionId: string,
   ): Promise<unknown> {
     switch (name) {
       case 'read_file':
@@ -383,6 +388,8 @@ export class ToolExecutionService {
         return Promise.resolve(this.nativeSkillsList());
       case 'skill_view':
         return this.nativeSkillView(args as unknown as SkillViewArgs);
+      case 'todo':
+        return this.nativeTodo(args as unknown as TodoArgs, sessionId);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -571,6 +578,32 @@ export class ToolExecutionService {
       version: skill.version,
       body: skill.body,
     };
+  }
+
+  /** Per-session todo list (M17b). */
+  private async nativeTodo(
+    args: TodoArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.todos) throw new Error('todos_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { todos: await this.todos.list(sessionId) };
+      case 'add':
+        return { todo: await this.todos.add(sessionId, args.text) };
+      case 'complete': {
+        const todo = await this.todos.complete(sessionId, args.id);
+        if (!todo) throw new Error('todo_not_found');
+        return { todo };
+      }
+      case 'remove': {
+        const removed = await this.todos.remove(sessionId, args.id);
+        if (!removed) throw new Error('todo_not_found');
+        return { removed: true };
+      }
+      case 'clear':
+        return { cleared: await this.todos.clear(sessionId) };
+    }
   }
 
   /**

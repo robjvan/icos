@@ -20,6 +20,7 @@ import {
 } from './tool-execution.service';
 import type { ChannelSendPort } from '../channels/channel-send.port';
 import type { SkillService } from '../skills/skill.service';
+import type { TodoRepository } from '../session/todo.repository';
 
 function input(): ToolExecutionInput {
   return {
@@ -81,6 +82,7 @@ describe('ToolExecutionService SQLite', () => {
     channels?: ChannelSendPort,
     searxngBaseUrl?: string,
     skills?: SkillService,
+    todos?: TodoRepository,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -119,6 +121,7 @@ describe('ToolExecutionService SQLite', () => {
       } as unknown as McpConnectionService,
       channels,
       skills,
+      todos,
     );
     return {
       database,
@@ -423,6 +426,54 @@ describe('ToolExecutionService SQLite', () => {
       ok: true,
       tool: 'skill_view',
       result: { name: 'demo', body: 'Do the demo.' },
+    });
+  });
+
+  it('manages todos through the generic native path (M17b)', async () => {
+    const todos = {
+      list: () => Promise.resolve([]),
+      add: (sessionId: string, text: string) =>
+        Promise.resolve({
+          id: 't1',
+          sessionId,
+          text,
+          status: 'open',
+          createdAt: 'now',
+          updatedAt: 'now',
+        }),
+      complete: (sessionId: string, id: string) =>
+        Promise.resolve({
+          id,
+          sessionId,
+          text: 'do it',
+          status: 'done',
+          createdAt: 'now',
+          updatedAt: 'now',
+        }),
+      remove: () => Promise.resolve(true),
+      clear: () => Promise.resolve(0),
+    } as unknown as TodoRepository;
+    const { sessions, service } = open(undefined, undefined, undefined, todos);
+    await sessions.createSession('s1');
+
+    const add = await service.consume(
+      toolInput('req-todo-add', 'todo', { action: 'add', text: 'do it' }),
+    );
+    expect(add.state).toBe('succeeded');
+    expect(add.execution).toMatchObject({
+      ok: true,
+      tool: 'todo',
+      result: { todo: { id: 't1', text: 'do it', status: 'open' } },
+    });
+
+    const done = await service.consume(
+      toolInput('req-todo-done', 'todo', { action: 'complete', id: 't1' }),
+    );
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'todo',
+      result: { todo: { id: 't1', status: 'done' } },
     });
   });
 

@@ -71,6 +71,8 @@ import type { LlmEndpointConfig } from '../llm/llm.client';
 import { SessionDatabaseService } from '../session/session-database.service';
 import { SessionRepository } from '../session/session.repository';
 import { SqliteSessionRepository } from '../session/sqlite-session.repository';
+import { TodoRepository } from '../session/todo.repository';
+import { SqliteTodoRepository } from '../session/sqlite-todo.repository';
 import { SkillService } from '../skills/skill.service';
 import { SkillsController } from '../skills/skills.controller';
 import { LlmClient } from '../llm/llm.client';
@@ -104,6 +106,7 @@ const toolExecutionServiceProvider = {
     channels: ChannelSendPort,
     config: CoreConfig,
     skills: SkillService,
+    todos: TodoRepository,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -120,6 +123,7 @@ const toolExecutionServiceProvider = {
       mcp,
       channels,
       skills,
+      todos,
     ),
   inject: [
     ToolExecutionRepository,
@@ -132,6 +136,7 @@ const toolExecutionServiceProvider = {
     CHANNEL_SEND,
     CORE_CONFIG,
     SkillService,
+    TodoRepository,
   ],
 };
 
@@ -160,6 +165,10 @@ const toolExecutionServiceProvider = {
     {
       provide: SessionRepository,
       useClass: SqliteSessionRepository,
+    },
+    {
+      provide: TodoRepository,
+      useClass: SqliteTodoRepository,
     },
     {
       provide: MemoryCandidateRepository,

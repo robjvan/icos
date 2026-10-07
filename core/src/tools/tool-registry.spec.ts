@@ -21,6 +21,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'web_extract',
   'skills_list',
   'skill_view',
+  'todo',
 ];
 
 function contextWith(
@@ -74,6 +75,7 @@ describe('ToolRegistry', () => {
       'web_extract',
       'skills_list',
       'skill_view',
+      'todo',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -90,6 +92,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('web_extract')?.approval).toBe('none');
     expect(registry.lookup('skills_list')?.approval).toBe('none');
     expect(registry.lookup('skill_view')?.approval).toBe('none');
+    expect(registry.lookup('todo')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -811,6 +814,53 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('todo tool (M17b)', () => {
+    it('accepts each action and rejects bad shapes', () => {
+      const list = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({ name: 'todo', args: { action: 'list' } });
+
+      const add = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'add', text: 'do it' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(add).toMatchObject({
+        name: 'todo',
+        args: { action: 'add', text: 'do it' },
+      });
+
+      const complete = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'complete', id: 't1' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(complete).toMatchObject({
+        name: 'todo',
+        args: { action: 'complete', id: 't1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'todo', version: 1, args: { action: 'add' } },
+        { name: 'todo', version: 1, args: { action: 'add', text: '   ' } },
+        { name: 'todo', version: 1, args: { action: 'complete' } },
+        { name: 'todo', version: 1, args: { action: 'nope' } },
+        { name: 'todo', version: 1, args: { action: 'list', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -855,6 +905,7 @@ describe('ToolRegistry', () => {
         'web_extract',
         'skills_list',
         'skill_view',
+        'todo',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({
