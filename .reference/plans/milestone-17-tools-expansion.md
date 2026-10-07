@@ -1,8 +1,8 @@
 # M17 — Tools Expansion
 
 > Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
-> layer); M17b.1–6 (files, web, skills, todo, memory) — with live evidence under
-> `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:** clarify,
+> layer); M17b.1–7 (files, web, skills, todo, memory, clarify) — with live
+> evidence under `.reference/plans/evidence/milestone-17/`. **Remaining Tier 1:**
 > vision/image. **Tiers 2–3:** not started. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
@@ -107,7 +107,8 @@ frame declaration of disabled tools. Unlocks M18 and M19.
 - **Files**: `read_file`, `write_file`, `patch`, `search_files` — *done (M17b.1–2)*
 - **Web**: `web_search`, `web_extract` — *done (M17b.3)*
 - **Todo**: `todo` — *done (M17b.5)*
-- **Clarify**: `clarify` (expose the existing M6 clarification flow as a tool)
+- **Clarify**: `clarify` (expose the existing M6 clarification flow as a tool) —
+  *done (M17b.7; full park/resume: `clarification_required` → answer → resume)*
 - **Session/memory**: extend `session.search`; add a model-facing `memory` tool
   (`beliefs` / `recall` / `persona` / `candidates`) — *done (M17b.6)*
 - **Skill view/list**: `skill_view`, `skills_list` — *done (M17b.4)*
