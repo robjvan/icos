@@ -44,6 +44,8 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   search_files: 'search_files',
   write_file: 'write_file',
   patch: 'patch',
+  web_search: 'web_search',
+  web_extract: 'web_extract',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

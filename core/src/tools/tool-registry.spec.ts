@@ -17,6 +17,8 @@ const ALL_TOOLS: readonly ToolName[] = [
   'search_files',
   'write_file',
   'patch',
+  'web_search',
+  'web_extract',
 ];
 
 function contextWith(
@@ -66,6 +68,8 @@ describe('ToolRegistry', () => {
       'search_files',
       'write_file',
       'patch',
+      'web_search',
+      'web_extract',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -78,6 +82,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('search_files')?.approval).toBe('none');
     expect(registry.lookup('write_file')?.approval).toBe('none');
     expect(registry.lookup('patch')?.approval).toBe('none');
+    expect(registry.lookup('web_search')?.approval).toBe('none');
+    expect(registry.lookup('web_extract')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -711,6 +717,56 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('web tools (M17b)', () => {
+    it('accepts web_search and web_extract, and rejects bad shapes', () => {
+      const search = expectOk(
+        registry.validate(
+          {
+            name: 'web_search',
+            version: 1,
+            args: { query: 'searxng', maxResults: 3 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(search).toMatchObject({
+        name: 'web_search',
+        args: { query: 'searxng', maxResults: 3 },
+      });
+
+      const extract = expectOk(
+        registry.validate(
+          {
+            name: 'web_extract',
+            version: 1,
+            args: { url: 'https://example.com' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(extract).toMatchObject({
+        name: 'web_extract',
+        args: { url: 'https://example.com' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'web_search', version: 1, args: { query: '' } },
+        {
+          name: 'web_search',
+          version: 1,
+          args: { query: 'x', maxResults: 999 },
+        },
+        { name: 'web_extract', version: 1, args: { url: '   ' } },
+        { name: 'web_extract', version: 1, args: { url: 'x', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -751,6 +807,8 @@ describe('ToolRegistry', () => {
         'search_files',
         'write_file',
         'patch',
+        'web_search',
+        'web_extract',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

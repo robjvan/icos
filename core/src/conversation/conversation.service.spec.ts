@@ -367,6 +367,8 @@ describe('ConversationService', () => {
       'search_files',
       'session.rename',
       'session.search',
+      'web_extract',
+      'web_search',
       'write_file',
     ]);
     expect(sent.messages[0]).toEqual({
@@ -388,6 +390,8 @@ describe('ConversationService', () => {
       'search_files',
       'write_file',
       'patch',
+      'web_search',
+      'web_extract',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1039,6 +1043,8 @@ describe('ConversationService', () => {
         'search_files',
         'session.rename',
         'session.search',
+        'web_extract',
+        'web_search',
         'write_file',
       ]);
       expect(String(sent.messages[0].content)).toContain(
@@ -1056,6 +1062,8 @@ describe('ConversationService', () => {
         'search_files',
         'write_file',
         'patch',
+        'web_search',
+        'web_extract',
       ]);
     });
 

@@ -110,7 +110,10 @@ const toolExecutionServiceProvider = {
       registry,
       llm,
       approvals,
-      { workspaceRoot: config.toolsWorkspaceRoot },
+      {
+        workspaceRoot: config.toolsWorkspaceRoot,
+        searxngBaseUrl: config.searxngBaseUrl,
+      },
       llm,
       approvalService,
       mcp,

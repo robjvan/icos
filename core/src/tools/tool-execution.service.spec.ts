@@ -76,7 +76,7 @@ describe('ToolExecutionService SQLite', () => {
     };
   }
 
-  function open(channels?: ChannelSendPort) {
+  function open(channels?: ChannelSendPort, searxngBaseUrl?: string) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
       memoryDbPath: join(dir, 'unused.sqlite'),
@@ -103,7 +103,10 @@ describe('ToolExecutionService SQLite', () => {
         chatWithTools: final,
       },
       approvals,
-      { workspaceRoot: dir },
+      {
+        workspaceRoot: dir,
+        ...(searxngBaseUrl !== undefined ? { searxngBaseUrl } : {}),
+      },
       undefined,
       approvalService,
       {
@@ -277,6 +280,106 @@ describe('ToolExecutionService SQLite', () => {
       ok: false,
       failure: { code: 'tool_failed' },
     });
+  });
+
+  it('searches the web through SearXNG (M17b)', async () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'SearXNG',
+              url: 'https://searxng.example',
+              content: 'meta search',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    try {
+      const { sessions, service } = open(
+        undefined,
+        'http://searxng.local:8080',
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolInput('req-web', 'web_search', { query: 'searxng' }),
+      );
+
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        tool: 'web_search',
+        result: {
+          query: 'searxng',
+          results: [
+            {
+              title: 'SearXNG',
+              url: 'https://searxng.example',
+              snippet: 'meta search',
+            },
+          ],
+        },
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[0] as string).toContain('format=json');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('fails web_search when SearXNG is not configured (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const record = await service.consume(
+      toolInput('req-web-none', 'web_search', { query: 'x' }),
+    );
+
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('extracts readable text from a web page (M17b)', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          '<html><head><style>.x{}</style><script>bad()</script></head>' +
+            '<body><h1>Title</h1><p>Hello &amp; welcome</p></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        ),
+      );
+    try {
+      const { sessions, service } = open(
+        undefined,
+        'http://searxng.local:8080',
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolInput('req-extract', 'web_extract', {
+          url: 'https://example.com/page',
+        }),
+      );
+
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        tool: 'web_extract',
+        result: {
+          url: 'https://example.com/page',
+          text: 'Title Hello & welcome',
+        },
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

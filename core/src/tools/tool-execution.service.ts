@@ -34,6 +34,8 @@ import type {
   ReadFileArgs,
   SearchFilesArgs,
   ValidatedToolRequest,
+  WebExtractArgs,
+  WebSearchArgs,
   WriteFileArgs,
 } from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
@@ -60,6 +62,8 @@ export const CHANNEL_SEND_ACTION = 'channel.send';
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
 const MAX_SEARCH_LINE_CHARS = 200;
+const WEB_TIMEOUT_MS = 15_000;
+const MAX_EXTRACT_CHARS = 32 * 1024;
 
 /** Human-readable approval description for a channel.send proposal. */
 function describeChannelSend(args: ChannelSendArgs): string {
@@ -74,6 +78,7 @@ function describeChannelSend(args: ChannelSendArgs): string {
 export class ToolExecutionService {
   private readonly searchTimeoutMs: number;
   private readonly workspaceRoot: string;
+  private readonly searxngBaseUrl: string | undefined;
   private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
@@ -82,7 +87,11 @@ export class ToolExecutionService {
     private readonly registry: ToolRegistry,
     private readonly llm: Pick<LlmClient, 'chatWithTools'>,
     private readonly approvals: Pick<ApprovalRepository, 'getApproval'>,
-    options: { searchTimeoutMs?: number; workspaceRoot?: string } = {},
+    options: {
+      searchTimeoutMs?: number;
+      workspaceRoot?: string;
+      searxngBaseUrl?: string;
+    } = {},
     private readonly streamer:
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
     private readonly approvalService: ApprovalService,
@@ -91,6 +100,7 @@ export class ToolExecutionService {
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
+    this.searxngBaseUrl = options.searxngBaseUrl;
     if (
       !Number.isInteger(this.searchTimeoutMs) ||
       this.searchTimeoutMs < 1 ||
@@ -362,6 +372,10 @@ export class ToolExecutionService {
         );
       case 'patch':
         return Promise.resolve(this.nativePatch(args as unknown as PatchArgs));
+      case 'web_search':
+        return this.nativeWebSearch(args as unknown as WebSearchArgs);
+      case 'web_extract':
+        return this.nativeWebExtract(args as unknown as WebExtractArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -482,6 +496,49 @@ export class ToolExecutionService {
     return {
       path: args.path,
       replacements: args.replaceAll === true ? count : 1,
+    };
+  }
+
+  /** Search the web through the configured SearXNG instance. */
+  private async nativeWebSearch(args: WebSearchArgs): Promise<unknown> {
+    const base = this.searxngBaseUrl;
+    if (!base) throw new Error('web_search_unavailable');
+    const limit = args.maxResults ?? 5;
+    const url = new URL('search', base.endsWith('/') ? base : `${base}/`);
+    url.searchParams.set('q', args.query);
+    url.searchParams.set('format', 'json');
+    const response = await fetchWithTimeout(url.toString(), WEB_TIMEOUT_MS);
+    if (!response.ok) throw new Error('web_search_failed');
+    const data = (await response.json()) as {
+      results?: { title?: unknown; url?: unknown; content?: unknown }[];
+    };
+    const results = (Array.isArray(data.results) ? data.results : [])
+      .slice(0, limit)
+      .map((r) => ({
+        title: typeof r.title === 'string' ? r.title.slice(0, 300) : '',
+        url: typeof r.url === 'string' ? r.url : '',
+        snippet: typeof r.content === 'string' ? r.content.slice(0, 500) : '',
+      }))
+      .filter((r) => r.url !== '');
+    return { query: args.query, results };
+  }
+
+  /** Fetch a web page and return its readable text (bounded). */
+  private async nativeWebExtract(args: WebExtractArgs): Promise<unknown> {
+    const target = new URL(args.url);
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      throw new Error('invalid_url');
+    }
+    const maxBytes = args.maxBytes ?? MAX_EXTRACT_CHARS;
+    const response = await fetchWithTimeout(args.url, WEB_TIMEOUT_MS);
+    if (!response.ok) throw new Error('web_extract_failed');
+    const html = (await response.text()).slice(0, maxBytes);
+    const text = htmlToText(html);
+    const truncated = text.length > MAX_EXTRACT_CHARS;
+    return {
+      url: args.url,
+      text: truncated ? text.slice(0, MAX_EXTRACT_CHARS) : text,
+      truncated,
     };
   }
 
@@ -883,4 +940,39 @@ export class ToolExecutionService {
     if (!record) throw new Error('request_not_found');
     return record;
   }
+}
+
+/** fetch with a hard timeout; throws on abort or transport error. */
+async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: { accept: 'text/html,application/json;q=0.9,*/*;q=0.8' },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Crude HTML → text (M17b): drop script/style/comments, strip tags, decode a
+ * few common entities, collapse whitespace. Bounded by the caller.
+ */
+function htmlToText(html: string): string {
+  const without = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+  return without
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }

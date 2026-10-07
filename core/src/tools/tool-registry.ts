@@ -12,7 +12,9 @@ export type ToolName =
   | 'read_file'
   | 'search_files'
   | 'write_file'
-  | 'patch';
+  | 'patch'
+  | 'web_search'
+  | 'web_extract';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -101,6 +103,18 @@ export interface PatchArgs {
   readonly replaceAll?: boolean;
 }
 
+export interface WebSearchArgs {
+  readonly query: string;
+  readonly maxResults?: number;
+}
+
+export interface WebExtractArgs {
+  /** The page URL to fetch and extract text from. */
+  readonly url: string;
+  /** Optional cap; the server also enforces its own maximum. */
+  readonly maxBytes?: number;
+}
+
 export type ValidatedToolArgs =
   | SessionSearchArgs
   | SessionRenameArgs
@@ -108,7 +122,9 @@ export type ValidatedToolArgs =
   | ReadFileArgs
   | SearchFilesArgs
   | WriteFileArgs
-  | PatchArgs;
+  | PatchArgs
+  | WebSearchArgs
+  | WebExtractArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -121,6 +137,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'search_files'; readonly args: SearchFilesArgs }
   | { readonly name: 'write_file'; readonly args: WriteFileArgs }
   | { readonly name: 'patch'; readonly args: PatchArgs }
+  | { readonly name: 'web_search'; readonly args: WebSearchArgs }
+  | { readonly name: 'web_extract'; readonly args: WebExtractArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -201,6 +219,10 @@ const MAX_CONTENT_LENGTH = 256 * 1024;
 const MIN_SEARCH_RESULTS = 1;
 const MAX_SEARCH_RESULTS = 50;
 const DEFAULT_SEARCH_RESULTS = 20;
+const MAX_WEB_RESULTS = 10;
+const DEFAULT_WEB_RESULTS = 5;
+const MAX_URL_LENGTH = 2000;
+const MAX_EXTRACT_BYTES = 256 * 1024;
 
 const NONBLANK_PATTERN = '\\S';
 
@@ -363,6 +385,41 @@ const PATCH_SCHEMA = deepFreeze({
   },
 } as const);
 
+const WEB_SEARCH_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['query'],
+  properties: {
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    maxResults: {
+      type: 'integer',
+      minimum: 1,
+      maximum: MAX_WEB_RESULTS,
+      default: DEFAULT_WEB_RESULTS,
+    },
+  },
+} as const);
+
+const WEB_EXTRACT_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    maxBytes: { type: 'integer', minimum: 1, maximum: MAX_EXTRACT_BYTES },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -432,6 +489,26 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'files',
     argsSchema: PATCH_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'web_search',
+    version: 1,
+    description:
+      'Search the web. Returns titles, URLs, and snippets. Use web_extract ' +
+      'to read a result page.',
+    approval: 'none',
+    toolset: 'web',
+    argsSchema: WEB_SEARCH_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'web_extract',
+    version: 1,
+    description:
+      'Fetch a web page and return its readable text (bounded). Use after ' +
+      'web_search to read a result.',
+    approval: 'none',
+    toolset: 'web',
+    argsSchema: WEB_EXTRACT_SCHEMA,
   }),
 ]);
 
@@ -725,6 +802,78 @@ function validatePatchArgs(
   };
 }
 
+function validateWebSearchArgs(
+  args: Record<string, unknown>,
+): ParseResult<WebSearchArgs> {
+  const unknownField = rejectUnknownFields(args, ['query', 'maxResults']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const query = validText(ownValue(args, 'query'), 'query', MAX_QUERY_LENGTH);
+  if (!query.ok) {
+    return query;
+  }
+  let maxResults: number | undefined;
+  if (Object.hasOwn(args, 'maxResults')) {
+    const value = ownValue(args, 'maxResults');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_WEB_RESULTS
+    ) {
+      return {
+        ok: false,
+        message: `maxResults must be an integer between 1 and ${MAX_WEB_RESULTS}`,
+      };
+    }
+    maxResults = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      query: query.value,
+      ...(maxResults !== undefined ? { maxResults } : {}),
+    }),
+  };
+}
+
+function validateWebExtractArgs(
+  args: Record<string, unknown>,
+): ParseResult<WebExtractArgs> {
+  const unknownField = rejectUnknownFields(args, ['url', 'maxBytes']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const url = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+  if (!url.ok) {
+    return url;
+  }
+  let maxBytes: number | undefined;
+  if (Object.hasOwn(args, 'maxBytes')) {
+    const value = ownValue(args, 'maxBytes');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_EXTRACT_BYTES
+    ) {
+      return {
+        ok: false,
+        message: `maxBytes must be an integer between 1 and ${MAX_EXTRACT_BYTES}`,
+      };
+    }
+    maxBytes = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      url: url.value,
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -915,6 +1064,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'patch',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'web_search') {
+      const result = validateWebSearchArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'web_search',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'web_extract') {
+      const result = validateWebExtractArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'web_extract',
           ...base,
           args: result.value,
         }),

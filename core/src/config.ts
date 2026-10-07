@@ -318,6 +318,11 @@ export interface CoreConfig {
    */
   toolsWorkspaceRoot?: string;
   /**
+   * SearXNG base URL for `web_search` (M17b). No API key; the instance must
+   * expose the JSON format. Unset leaves web_search unavailable.
+   */
+  searxngBaseUrl?: string;
+  /**
    * Realtime transport kill-switch. true (default) = attach `/core/events`
    * and deliver notifications; false = noop publisher, no socket, clients
    * fall back to polling. A transport fault must never take the UI down.
@@ -716,6 +721,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.TOOLS_WORKSPACE_ROOT,
       '~/.icos/workspace',
     ),
+    searxngBaseUrl: (env.SEARXNG_BASE_URL ?? '').trim() || undefined,
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(
       env.REALTIME_HEARTBEAT_MS,
