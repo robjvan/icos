@@ -133,8 +133,9 @@ CREATE TABLE IF NOT EXISTS tool_requests (
     input_json TEXT NOT NULL CHECK (json_valid(input_json)),
     invocation_id TEXT UNIQUE,
     approval_id TEXT UNIQUE REFERENCES approvals(id) ON DELETE RESTRICT,
+    clarification_id TEXT UNIQUE REFERENCES clarifications(id) ON DELETE RESTRICT,
     state TEXT NOT NULL CHECK (state IN (
-        'closed', 'invalid', 'validated', 'awaiting_approval',
+        'closed', 'invalid', 'validated', 'awaiting_approval', 'awaiting_clarification',
         'executing', 'succeeded', 'failed',
         'rejected', 'cancelled', 'expired'
     )),
@@ -152,6 +153,7 @@ CREATE TABLE IF NOT EXISTS tool_requests (
     transcript_state TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written')),
     CHECK (state NOT IN ('executing', 'succeeded', 'failed') OR invocation_id IS NOT NULL),
     CHECK (state != 'awaiting_approval' OR approval_id IS NOT NULL),
+    CHECK (state != 'awaiting_clarification' OR clarification_id IS NOT NULL),
     CHECK ((state IN ('succeeded', 'failed')) = (execution_json IS NOT NULL)),
     CHECK (state != 'executing' OR execution_token IS NOT NULL),
     CHECK (ownership = 'unconfirmed' OR state = 'executing'),
@@ -160,7 +162,7 @@ CREATE TABLE IF NOT EXISTS tool_requests (
 );
 
 CREATE TRIGGER IF NOT EXISTS tool_requests_identity_immutable
-BEFORE UPDATE OF request_id, session_id, input_json, invocation_id ON tool_requests
+BEFORE UPDATE OF request_id, session_id, input_json, invocation_id, approval_id, clarification_id ON tool_requests
 BEGIN
     SELECT RAISE(ABORT, 'immutable tool request');
 END;
@@ -180,6 +182,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tool_call_count INTEGER NOT NULL DEFAULT 0,
     limits_json TEXT NOT NULL CHECK (json_valid(limits_json)),
     approval_id TEXT,
+    clarification_id TEXT,
     termination_json TEXT CHECK (
         termination_json IS NULL OR json_valid(termination_json)
     ),
@@ -218,8 +221,9 @@ CREATE TABLE tool_requests (
     input_json TEXT NOT NULL CHECK (json_valid(input_json)),
     invocation_id TEXT UNIQUE,
     approval_id TEXT UNIQUE REFERENCES approvals(id) ON DELETE RESTRICT,
+    clarification_id TEXT UNIQUE REFERENCES clarifications(id) ON DELETE RESTRICT,
     state TEXT NOT NULL CHECK (state IN (
-        'closed', 'invalid', 'validated', 'awaiting_approval',
+        'closed', 'invalid', 'validated', 'awaiting_approval', 'awaiting_clarification',
         'executing', 'succeeded', 'failed',
         'rejected', 'cancelled', 'expired'
     )),
@@ -237,6 +241,7 @@ CREATE TABLE tool_requests (
     transcript_state TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written')),
     CHECK (state NOT IN ('executing', 'succeeded', 'failed') OR invocation_id IS NOT NULL),
     CHECK (state != 'awaiting_approval' OR approval_id IS NOT NULL),
+    CHECK (state != 'awaiting_clarification' OR clarification_id IS NOT NULL),
     CHECK ((state IN ('succeeded', 'failed')) = (execution_json IS NOT NULL)),
     CHECK (state != 'executing' OR execution_token IS NOT NULL),
     CHECK (ownership = 'unconfirmed' OR state = 'executing'),
@@ -278,16 +283,11 @@ const AGENT_RUNS_COLUMNS =
 /** Full-column immutability guard converged on by `migrateToolRequests`. */
 const TOOL_REQUESTS_IMMUTABLE_TRIGGER_SQL = `
 CREATE TRIGGER tool_requests_identity_immutable
-BEFORE UPDATE OF request_id, session_id, input_json, invocation_id, approval_id ON tool_requests
+BEFORE UPDATE OF request_id, session_id, input_json, invocation_id, approval_id, clarification_id ON tool_requests
 BEGIN
     SELECT RAISE(ABORT, 'immutable tool request');
 END;
 `;
-
-const TOOL_REQUESTS_COLUMNS =
-  'request_id, session_id, input_json, invocation_id, state, ' +
-  'validation_json, execution_token, ownership, execution_json, ' +
-  'final_state, final_token, final_json';
 
 /**
  * Memory candidate evidence ledger schema. Observations about what might
@@ -873,6 +873,7 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       'transcript_state',
       `TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written'))`,
     );
+    addColumnIfMissing(db, 'agent_runs', 'clarification_id', 'TEXT');
   }
   if (schema === 'memories') {
     // M10b: live ledger files predate the origin stamp.
@@ -914,13 +915,14 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
 }
 
 /**
- * M8d upgrade for the M8c-era `tool_requests` table: pre-M8d tables
- * lack `approval_id` and the mirrored terminal states (`rejected`,
- * `cancelled`, `expired`), and CHECK constraints cannot be altered in
- * place. Rebuilds the table preserving every row, then converges the
- * immutability trigger on the full column list. Fresh databases take
- * the same path for the trigger. Idempotent: current tables are left
- * alone.
+ * M8d/M17b upgrade for the `tool_requests` table: pre-M8d tables lack
+ * `approval_id` and the mirrored terminal states (`rejected`,
+ * `cancelled`, `expired`); pre-M17b tables lack the clarification
+ * parking state (`awaiting_clarification`, `clarification_id`). CHECK
+ * constraints cannot be altered in place, so the table is rebuilt
+ * preserving every row, then the immutability trigger converges on the
+ * full column list. Fresh databases take the same path for the
+ * trigger. Idempotent: current tables are left alone.
  */
 function migrateToolRequests(db: Database.Database): void {
   const table = db
@@ -933,13 +935,37 @@ function migrateToolRequests(db: Database.Database): void {
     name: string;
   }[];
   const names = new Set(columns.map((column) => column.name));
-  if (names.has('approval_id') && table.sql.includes(`'rejected'`)) {
+  if (
+    names.has('clarification_id') &&
+    table.sql.includes(`'awaiting_clarification'`)
+  ) {
     ensureToolRequestsTrigger(db);
     return;
   }
+  const hasApprovalId = names.has('approval_id');
+  const hasTranscriptState = names.has('transcript_state');
+  // Columns carried across the rebuild. New columns are omitted so
+  // their defaults apply: `approval_id` only when the legacy table
+  // never had it, `clarification_id` always (nothing predates it).
+  const copyColumns = [
+    'request_id',
+    'session_id',
+    'input_json',
+    'invocation_id',
+    ...(hasApprovalId ? ['approval_id'] : []),
+    'state',
+    'validation_json',
+    'execution_token',
+    'ownership',
+    'execution_json',
+    'final_state',
+    'final_token',
+    'final_json',
+    ...(hasTranscriptState ? ['transcript_state'] : []),
+  ].join(', ');
   db.transaction(() => {
     db.exec(`ALTER TABLE tool_requests RENAME TO tool_requests_legacy;`);
-    if (!names.has('approval_id')) {
+    if (!hasApprovalId) {
       // Pre-M8d parks never created an approval, so nothing can ever
       // authorize them; drop rather than carry un-actionable rows.
       db.exec(
@@ -948,8 +974,8 @@ function migrateToolRequests(db: Database.Database): void {
     }
     db.exec(TOOL_REQUESTS_TABLE_SQL);
     db.exec(
-      `INSERT INTO tool_requests (${TOOL_REQUESTS_COLUMNS})
-       SELECT ${TOOL_REQUESTS_COLUMNS} FROM tool_requests_legacy;`,
+      `INSERT INTO tool_requests (${copyColumns})
+       SELECT ${copyColumns} FROM tool_requests_legacy;`,
     );
     db.exec(`DROP TABLE tool_requests_legacy;`);
   }).immediate();
@@ -999,7 +1025,7 @@ function ensureToolRequestsTrigger(db: Database.Database): void {
       `SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'tool_requests_identity_immutable'`,
     )
     .get() as { sql: string } | undefined;
-  if (trigger && trigger.sql.includes('approval_id')) return;
+  if (trigger && trigger.sql.includes('clarification_id')) return;
   db.exec(`DROP TRIGGER IF EXISTS tool_requests_identity_immutable;`);
   db.exec(TOOL_REQUESTS_IMMUTABLE_TRIGGER_SQL);
 }

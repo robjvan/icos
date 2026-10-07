@@ -49,11 +49,14 @@ import type { ConversationStreamEvent } from './conversation.service';
 import { FakeSessionRepository } from './fake-session.repository';
 import { SessionStore } from './session.store';
 import {
+  answeredClarifyRecord,
+  clarifyProposal,
   closedTextRecord,
   executingRecord,
   foreignProposal,
   foreignSuccessRecord,
   invalidRecord,
+  pendingClarifyRecord,
   pendingForeignRecord,
   pendingRenameRecord,
   renameProposal,
@@ -152,6 +155,7 @@ function testRun(overrides: Partial<AgentRun> = {}): AgentRun {
       maxTurnDurationMs: MAX_TURN_DURATION_MS,
     },
     approvalId: 'appr-1',
+    clarificationId: null,
     termination: null,
     createdAt: 't',
     updatedAt: 't',
@@ -166,6 +170,16 @@ function renameInput(requestId: string): ToolExecutionInput {
     context: [{ role: 'user', content: 'rename it' }],
     allowedTools: ['session.search', 'session.rename'],
     proposal: renameProposal(),
+  };
+}
+
+function clarifyInput(requestId: string): ToolExecutionInput {
+  return {
+    requestId,
+    sessionId: 's-1',
+    context: [{ role: 'user', content: 'ask me' }],
+    allowedTools: ['session.search', 'clarify'],
+    proposal: clarifyProposal(),
   };
 }
 
@@ -362,6 +376,7 @@ describe('ConversationService', () => {
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
+      'clarify',
       'memory',
       'patch',
       'read_file',
@@ -400,6 +415,7 @@ describe('ConversationService', () => {
       'skill_view',
       'todo',
       'memory',
+      'clarify',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1046,6 +1062,7 @@ describe('ConversationService', () => {
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
+        'clarify',
         'memory',
         'patch',
         'read_file',
@@ -1080,6 +1097,7 @@ describe('ConversationService', () => {
         'skill_view',
         'todo',
         'memory',
+        'clarify',
       ]);
     });
 
@@ -1476,6 +1494,58 @@ describe('ConversationService', () => {
       expect(result.status).toBe('approval_required');
       expect(agentRuns.markParked).toHaveBeenCalledWith('run-1', 'appr-1');
       expect(agentRuns.markTerminal).not.toHaveBeenCalled();
+    });
+
+    it('parks clarify proposals as clarification_required with the pointer', async () => {
+      const { service, agentRuns } = setup(
+        testConfig(),
+        () => Promise.resolve(clarifyProposal()),
+        undefined,
+        undefined,
+        (input) => Promise.resolve(pendingClarifyRecord(input)),
+      );
+
+      const result = await service.converse('ask me');
+
+      expect(result.status).toBe('clarification_required');
+      expect(result.clarification).toMatchObject({
+        clarificationId: 'clar-1',
+        question: 'Which one?',
+        options: ['a', 'b'],
+      });
+      expect(agentRuns.markParkedForInteraction).toHaveBeenCalledWith(
+        'run-1',
+        'clar-1',
+      );
+      expect(agentRuns.markParked).not.toHaveBeenCalled();
+      expect(agentRuns.markTerminal).not.toHaveBeenCalled();
+    });
+
+    it('continues planning with the clarification answer on resume', async () => {
+      const { service, agentRuns, tools, chatWithTools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal('teal found again')),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : pendingClarifyRecord(input),
+          ),
+      );
+      agentRuns.findByRequest.mockReturnValue(
+        testRun({ clarificationId: 'clar-1', approvalId: null }),
+      );
+      tools.resume.mockImplementation(() =>
+        Promise.resolve(answeredClarifyRecord(clarifyInput('req-9'))),
+      );
+
+      const result = await service.resumeTurn('req-9', 's-1');
+
+      expect(result.status).toBe('ok');
+      expect(chatWithTools).toHaveBeenCalledTimes(1);
+      expect(agentRuns.markTerminal).toHaveBeenCalled();
     });
 
     it('completes the parked run on resume', async () => {

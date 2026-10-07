@@ -71,6 +71,7 @@ export interface AgentRun {
   toolCallCount: number;
   limits: RunLimits;
   approvalId: string | null;
+  clarificationId: string | null;
   termination: RunTermination | null;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +88,7 @@ interface AgentRunRow {
   tool_call_count: number;
   limits_json: string;
   approval_id: string | null;
+  clarification_id: string | null;
   termination_json: string | null;
   created_at: string;
   updated_at: string;
@@ -108,6 +110,7 @@ function toRun(row: AgentRunRow): AgentRun {
     toolCallCount: row.tool_call_count,
     limits: JSON.parse(row.limits_json) as RunLimits,
     approvalId: row.approval_id,
+    clarificationId: row.clarification_id,
     termination: row.termination_json
       ? (JSON.parse(row.termination_json) as RunTermination)
       : null,
@@ -198,6 +201,24 @@ export class AgentRunRepository {
          WHERE id = ?`,
       )
       .run(approvalId, nowIso(), runId);
+    return this.required(runId);
+  }
+
+  /**
+   * Park a run on a clarification. The lifecycle value is the shared
+   * `awaiting_approval` (the run is blocked on a person, not the model);
+   * the clarification id is recorded for observability, and the
+   * approval binding is left untouched (null for a fresh run).
+   */
+  markParkedForInteraction(runId: string, clarificationId: string): AgentRun {
+    this.required(runId);
+    this.connection
+      .prepare(
+        `UPDATE agent_runs
+         SET state = 'awaiting_approval', clarification_id = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(clarificationId, nowIso(), runId);
     return this.required(runId);
   }
 

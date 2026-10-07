@@ -502,6 +502,138 @@ describe('openDatabase', () => {
     openDatabase(path, 'sessions').close();
   });
 
+  it('migrates a pre-M17b tool_requests table, adding clarification parking', () => {
+    // Simulate an M8d-era database: approval parking and mirrored
+    // states exist, but clarification parking does not.
+    const path = join(dir, 'm17b.sqlite');
+    const old = new Database(path);
+    try {
+      old.exec(`
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            title TEXT
+        );
+        CREATE TABLE approvals (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            expires_at TEXT,
+            resolved_at TEXT
+        );
+        CREATE TABLE tool_requests (
+            request_id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
+            input_json TEXT NOT NULL,
+            invocation_id TEXT UNIQUE,
+            approval_id TEXT UNIQUE REFERENCES approvals(id) ON DELETE RESTRICT,
+            state TEXT NOT NULL CHECK (state IN (
+                'closed', 'invalid', 'validated', 'awaiting_approval',
+                'executing', 'succeeded', 'failed',
+                'rejected', 'cancelled', 'expired'
+            )),
+            validation_json TEXT NOT NULL,
+            execution_token TEXT,
+            ownership TEXT NOT NULL DEFAULT 'unconfirmed',
+            execution_json TEXT,
+            final_state TEXT NOT NULL,
+            final_token TEXT,
+            final_json TEXT NOT NULL,
+            transcript_state TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE TRIGGER tool_requests_identity_immutable
+        BEFORE UPDATE OF request_id, session_id, input_json, invocation_id, approval_id ON tool_requests
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable tool request');
+        END;
+      `);
+      old
+        .prepare(
+          'INSERT INTO sessions (id, created_at, updated_at) VALUES (?, ?, ?)',
+        )
+        .run('s1', 't', 't');
+      old
+        .prepare(
+          `INSERT INTO approvals (id, session_id, action, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run('appr-1', 's1', 'x', 't', 't');
+      old
+        .prepare(
+          `INSERT INTO tool_requests
+            (request_id, session_id, input_json, invocation_id, approval_id, state,
+             validation_json, final_state, final_json)
+           VALUES (?, ?, ?, ?, ?, 'awaiting_approval', ?, 'not_required', ?)`,
+        )
+        .run(
+          'parked',
+          's1',
+          '{"requestId":"parked"}',
+          'inv-1',
+          'appr-1',
+          '{"ok":true}',
+          '{"state":"not_required"}',
+        );
+    } finally {
+      old.close();
+    }
+
+    const db = openDatabase(path, 'sessions');
+    try {
+      const columns = (
+        db.prepare('PRAGMA table_info(tool_requests)').all() as {
+          name: string;
+        }[]
+      ).map((row) => row.name);
+      expect(columns).toContain('clarification_id');
+      // The approval-parked row survives with its binding intact.
+      expect(
+        db
+          .prepare(
+            'SELECT request_id, approval_id FROM tool_requests WHERE request_id = ?',
+          )
+          .get('parked'),
+      ).toEqual({ request_id: 'parked', approval_id: 'appr-1' });
+      // Clarification parking is accepted now.
+      db.prepare(
+        `INSERT INTO clarifications
+          (id, session_id, question, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run('clar-1', 's1', 'q', 't', 't');
+      db.prepare(
+        `INSERT INTO tool_requests
+          (request_id, session_id, input_json, invocation_id, clarification_id, state,
+           validation_json, final_state, final_json)
+         VALUES (?, ?, ?, ?, ?, 'awaiting_clarification', ?, 'not_required', ?)`,
+      ).run(
+        'ask',
+        's1',
+        '{"requestId":"ask"}',
+        'inv-2',
+        'clar-1',
+        '{"ok":true}',
+        '{"state":"not_required"}',
+      );
+      // The converged trigger guards the clarification binding too.
+      expect(() =>
+        db
+          .prepare(
+            "UPDATE tool_requests SET clarification_id = 'x' WHERE request_id = 'ask'",
+          )
+          .run(),
+      ).toThrow('immutable tool request');
+    } finally {
+      db.close();
+    }
+    // Re-open is idempotent.
+    openDatabase(path, 'sessions').close();
+  });
+
   it('rebuilds pre-M9b agent_runs, mapping stranded running rows to failed', () => {
     // Simulate an M9a-era database: provisional lifecycle states only.
     const path = join(dir, 'm9a.sqlite');

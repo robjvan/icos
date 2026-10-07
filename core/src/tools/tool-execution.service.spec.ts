@@ -19,6 +19,8 @@ import {
   type ToolExecutionInput,
 } from './tool-execution.service';
 import type { ChannelSendPort } from '../channels/channel-send.port';
+import { ClarificationService } from '../clarifications/clarification.service';
+import { SqliteClarificationRepository } from '../clarifications/sqlite-clarification.repository';
 import type { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
 import type { Claim } from '../memory/claim';
@@ -26,6 +28,11 @@ import type { ClaimRepository } from '../memory/claim.repository';
 import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import type { RecallResult, RecallService } from '../memory/recall.service';
 import type { PersonaRepository } from '../persona/persona.repository';
+
+const noopClarifications = {
+  create: () => Promise.reject(new Error('clarify unwired')),
+  get: () => Promise.reject(new Error('clarify unwired')),
+} as unknown as ClarificationService;
 
 function input(): ToolExecutionInput {
   return {
@@ -94,6 +101,7 @@ describe('ToolExecutionService SQLite', () => {
       candidates?: MemoryCandidateRepository;
       persona?: PersonaRepository;
     } = {},
+    clarifications?: ClarificationService,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -113,6 +121,16 @@ describe('ToolExecutionService SQLite', () => {
       sessions,
       new NoopPublisher(),
     );
+    const clarificationsRepository = new SqliteClarificationRepository(
+      database,
+    );
+    const clarificationsPort: ClarificationService =
+      clarifications ??
+      new ClarificationService(
+        clarificationsRepository,
+        sessions,
+        new NoopPublisher(),
+      );
     const service = new ToolExecutionService(
       ledger,
       store,
@@ -130,6 +148,7 @@ describe('ToolExecutionService SQLite', () => {
       {
         callTool: () => Promise.reject(new Error('mcp unwired')),
       } as unknown as McpConnectionService,
+      clarificationsPort,
       channels,
       skills,
       todos,
@@ -147,6 +166,7 @@ describe('ToolExecutionService SQLite', () => {
       service,
       approvals,
       approvalService,
+      clarifications: clarificationsRepository,
     };
   }
 
@@ -644,6 +664,40 @@ describe('ToolExecutionService SQLite', () => {
       ok: true,
       tool: 'memory',
       result: { candidates: [{ id: 'm1', kind: 'preference' }] },
+    });
+  });
+
+  it('parks on a clarification and resumes with the answer (M17b)', async () => {
+    const { sessions, service, clarifications } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-clarify', 'clarify', {
+        question: 'Which one?',
+        options: ['a', 'b'],
+      }),
+    );
+    expect(parked.state).toBe('awaiting_clarification');
+    const clarificationId = parked.clarificationId;
+    expect(clarificationId).toBeDefined();
+
+    // Polling before an answer keeps the invocation parked.
+    const polled = await service.resume('req-clarify', 's1');
+    expect(polled.state).toBe('awaiting_clarification');
+
+    await clarifications.answerClarification(clarificationId as string, 'a');
+    const answered = await service.resume('req-clarify', 's1', {
+      skipFinal: true,
+    });
+    expect(answered.state).toBe('succeeded');
+    expect(answered.execution).toMatchObject({
+      ok: true,
+      tool: 'clarify',
+      result: {
+        question: 'Which one?',
+        answer: 'a',
+        options: ['a', 'b'],
+      },
     });
   });
 
@@ -1449,6 +1503,7 @@ describe('ToolExecutionService SQLite', () => {
         {
           callTool: () => Promise.reject(new Error('mcp unwired')),
         } as unknown as McpConnectionService,
+        noopClarifications,
       );
       const result = await service.consume(input());
       expect(result).toMatchObject({
@@ -1863,6 +1918,7 @@ describe('ToolExecutionService foreign tools (M13b)', () => {
           _args: Record<string, unknown>,
         ) => mcpCall(tool, _args),
       } as unknown as McpConnectionService,
+      noopClarifications,
     );
     return {
       database,

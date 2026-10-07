@@ -74,7 +74,8 @@ import type { TurnAttachment } from './attachments';
 import { SessionStore } from './session.store';
 import type { HistoryMessage } from './session.store';
 
-export type TurnStatus = 'ok' | 'approval_required' | 'processing';
+export type TurnStatus =
+  'ok' | 'approval_required' | 'clarification_required' | 'processing';
 
 export interface ToolSummary {
   invocationId: string;
@@ -88,6 +89,12 @@ export interface ApprovalSummary {
   args: Record<string, unknown>;
 }
 
+export interface ClarificationSummary {
+  clarificationId: string;
+  question: string;
+  options?: string[];
+}
+
 export interface TurnOutcome {
   status: TurnStatus;
   sessionId: string;
@@ -97,6 +104,7 @@ export interface TurnOutcome {
   command?: CommandPayload;
   tool?: ToolSummary;
   approval?: ApprovalSummary;
+  clarification?: ClarificationSummary;
   outcome?: 'rejected' | 'cancelled' | 'expired';
   /**
    * Durable execution payload, present only when the tool ran but the
@@ -112,6 +120,11 @@ export type ConversationStreamEvent =
   | { type: 'tool'; invocationId: string; name: string; state: string }
   | { type: 'approval'; approval: ApprovalSummary; requestId: string }
   | {
+      type: 'clarification';
+      clarification: ClarificationSummary;
+      requestId: string;
+    }
+  | {
       type: 'done';
       reply: string;
       model: string;
@@ -120,6 +133,7 @@ export type ConversationStreamEvent =
       command?: CommandPayload;
       tool?: ToolSummary;
       approval?: ApprovalSummary;
+      clarification?: ClarificationSummary;
       outcome?: 'rejected' | 'cancelled' | 'expired';
       result?: unknown;
     }
@@ -394,6 +408,11 @@ export class ConversationService {
       }
       if (outcome.status === 'approval_required' && outcome.approval) {
         this.parkRun(runId, outcome.approval.approvalId);
+      } else if (
+        outcome.status === 'clarification_required' &&
+        outcome.clarification
+      ) {
+        this.parkRunClarification(runId, outcome.clarification.clarificationId);
       } else {
         // Forced answers (step bound, deadline) and denials terminate
         // truthfully rather than as clean completions. `processing`
@@ -412,7 +431,10 @@ export class ConversationService {
       }
       // Sidebar refresh across tabs: the session list/preview changed.
       // Parked turns park the run instead — the resume emits on completion.
-      if (outcome.status !== 'approval_required') {
+      if (
+        outcome.status !== 'approval_required' &&
+        outcome.status !== 'clarification_required'
+      ) {
         this.realtime.publish(realtimeEvent('session.updated', {}, id));
       }
       return outcome;
@@ -447,6 +469,25 @@ export class ConversationService {
     const userText = lastUserText(record);
     const history = await this.sessions.getContextMessages(record.sessionId);
     const entry = this.resumeObservationPair(record);
+    // Still waiting on a clarification answer: render the parked outcome
+    // and keep the run parked — a poll is not a completion.
+    if (record.state === 'awaiting_clarification') {
+      try {
+        return await this.renderTurn({
+          sessionId: record.sessionId,
+          requestId,
+          userText,
+          history,
+          record,
+        });
+      } catch (err) {
+        this.finishRun(storedId, 'failed', {
+          reason: 'turn_error',
+          toolSteps: 0,
+        });
+        throw err;
+      }
+    }
     // Only a parked run continues planning; anything else (no run,
     // terminal run, nothing executable to continue from) takes the
     // legacy single-shot path below.
@@ -651,6 +692,14 @@ export class ConversationService {
       }
       if (outcome.status === 'approval_required' && outcome.approval) {
         this.parkRun(storedId, outcome.approval.approvalId);
+      } else if (
+        outcome.status === 'clarification_required' &&
+        outcome.clarification
+      ) {
+        this.parkRunClarification(
+          storedId,
+          outcome.clarification.clarificationId,
+        );
       } else {
         const terminal = terminalRun({
           boundHit,
@@ -663,7 +712,10 @@ export class ConversationService {
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
       }
-      if (outcome.status !== 'approval_required') {
+      if (
+        outcome.status !== 'approval_required' &&
+        outcome.status !== 'clarification_required'
+      ) {
         this.realtime.publish(
           realtimeEvent('session.updated', {}, record.sessionId),
         );
@@ -938,6 +990,14 @@ export class ConversationService {
           }
           if (outcome.status === 'approval_required' && outcome.approval) {
             this.parkRun(runId, outcome.approval.approvalId);
+          } else if (
+            outcome.status === 'clarification_required' &&
+            outcome.clarification
+          ) {
+            this.parkRunClarification(
+              runId,
+              outcome.clarification.clarificationId,
+            );
           } else {
             const terminal = terminalRun({
               boundHit,
@@ -951,7 +1011,10 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
-          if (outcome.status !== 'approval_required') {
+          if (
+            outcome.status !== 'approval_required' &&
+            outcome.status !== 'clarification_required'
+          ) {
             this.realtime.publish(
               realtimeEvent('session.updated', {}, record.sessionId),
             );
@@ -1259,6 +1322,14 @@ export class ConversationService {
           }
           if (outcome.status === 'approval_required' && outcome.approval) {
             this.parkRun(storedId, outcome.approval.approvalId);
+          } else if (
+            outcome.status === 'clarification_required' &&
+            outcome.clarification
+          ) {
+            this.parkRunClarification(
+              storedId,
+              outcome.clarification.clarificationId,
+            );
           } else {
             const terminal = terminalRun({
               boundHit,
@@ -1272,7 +1343,10 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
-          if (outcome.status !== 'approval_required') {
+          if (
+            outcome.status !== 'approval_required' &&
+            outcome.status !== 'clarification_required'
+          ) {
             this.realtime.publish(
               realtimeEvent('session.updated', {}, record.sessionId),
             );
@@ -1315,6 +1389,13 @@ export class ConversationService {
         requestId: outcome.requestId,
       });
     }
+    if (outcome.clarification) {
+      emit({
+        type: 'clarification',
+        clarification: outcome.clarification,
+        requestId: outcome.requestId,
+      });
+    }
     emit({
       type: 'done',
       reply: outcome.reply,
@@ -1324,6 +1405,9 @@ export class ConversationService {
       ...(outcome.command ? { command: outcome.command } : {}),
       ...(outcome.tool ? { tool: outcome.tool } : {}),
       ...(outcome.approval ? { approval: outcome.approval } : {}),
+      ...(outcome.clarification
+        ? { clarification: outcome.clarification }
+        : {}),
       ...(outcome.outcome ? { outcome: outcome.outcome } : {}),
       ...(outcome.result !== undefined ? { result: outcome.result } : {}),
     });
@@ -1717,6 +1801,19 @@ export class ConversationService {
         model: record.input.proposal.model,
         tool: { invocationId: record.invocationId ?? '', name: approval.tool },
         approval,
+      };
+    }
+    if (record.state === 'awaiting_clarification' && record.clarificationId) {
+      const clarification = clarificationSummary(record);
+      if (!clarification) throw new InternalServerErrorException();
+      return {
+        status: 'clarification_required',
+        sessionId,
+        requestId,
+        reply: `Waiting for your answer: ${clarification.question}`,
+        model: record.input.proposal.model,
+        tool: { invocationId: record.invocationId ?? '', name: 'clarify' },
+        clarification,
       };
     }
     if (
@@ -2130,6 +2227,18 @@ export class ConversationService {
     }
   }
 
+  private parkRunClarification(
+    runId: string | undefined,
+    clarificationId: string,
+  ): void {
+    if (!runId) return;
+    try {
+      this.agentRuns.markParkedForInteraction(runId, clarificationId);
+    } catch (err) {
+      this.trackingFailed(err);
+    }
+  }
+
   private transitionRun(
     runId: string | undefined,
     state: AgentTransientState,
@@ -2396,7 +2505,40 @@ function approvalSummary(
   };
 }
 
+function clarificationSummary(
+  record: ToolExecutionRecord,
+): ClarificationSummary | undefined {
+  if (!record.clarificationId) return undefined;
+  const validation = record.validation;
+  if (!validation.ok || !('request' in validation)) return undefined;
+  if (
+    validation.request.name !== 'clarify' ||
+    'foreign' in validation.request
+  ) {
+    return undefined;
+  }
+  const args = validation.request.args;
+  return {
+    clarificationId: record.clarificationId,
+    question: args.question,
+    ...(args.options !== undefined ? { options: args.options } : {}),
+  };
+}
+
 function mirrorNotice(record: ToolExecutionRecord): string {
+  const name =
+    record.validation.ok && 'request' in record.validation
+      ? record.validation.request.name
+      : undefined;
+  if (name === 'clarify') {
+    if (record.state === 'cancelled') {
+      return 'The clarifying question was cancelled.';
+    }
+    if (record.state === 'expired') {
+      return 'The clarifying question expired without an answer.';
+    }
+    return 'The clarifying question was not answered.';
+  }
   if (record.state === 'rejected') {
     return 'The session was not renamed: the request was rejected.';
   }

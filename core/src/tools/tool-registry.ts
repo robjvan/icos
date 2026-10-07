@@ -18,7 +18,8 @@ export type ToolName =
   | 'skills_list'
   | 'skill_view'
   | 'todo'
-  | 'memory';
+  | 'memory'
+  | 'clarify';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -131,6 +132,15 @@ export type TodoArgs =
   | { readonly action: 'complete'; readonly id: string }
   | { readonly action: 'remove'; readonly id: string };
 
+export interface ClarifyArgs {
+  /** The question to put to the user. */
+  readonly question: string;
+  /** Optional structured choices (2–4). Absent = free-form. */
+  readonly options?: string[];
+  /** Optional answer deadline, in milliseconds from creation. */
+  readonly ttlMs?: number;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -160,7 +170,8 @@ export type ValidatedToolArgs =
   | WebExtractArgs
   | SkillViewArgs
   | TodoArgs
-  | MemoryArgs;
+  | MemoryArgs
+  | ClarifyArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -179,6 +190,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
   | { readonly name: 'todo'; readonly args: TodoArgs }
   | { readonly name: 'memory'; readonly args: MemoryArgs }
+  | { readonly name: 'clarify'; readonly args: ClarifyArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -264,6 +276,12 @@ const DEFAULT_WEB_RESULTS = 5;
 const MIN_MEMORY_LIMIT = 1;
 const MAX_MEMORY_LIMIT = 50;
 const DEFAULT_MEMORY_LIMIT = 20;
+const MAX_QUESTION_LENGTH = 500;
+const MIN_CLARIFY_OPTIONS = 2;
+const MAX_CLARIFY_OPTIONS = 4;
+const MAX_OPTION_LENGTH = 200;
+const MIN_CLARIFY_TTL_MS = 1000;
+const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -536,6 +554,36 @@ const MEMORY_SCHEMA = deepFreeze({
   },
 } as const);
 
+const CLARIFY_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['question'],
+  properties: {
+    question: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+    options: {
+      type: 'array',
+      minItems: MIN_CLARIFY_OPTIONS,
+      maxItems: MAX_CLARIFY_OPTIONS,
+      items: {
+        type: 'string',
+        pattern: NONBLANK_PATTERN,
+        minLength: 1,
+        maxLength: MAX_OPTION_LENGTH,
+      },
+    },
+    ttlMs: {
+      type: 'integer',
+      minimum: MIN_CLARIFY_TTL_MS,
+      maximum: MAX_CLARIFY_TTL_MS,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -663,6 +711,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'memory',
     argsSchema: MEMORY_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'clarify',
+    version: 1,
+    description:
+      'Ask the user a clarifying question and wait for the answer. Optionally ' +
+      'offer up to 4 choices; an optional ttlMs bounds the wait.',
+    approval: 'none',
+    toolset: 'agent',
+    argsSchema: CLARIFY_SCHEMA,
   }),
 ]);
 
@@ -1175,6 +1233,73 @@ function validateMemoryArgs(
   };
 }
 
+function validateClarifyArgs(
+  args: Record<string, unknown>,
+): ParseResult<ClarifyArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'question',
+    'options',
+    'ttlMs',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const question = validText(
+    ownValue(args, 'question'),
+    'question',
+    MAX_QUESTION_LENGTH,
+  );
+  if (!question.ok) {
+    return question;
+  }
+  let options: string[] | undefined;
+  if (Object.hasOwn(args, 'options')) {
+    const raw = ownValue(args, 'options');
+    if (!Array.isArray(raw)) {
+      return { ok: false, message: 'options must be an array of strings' };
+    }
+    if (raw.length < MIN_CLARIFY_OPTIONS || raw.length > MAX_CLARIFY_OPTIONS) {
+      return {
+        ok: false,
+        message: `options must have between ${MIN_CLARIFY_OPTIONS} and ${MAX_CLARIFY_OPTIONS} items`,
+      };
+    }
+    const cleaned: string[] = [];
+    for (const item of raw) {
+      const parsed = validText(item, 'options[]', MAX_OPTION_LENGTH);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      cleaned.push(parsed.value);
+    }
+    options = cleaned;
+  }
+  let ttlMs: number | undefined;
+  if (Object.hasOwn(args, 'ttlMs')) {
+    const value = ownValue(args, 'ttlMs');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_CLARIFY_TTL_MS ||
+      value > MAX_CLARIFY_TTL_MS
+    ) {
+      return {
+        ok: false,
+        message: `ttlMs must be an integer between ${MIN_CLARIFY_TTL_MS} and ${MAX_CLARIFY_TTL_MS}`,
+      };
+    }
+    ttlMs = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      question: question.value,
+      ...(options !== undefined ? { options } : {}),
+      ...(ttlMs !== undefined ? { ttlMs } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1449,6 +1574,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'memory',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'clarify') {
+      const result = validateClarifyArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'clarify',
           ...base,
           args: result.value,
         }),

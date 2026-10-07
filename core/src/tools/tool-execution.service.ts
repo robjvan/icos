@@ -22,6 +22,7 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
 import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
@@ -145,6 +146,7 @@ export class ToolExecutionService {
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
     private readonly approvalService: ApprovalService,
     private readonly mcp: McpConnectionService,
+    private readonly clarifications: ClarificationService,
     private readonly channels?: ChannelSendPort,
     private readonly skills?: SkillService,
     private readonly todos?: TodoRepository,
@@ -194,6 +196,7 @@ export class ToolExecutionService {
     // rows converge through register's idempotency — no second
     // approval is ever minted for a replay.
     let parkedApprovalId: string | null = null;
+    let parkedClarificationId: string | null = null;
     if (!this.ledger.get(input.requestId)) {
       const preview = this.validate(input);
       if (preview.ok && 'request' in preview) {
@@ -211,13 +214,35 @@ export class ToolExecutionService {
               : describeChannelSend(request.args as ChannelSendArgs),
           });
           parkedApprovalId = approval.id;
+        } else if (
+          preview.request.name === 'clarify' &&
+          !('foreign' in preview.request)
+        ) {
+          // M17b: clarify parks on a clarification. The question is
+          // created before the ledger row so the binding rides the
+          // INSERT (immutability forbids binding afterwards).
+          const clarification = await this.clarifications.create({
+            sessionId: input.sessionId,
+            question: preview.request.args.question,
+            ...(preview.request.args.options !== undefined
+              ? { options: preview.request.args.options }
+              : {}),
+            ...(preview.request.args.ttlMs !== undefined
+              ? { ttlMs: preview.request.args.ttlMs }
+              : {}),
+          });
+          parkedClarificationId = clarification.id;
         }
       }
     }
     let record = this.ledger.register(
       snapshot,
       (saved) => this.validate(saved),
-      parkedApprovalId ? { approvalId: parkedApprovalId } : undefined,
+      parkedApprovalId
+        ? { approvalId: parkedApprovalId }
+        : parkedClarificationId
+          ? { clarificationId: parkedClarificationId }
+          : undefined,
     );
     if (record.state === 'executing' && record.ownership === 'released') {
       this.ledger.resolveReleasedToUnknown(record.requestId);
@@ -287,7 +312,10 @@ export class ToolExecutionService {
         record = this.required(record.requestId);
       }
     }
-    if (record.state === 'awaiting_approval') {
+    if (
+      record.state === 'awaiting_approval' ||
+      record.state === 'awaiting_clarification'
+    ) {
       return this.resume(record.requestId, record.sessionId, options);
     }
     // Multi-step turns skip the tools-disabled final call on intermediate
@@ -347,7 +375,11 @@ export class ToolExecutionService {
     },
   ): Promise<ToolExecutionRecord> {
     const descriptor = this.registry.lookup(request.name);
-    if (!descriptor || descriptor.approval !== 'none') {
+    if (
+      !descriptor ||
+      descriptor.approval !== 'none' ||
+      request.name === 'clarify'
+    ) {
       throw new Error('native_parking_bypassed');
     }
     const token = this.ledger.claimNativeTool(record.requestId, (saved) =>
@@ -993,6 +1025,48 @@ export class ToolExecutionService {
           this.ledger.mirrorOutcome(requestId, outcome);
         }
       }
+    }
+    if (record.state === 'awaiting_clarification' && record.clarificationId) {
+      const clarification = await this.clarifications.get(
+        record.clarificationId,
+      );
+      if (clarification.status === 'answered') {
+        const token = this.ledger.claimClarify(requestId, (saved) =>
+          this.validate(saved),
+        );
+        if (token) {
+          const claimed = this.required(requestId);
+          const validation = claimed.validation;
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            validation.request.name !== 'clarify' ||
+            'foreign' in validation.request
+          ) {
+            throw new Error('invalid_execution_state');
+          }
+          const args = validation.request.args;
+          this.ledger.finishTool(requestId, token, {
+            ok: true,
+            tool: 'clarify',
+            result: {
+              question: args.question,
+              answer: clarification.answer ?? '',
+              ...(args.options !== undefined ? { options: args.options } : {}),
+            },
+          });
+        }
+      } else if (
+        clarification.status === 'cancelled' ||
+        clarification.status === 'expired'
+      ) {
+        this.ledger.mirrorOutcome(
+          requestId,
+          clarification.status,
+          'awaiting_clarification',
+        );
+      }
+      // 'pending': stay parked; the caller renders the waiting outcome.
     }
     // Post-approval continuation defers the tools-disabled final call;
     // the driver finalizes the last step through this same path.

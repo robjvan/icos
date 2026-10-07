@@ -23,6 +23,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'skill_view',
   'todo',
   'memory',
+  'clarify',
 ];
 
 function contextWith(
@@ -78,6 +79,7 @@ describe('ToolRegistry', () => {
       'skill_view',
       'todo',
       'memory',
+      'clarify',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -96,6 +98,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('skill_view')?.approval).toBe('none');
     expect(registry.lookup('todo')?.approval).toBe('none');
     expect(registry.lookup('memory')?.approval).toBe('none');
+    expect(registry.lookup('clarify')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -948,6 +951,63 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('clarify tool (M17b)', () => {
+    it('accepts a question with options and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          { name: 'clarify', version: 1, args: { question: 'Which one?' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'clarify',
+        args: { question: 'Which one?' },
+      });
+
+      const withOptions = expectOk(
+        registry.validate(
+          {
+            name: 'clarify',
+            version: 1,
+            args: { question: 'Which one?', options: ['a', 'b'], ttlMs: 60000 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(withOptions).toMatchObject({
+        name: 'clarify',
+        args: { question: 'Which one?', options: ['a', 'b'], ttlMs: 60000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'clarify', version: 1, args: {} },
+        { name: 'clarify', version: 1, args: { question: '   ' } },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a'] },
+        },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a', ''] },
+        },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a', 'b', 'c', 'd', 'e'] },
+        },
+        { name: 'clarify', version: 1, args: { question: 'q', ttlMs: 0 } },
+        { name: 'clarify', version: 1, args: { question: 'q', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -994,6 +1054,7 @@ describe('ToolRegistry', () => {
         'skill_view',
         'todo',
         'memory',
+        'clarify',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

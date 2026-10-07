@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import type {
   ApprovalSummary,
+  ClarificationSummary,
   CommandPayload,
   ToolSummary,
   TurnStatus,
@@ -93,6 +94,7 @@ export class ConversationResponseDto {
   command?: CommandPayload;
   tool?: ToolSummary;
   approval?: ApprovalSummary;
+  clarification?: ClarificationSummary;
   outcome?: 'rejected' | 'cancelled' | 'expired';
   result?: unknown;
 }
