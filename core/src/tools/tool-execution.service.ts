@@ -23,6 +23,8 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { terminalEnv } from '../process/terminal-env';
+import type { ProcessRegistry } from '../process/process-registry.service';
 import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
@@ -50,6 +52,8 @@ import type {
   ImageGenerateArgs,
   MemoryArgs,
   PatchArgs,
+  ProcessManageArgs,
+  ProcessStartArgs,
   ReadFileArgs,
   SearchFilesArgs,
   SkillViewArgs,
@@ -84,6 +88,9 @@ export const CHANNEL_SEND_ACTION = 'channel.send';
 
 /** Approval action for a native terminal command (M17c). */
 export const TERMINAL_EXECUTE_ACTION = 'terminal.execute';
+
+/** Approval action for starting a background process (M17c.2). */
+export const PROCESS_START_ACTION = 'process.start';
 
 const DEFAULT_TERMINAL_TIMEOUT_MS = 30_000;
 const MAX_TERMINAL_OUTPUT_BYTES = 48 * 1024;
@@ -123,24 +130,45 @@ function describeTerminal(args: TerminalArgs): string {
   return `Run a shell command${cwd}: ${args.command.slice(0, 400)}`;
 }
 
-/** Minimal env for a terminal command: never leak core secrets. */
-function terminalEnv(): NodeJS.ProcessEnv {
-  const keep = [
-    'PATH',
-    'HOME',
-    'LANG',
-    'LC_ALL',
-    'TERM',
-    'TMPDIR',
-    'USER',
-    'SHELL',
-  ];
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of keep) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
+/** Approval description for a background process (M17c.2). */
+function describeProcessStart(args: ProcessStartArgs): string {
+  const cwd = args.cwd ? ` (cwd: ${args.cwd})` : '';
+  return `Start a background process${cwd}: ${args.command.slice(0, 400)}`;
+}
+
+/** Approval action label for a parked native/foreign call. */
+function approvalActionFor(request: ValidatedToolRequest): string {
+  if ('foreign' in request) return MCP_EXECUTE_ACTION;
+  switch (request.name) {
+    case 'terminal':
+      return TERMINAL_EXECUTE_ACTION;
+    case 'process_start':
+      return PROCESS_START_ACTION;
+    case 'channel.send':
+      return CHANNEL_SEND_ACTION;
+    default:
+      return CHANNEL_SEND_ACTION;
   }
-  return env;
+}
+
+/** Human-facing approval description for a parked native/foreign call. */
+function approvalDescriptionFor(request: ValidatedToolRequest): string {
+  if ('foreign' in request) {
+    return (
+      `Execute foreign tool ${request.foreign.server}/${request.foreign.tool} ` +
+      `(${request.name}) with args ${JSON.stringify(request.args).slice(0, 500)}`
+    );
+  }
+  switch (request.name) {
+    case 'terminal':
+      return describeTerminal(request.args);
+    case 'process_start':
+      return describeProcessStart(request.args);
+    case 'channel.send':
+      return describeChannelSend(request.args);
+    default:
+      return `${request.name} with args ${JSON.stringify(request.args).slice(0, 500)}`;
+  }
 }
 
 /** Compact, model-facing view of one belief. */
@@ -213,6 +241,7 @@ export class ToolExecutionService {
     private readonly persona?: PersonaRepository,
     private readonly vision?: VisionService,
     private readonly imageGen?: ImageGenService,
+    private readonly processes?: ProcessRegistry,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -262,22 +291,10 @@ export class ToolExecutionService {
         const descriptor = this.registry.lookup(preview.request.name);
         if (descriptor && descriptor.approval !== 'none') {
           const request = preview.request;
-          const foreign = 'foreign' in request;
-          const isTerminal = !foreign && request.name === 'terminal';
           const approval = await this.approvalService.create({
             sessionId: input.sessionId,
-            action: foreign
-              ? MCP_EXECUTE_ACTION
-              : isTerminal
-                ? TERMINAL_EXECUTE_ACTION
-                : CHANNEL_SEND_ACTION,
-            description: foreign
-              ? `Execute foreign tool ${request.foreign.server}/` +
-                `${request.foreign.tool} (${request.name}) ` +
-                `with args ${JSON.stringify(request.args).slice(0, 500)}`
-              : isTerminal
-                ? describeTerminal(request.args)
-                : describeChannelSend(request.args as ChannelSendArgs),
+            action: approvalActionFor(request),
+            description: approvalDescriptionFor(request),
           });
           parkedApprovalId = approval.id;
         } else if (
@@ -547,6 +564,14 @@ export class ToolExecutionService {
         return this.nativeImageGenerate(args as unknown as ImageGenerateArgs);
       case 'terminal':
         return this.nativeTerminal(args as unknown as TerminalArgs);
+      case 'process_start':
+        return Promise.resolve(
+          this.nativeProcessStart(args as unknown as ProcessStartArgs),
+        );
+      case 'process_manage':
+        return Promise.resolve(
+          this.nativeProcessManage(args as unknown as ProcessManageArgs),
+        );
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -1060,6 +1085,34 @@ export class ToolExecutionService {
       child.on('error', () => finish(null, 'spawn_failed'));
       child.on('close', (code) => finish(code));
     });
+  }
+
+  /** Start a background process in the workspace jail (M17c.2). */
+  private nativeProcessStart(args: ProcessStartArgs): unknown {
+    if (!this.processes) throw new Error('process_unavailable');
+    const cwd = this.resolveWithinWorkspace(args.cwd ?? '.');
+    return this.processes.start({ command: args.command, cwd });
+  }
+
+  /** List / read / kill tracked background processes (M17c.2). */
+  private nativeProcessManage(args: ProcessManageArgs): unknown {
+    if (!this.processes) throw new Error('process_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { processes: this.processes.list() };
+      case 'output': {
+        if (!args.id) throw new Error('process_not_found');
+        const process = this.processes.output(args.id);
+        if (!process) throw new Error('process_not_found');
+        return { process };
+      }
+      case 'kill': {
+        if (!args.id) throw new Error('process_not_found');
+        const killed = this.processes.kill(args.id);
+        if (!killed) throw new Error('process_not_found');
+        return { killed: true };
+      }
+    }
   }
 
   /**

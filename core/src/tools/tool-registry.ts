@@ -22,7 +22,9 @@ export type ToolName =
   | 'clarify'
   | 'vision_analyze'
   | 'image_generate'
-  | 'terminal';
+  | 'terminal'
+  | 'process_start'
+  | 'process_manage';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -169,6 +171,18 @@ export interface TerminalArgs {
   readonly timeoutMs?: number;
 }
 
+export interface ProcessStartArgs {
+  /** Shell command to run in the background. */
+  readonly command: string;
+  /** Working directory relative to the workspace root (default: root). */
+  readonly cwd?: string;
+}
+
+export type ProcessManageArgs =
+  | { readonly action: 'list' }
+  | { readonly action: 'output'; readonly id: string }
+  | { readonly action: 'kill'; readonly id: string };
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -202,7 +216,9 @@ export type ValidatedToolArgs =
   | ClarifyArgs
   | VisionAnalyzeArgs
   | ImageGenerateArgs
-  | TerminalArgs;
+  | TerminalArgs
+  | ProcessStartArgs
+  | ProcessManageArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -225,6 +241,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'vision_analyze'; readonly args: VisionAnalyzeArgs }
   | { readonly name: 'image_generate'; readonly args: ImageGenerateArgs }
   | { readonly name: 'terminal'; readonly args: TerminalArgs }
+  | { readonly name: 'process_start'; readonly args: ProcessStartArgs }
+  | { readonly name: 'process_manage'; readonly args: ProcessManageArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -694,6 +712,44 @@ const TERMINAL_SCHEMA = deepFreeze({
   },
 } as const);
 
+const PROCESS_START_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['command'],
+  properties: {
+    command: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_COMMAND_LENGTH,
+    },
+    cwd: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+  },
+} as const);
+
+const PROCESS_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'output', 'kill'],
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -861,6 +917,26 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'required',
     toolset: 'terminal',
     argsSchema: TERMINAL_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'process_start',
+    version: 1,
+    description:
+      'Start a background shell command in the workspace and return its id. ' +
+      'Use process_manage to read output or kill it. Requires approval.',
+    approval: 'required',
+    toolset: 'terminal',
+    argsSchema: PROCESS_START_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'process_manage',
+    version: 1,
+    description:
+      'List, read output of, or kill background processes started via ' +
+      'process_start.',
+    approval: 'none',
+    toolset: 'terminal',
+    argsSchema: PROCESS_MANAGE_SCHEMA,
   }),
 ]);
 
@@ -1574,6 +1650,56 @@ function validateTerminalArgs(
   };
 }
 
+function validateProcessStartArgs(
+  args: Record<string, unknown>,
+): ParseResult<ProcessStartArgs> {
+  const unknownField = rejectUnknownFields(args, ['command', 'cwd']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const command = validText(
+    ownValue(args, 'command'),
+    'command',
+    MAX_COMMAND_LENGTH,
+  );
+  if (!command.ok) return command;
+  let cwd: string | undefined;
+  if (Object.hasOwn(args, 'cwd')) {
+    const parsed = validText(ownValue(args, 'cwd'), 'cwd', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    cwd = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      command: command.value,
+      ...(cwd !== undefined ? { cwd } : {}),
+    }),
+  };
+}
+
+function validateProcessManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<ProcessManageArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list') {
+    return { ok: true, value: Object.freeze({ action: 'list' }) };
+  }
+  if (action !== 'output' && action !== 'kill') {
+    return {
+      ok: false,
+      message: 'action must be "list", "output", or "kill"',
+    };
+  }
+  const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+  if (!id.ok) return id;
+  return { ok: true, value: Object.freeze({ action, id: id.value }) };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1904,6 +2030,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'terminal',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'process_start') {
+      const result = validateProcessStartArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'process_start',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'process_manage') {
+      const result = validateProcessManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'process_manage',
           ...base,
           args: result.value,
         }),

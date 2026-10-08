@@ -391,6 +391,8 @@ describe('ConversationService', () => {
       'image_generate',
       'memory',
       'patch',
+      'process_manage',
+      'process_start',
       'read_file',
       'search_files',
       'session.rename',
@@ -433,6 +435,8 @@ describe('ConversationService', () => {
       'vision_analyze',
       'image_generate',
       'terminal',
+      'process_start',
+      'process_manage',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1083,6 +1087,8 @@ describe('ConversationService', () => {
         'image_generate',
         'memory',
         'patch',
+        'process_manage',
+        'process_start',
         'read_file',
         'search_files',
         'session.rename',
@@ -1121,6 +1127,8 @@ describe('ConversationService', () => {
         'vision_analyze',
         'image_generate',
         'terminal',
+        'process_start',
+        'process_manage',
       ]);
     });
 

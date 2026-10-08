@@ -27,6 +27,8 @@ const ALL_TOOLS: readonly ToolName[] = [
   'vision_analyze',
   'image_generate',
   'terminal',
+  'process_start',
+  'process_manage',
 ];
 
 function contextWith(
@@ -86,6 +88,8 @@ describe('ToolRegistry', () => {
       'vision_analyze',
       'image_generate',
       'terminal',
+      'process_start',
+      'process_manage',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -108,6 +112,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('vision_analyze')?.approval).toBe('none');
     expect(registry.lookup('image_generate')?.approval).toBe('none');
     expect(registry.lookup('terminal')?.approval).toBe('required');
+    expect(registry.lookup('process_start')?.approval).toBe('required');
+    expect(registry.lookup('process_manage')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1163,6 +1169,69 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('process tools (M17c.2)', () => {
+    it('validates process_start and process_manage', () => {
+      const start = expectOk(
+        registry.validate(
+          {
+            name: 'process_start',
+            version: 1,
+            args: { command: 'sleep 1', cwd: 'notes' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(start).toMatchObject({
+        name: 'process_start',
+        args: { command: 'sleep 1', cwd: 'notes' },
+      });
+
+      const list = expectOk(
+        registry.validate(
+          { name: 'process_manage', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({
+        name: 'process_manage',
+        args: { action: 'list' },
+      });
+
+      const output = expectOk(
+        registry.validate(
+          {
+            name: 'process_manage',
+            version: 1,
+            args: { action: 'output', id: 'p1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(output).toMatchObject({
+        name: 'process_manage',
+        args: { action: 'output', id: 'p1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'process_start', version: 1, args: {} },
+        { name: 'process_start', version: 1, args: { command: '   ' } },
+        { name: 'process_manage', version: 1, args: {} },
+        { name: 'process_manage', version: 1, args: { action: 'output' } },
+        { name: 'process_manage', version: 1, args: { action: 'nope' } },
+        {
+          name: 'process_manage',
+          version: 1,
+          args: { action: 'list', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1213,6 +1282,8 @@ describe('ToolRegistry', () => {
         'vision_analyze',
         'image_generate',
         'terminal',
+        'process_start',
+        'process_manage',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

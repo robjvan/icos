@@ -30,6 +30,7 @@ import type { RecallResult, RecallService } from '../memory/recall.service';
 import type { PersonaRepository } from '../persona/persona.repository';
 import type { VisionService } from '../vision/vision.service';
 import type { ImageGenService } from '../image/image-gen.service';
+import { ProcessRegistry } from '../process/process-registry.service';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -106,6 +107,7 @@ describe('ToolExecutionService SQLite', () => {
     clarifications?: ClarificationService,
     vision?: VisionService,
     imageGen?: ImageGenService,
+    processes?: ProcessRegistry,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -162,6 +164,7 @@ describe('ToolExecutionService SQLite', () => {
       memory.persona,
       vision,
       imageGen,
+      processes ?? new ProcessRegistry(),
     );
     return {
       database,
@@ -877,6 +880,43 @@ describe('ToolExecutionService SQLite', () => {
     expect(done.execution).toMatchObject({
       ok: false,
       failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('starts a background process after approval and manages it (M17c.2)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-ps', 'process_start', { command: 'sleep 30' }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const started = await service.resume('req-ps', 's1', { skipFinal: true });
+    expect(started.state).toBe('succeeded');
+    const startedResult = started.execution as unknown as {
+      result: { id: string };
+    };
+    const id = startedResult.result.id;
+    expect(id).toBeTruthy();
+
+    const listed = await service.consume(
+      toolInput('req-ps-list', 'process_manage', { action: 'list' }),
+    );
+    expect(listed.state).toBe('succeeded');
+    expect(listed.execution).toMatchObject({
+      ok: true,
+      tool: 'process_manage',
+    });
+
+    const killed = await service.consume(
+      toolInput('req-ps-kill', 'process_manage', { action: 'kill', id }),
+    );
+    expect(killed.state).toBe('succeeded');
+    expect(killed.execution).toMatchObject({
+      ok: true,
+      tool: 'process_manage',
+      result: { killed: true },
     });
   });
 

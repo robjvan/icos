@@ -81,6 +81,7 @@ import { SkillService } from '../skills/skill.service';
 import { SkillsController } from '../skills/skills.controller';
 import { VisionService } from '../vision/vision.service';
 import { ImageGenService } from '../image/image-gen.service';
+import { ProcessRegistry } from '../process/process-registry.service';
 import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
@@ -120,6 +121,7 @@ const toolExecutionServiceProvider = {
     persona: PersonaRepository,
     vision: VisionService,
     imageGen: ImageGenService,
+    processes: ProcessRegistry,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -144,6 +146,7 @@ const toolExecutionServiceProvider = {
       persona,
       vision,
       imageGen,
+      processes,
     ),
   inject: [
     ToolExecutionRepository,
@@ -164,6 +167,7 @@ const toolExecutionServiceProvider = {
     PersonaRepository,
     VisionService,
     ImageGenService,
+    ProcessRegistry,
   ],
 };
 
@@ -271,6 +275,7 @@ const toolExecutionServiceProvider = {
     VisionService,
     ImageGenService,
     AttachmentImageResolver,
+    ProcessRegistry,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,
