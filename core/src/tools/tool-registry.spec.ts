@@ -30,6 +30,8 @@ const ALL_TOOLS: readonly ToolName[] = [
   'process_start',
   'process_manage',
   'skill_manage',
+  'discord',
+  'discord_admin',
 ];
 
 function contextWith(
@@ -92,6 +94,8 @@ describe('ToolRegistry', () => {
       'process_start',
       'process_manage',
       'skill_manage',
+      'discord',
+      'discord_admin',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -117,6 +121,8 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('process_start')?.approval).toBe('required');
     expect(registry.lookup('process_manage')?.approval).toBe('none');
     expect(registry.lookup('skill_manage')?.approval).toBe('none');
+    expect(registry.lookup('discord')?.approval).toBe('none');
+    expect(registry.lookup('discord_admin')?.approval).toBe('required');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1323,6 +1329,82 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('discord tools (M17c.4)', () => {
+    it('validates discord and discord_admin', () => {
+      const info = expectOk(
+        registry.validate(
+          { name: 'discord', version: 1, args: { action: 'server_info' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(info).toMatchObject({
+        name: 'discord',
+        args: { action: 'server_info' },
+      });
+
+      const member = expectOk(
+        registry.validate(
+          {
+            name: 'discord',
+            version: 1,
+            args: { action: 'member_info', user_id: 'u1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(member).toMatchObject({
+        name: 'discord',
+        args: { action: 'member_info', user_id: 'u1' },
+      });
+
+      const timeout = expectOk(
+        registry.validate(
+          {
+            name: 'discord_admin',
+            version: 1,
+            args: {
+              action: 'timeout_member',
+              user_id: 'u1',
+              duration_ms: 60000,
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(timeout).toMatchObject({
+        name: 'discord_admin',
+        args: { action: 'timeout_member', user_id: 'u1', duration_ms: 60000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'discord', version: 1, args: {} },
+        { name: 'discord', version: 1, args: { action: 'member_info' } },
+        { name: 'discord', version: 1, args: { action: 'nope' } },
+        {
+          name: 'discord',
+          version: 1,
+          args: { action: 'server_info', extra: 1 },
+        },
+        {
+          name: 'discord_admin',
+          version: 1,
+          args: { action: 'timeout_member', user_id: 'u1' },
+        },
+        { name: 'discord_admin', version: 1, args: { action: 'kick_member' } },
+        {
+          name: 'discord_admin',
+          version: 1,
+          args: { action: 'timeout_member', user_id: 'u1', duration_ms: 0 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1376,6 +1458,8 @@ describe('ToolRegistry', () => {
         'process_start',
         'process_manage',
         'skill_manage',
+        'discord',
+        'discord_admin',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

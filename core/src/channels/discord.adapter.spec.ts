@@ -38,6 +38,7 @@ class FakeChannel implements DiscordChannelLike {
       this.handles.get(id) ?? new FakeMessageHandle(),
   };
   id = 'c1';
+  name?: string;
   topic: string | null = null;
   guildId: string | null = 'g1';
   constructor(private readonly textBased = true) {}
@@ -151,6 +152,73 @@ describe('DiscordAdapter', () => {
     const result = await adapter.send('discord:g:c1', 'hello');
     expect(channel.sent).toEqual(['hello']);
     expect(result.externalMessageId).toBe('msg-1');
+  });
+
+  it('runs info + moderation through the admin port (M17c.4)', async () => {
+    const client = new FakeClient();
+    const channel = new FakeChannel();
+    channel.id = 'c1';
+    channel.name = 'general';
+    const timedOut: {
+      userId: string;
+      durationMs: number;
+      reason?: string;
+    }[] = [];
+    const kicked: string[] = [];
+    const member = {
+      id: 'u1',
+      displayName: 'Ada',
+      joinedAt: new Date('2020-01-02T00:00:00Z'),
+      roles: { cache: new Map([['r1', { name: 'admin' }]]) },
+      timeout: async (durationMs: number, reason?: string) => {
+        timedOut.push({ userId: 'u1', durationMs, reason });
+      },
+      kick: async (reason?: string) => {
+        kicked.push(reason ?? '');
+      },
+    };
+    client.guilds.cache.set('g1', {
+      id: 'g1',
+      name: 'Test Guild',
+      memberCount: 42,
+      channels: { cache: new Map([['c1', channel]]) },
+      members: {
+        fetch: async (id: string) =>
+          id === 'u1' ? member : Promise.reject(new Error('not found')),
+      },
+    });
+
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    await adapter.connect();
+    client.emitReady();
+
+    expect(await adapter.run({ action: 'server_info' })).toMatchObject({
+      id: 'g1',
+      name: 'Test Guild',
+      memberCount: 42,
+    });
+    expect(
+      await adapter.run({ action: 'member_info', userId: 'u1' }),
+    ).toMatchObject({ id: 'u1', displayName: 'Ada', roles: ['admin'] });
+    expect(
+      await adapter.run({
+        action: 'timeout_member',
+        userId: 'u1',
+        durationMs: 60000,
+        reason: 'spam',
+      }),
+    ).toMatchObject({ timedOut: true });
+    expect(timedOut).toEqual([
+      { userId: 'u1', durationMs: 60000, reason: 'spam' },
+    ]);
+    expect(
+      await adapter.run({ action: 'kick_member', userId: 'u1' }),
+    ).toMatchObject({ kicked: true });
+    expect(kicked).toEqual(['']);
   });
 
   it('resolves a thread target from the conversation key', async () => {

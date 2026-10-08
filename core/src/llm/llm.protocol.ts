@@ -70,6 +70,8 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   process_start: 'process_start',
   process_manage: 'process_manage',
   skill_manage: 'skill_manage',
+  discord: 'discord',
+  discord_admin: 'discord_admin',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

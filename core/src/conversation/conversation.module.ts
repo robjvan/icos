@@ -82,6 +82,8 @@ import { SkillsController } from '../skills/skills.controller';
 import { VisionService } from '../vision/vision.service';
 import { ImageGenService } from '../image/image-gen.service';
 import { ProcessRegistry } from '../process/process-registry.service';
+import { DISCORD_ADMIN } from '../channels/discord-admin.port';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
@@ -122,6 +124,7 @@ const toolExecutionServiceProvider = {
     vision: VisionService,
     imageGen: ImageGenService,
     processes: ProcessRegistry,
+    discordAdmin: DiscordAdminPort,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -147,6 +150,7 @@ const toolExecutionServiceProvider = {
       vision,
       imageGen,
       processes,
+      discordAdmin,
     ),
   inject: [
     ToolExecutionRepository,
@@ -168,6 +172,7 @@ const toolExecutionServiceProvider = {
     VisionService,
     ImageGenService,
     ProcessRegistry,
+    DISCORD_ADMIN,
   ],
 };
 

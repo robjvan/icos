@@ -22,6 +22,10 @@ import {
   STATUS_STREAM,
 } from './discord.stream';
 import type {
+  DiscordAdminPort,
+  DiscordAdminRequest,
+} from './discord-admin.port';
+import type {
   DiscordInbound,
   DiscordMessageHandler,
   DiscordMessageLike,
@@ -38,6 +42,7 @@ export interface DiscordMessageHandle {
 
 export interface DiscordChannelLike {
   id?: string;
+  name?: string;
   topic?: string | null;
   guildId?: string | null;
   isTextBased(): boolean;
@@ -46,9 +51,21 @@ export interface DiscordChannelLike {
   messages?: { fetch(id: string): Promise<DiscordMessageHandle> };
 }
 
+export interface DiscordMemberLike {
+  id: string;
+  displayName?: string;
+  joinedAt?: Date | string | null;
+  roles?: { cache: Map<string, { name?: string }> };
+  timeout?(durationMs: number, reason?: string): Promise<unknown>;
+  kick?(reason?: string): Promise<unknown>;
+}
+
 export interface DiscordGuildLike {
   id: string;
+  name?: string;
+  memberCount?: number;
   channels: { cache: Map<string, DiscordChannelLike> };
+  members?: { fetch(id: string): Promise<DiscordMemberLike> };
 }
 
 export interface DiscordUserLike {
@@ -62,7 +79,10 @@ export interface DiscordClientLike {
   once(event: string, handler: (...args: unknown[]) => void): unknown;
   channels: { fetch(id: string): Promise<DiscordChannelLike | null> };
   users: { fetch(id: string): Promise<DiscordUserLike> };
-  guilds?: { cache: Map<string, DiscordGuildLike> };
+  guilds?: {
+    cache: Map<string, DiscordGuildLike>;
+    fetch?(id: string): Promise<DiscordGuildLike | null>;
+  };
   user?: { tag?: string } | null;
 }
 
@@ -142,7 +162,7 @@ export function splitForDiscord(
  */
 @Injectable()
 export class DiscordAdapter
-  implements ChannelAdapter, OnModuleInit, OnModuleDestroy
+  implements ChannelAdapter, DiscordAdminPort, OnModuleInit, OnModuleDestroy
 {
   readonly name: ChannelName = 'discord';
   private readonly logger = new Logger(DiscordAdapter.name);
@@ -317,6 +337,76 @@ export class DiscordAdapter
       await channel.send(chunk);
     }
     return { externalMessageId: sent.id ?? null };
+  }
+
+  /**
+   * M17c.4 info + moderation. Read actions are safe; timeout/kick are
+   * destructive and reached only through the approval-gated `discord_admin`
+   * tool. Requires the bot to hold the relevant guild permissions.
+   */
+  async run(request: DiscordAdminRequest): Promise<unknown> {
+    if (!this.client || !this.ready) {
+      throw new Error('discord is not connected');
+    }
+    const guild = await this.resolveGuild(request.guildId);
+    if (!guild) throw new Error('discord_guild_unavailable');
+    switch (request.action) {
+      case 'server_info':
+        return {
+          id: guild.id,
+          name: guild.name ?? null,
+          memberCount: guild.memberCount ?? null,
+          channelCount: guild.channels.cache.size,
+        };
+      case 'channel_list':
+        return {
+          channels: [...guild.channels.cache.values()]
+            .filter((channel) => channel.isTextBased())
+            .map((channel) => ({
+              id: channel.id ?? null,
+              name: channel.name ?? null,
+            })),
+        };
+      case 'member_info': {
+        const member = await guild.members?.fetch(request.userId);
+        if (!member) throw new Error('discord_member_not_found');
+        return memberView(member);
+      }
+      case 'timeout_member': {
+        const member = await guild.members?.fetch(request.userId);
+        if (!member?.timeout) throw new Error('discord_member_not_found');
+        await member.timeout(request.durationMs, request.reason);
+        return {
+          timedOut: true,
+          userId: request.userId,
+          durationMs: request.durationMs,
+        };
+      }
+      case 'kick_member': {
+        const member = await guild.members?.fetch(request.userId);
+        if (!member?.kick) throw new Error('discord_member_not_found');
+        await member.kick(request.reason);
+        return { kicked: true, userId: request.userId };
+      }
+    }
+  }
+
+  /** Resolve a guild by id, else the first cached guild. */
+  private async resolveGuild(id?: string): Promise<DiscordGuildLike | null> {
+    const guilds = this.client?.guilds;
+    if (!guilds) return null;
+    if (id) {
+      if (guilds.fetch) {
+        try {
+          return await guilds.fetch(id);
+        } catch {
+          return null;
+        }
+      }
+      return guilds.cache.get(id) ?? null;
+    }
+    const first = guilds.cache.values().next();
+    return first.done ? null : first.value;
   }
 
   /**
@@ -621,5 +711,21 @@ export function normalizeDiscordMessage(
     authorId: m.author?.id ?? 'unknown',
     content: m.content ?? '',
     attachments,
+  };
+}
+
+/** Compact, model-facing view of a guild member. */
+function memberView(member: DiscordMemberLike): Record<string, unknown> {
+  const joinedAt = member.joinedAt;
+  return {
+    id: member.id,
+    displayName: member.displayName ?? null,
+    joinedAt:
+      joinedAt instanceof Date ? joinedAt.toISOString() : (joinedAt ?? null),
+    roles: member.roles
+      ? [...member.roles.cache.values()]
+          .map((role) => role.name)
+          .filter((name): name is string => typeof name === 'string')
+      : [],
   };
 }

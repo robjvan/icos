@@ -25,6 +25,7 @@ import type {
 import { McpConnectionService } from '../mcp/mcp-connection.service';
 import { terminalEnv } from '../process/terminal-env';
 import type { ProcessRegistry } from '../process/process-registry.service';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
@@ -49,6 +50,8 @@ import type {
 import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
+  DiscordAdminArgs,
+  DiscordArgs,
   ForeignToolCall,
   ImageGenerateArgs,
   MemoryArgs,
@@ -93,6 +96,9 @@ export const TERMINAL_EXECUTE_ACTION = 'terminal.execute';
 
 /** Approval action for starting a background process (M17c.2). */
 export const PROCESS_START_ACTION = 'process.start';
+
+/** Approval action for Discord moderation (M17c.4). */
+export const DISCORD_ADMIN_ACTION = 'discord.admin';
 
 const DEFAULT_TERMINAL_TIMEOUT_MS = 30_000;
 const MAX_TERMINAL_OUTPUT_BYTES = 48 * 1024;
@@ -147,6 +153,15 @@ function skillView(skill: SkillDescriptor): Record<string, unknown> {
   };
 }
 
+/** Approval description for Discord moderation (M17c.4). */
+function describeDiscordAdmin(args: DiscordAdminArgs): string {
+  const reason = args.reason ? ` (reason: ${args.reason.slice(0, 200)})` : '';
+  if (args.action === 'timeout_member') {
+    return `Discord: time out user ${args.user_id} for ${String(args.duration_ms ?? 0)}ms${reason}`;
+  }
+  return `Discord: kick user ${args.user_id}${reason}`;
+}
+
 /** Approval action label for a parked native/foreign call. */
 function approvalActionFor(request: ValidatedToolRequest): string {
   if ('foreign' in request) return MCP_EXECUTE_ACTION;
@@ -155,6 +170,8 @@ function approvalActionFor(request: ValidatedToolRequest): string {
       return TERMINAL_EXECUTE_ACTION;
     case 'process_start':
       return PROCESS_START_ACTION;
+    case 'discord_admin':
+      return DISCORD_ADMIN_ACTION;
     case 'channel.send':
       return CHANNEL_SEND_ACTION;
     default:
@@ -175,6 +192,8 @@ function approvalDescriptionFor(request: ValidatedToolRequest): string {
       return describeTerminal(request.args);
     case 'process_start':
       return describeProcessStart(request.args);
+    case 'discord_admin':
+      return describeDiscordAdmin(request.args);
     case 'channel.send':
       return describeChannelSend(request.args);
     default:
@@ -253,6 +272,7 @@ export class ToolExecutionService {
     private readonly vision?: VisionService,
     private readonly imageGen?: ImageGenService,
     private readonly processes?: ProcessRegistry,
+    private readonly discordAdmin?: DiscordAdminPort,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -585,6 +605,10 @@ export class ToolExecutionService {
         );
       case 'skill_manage':
         return this.nativeSkillManage(args as unknown as SkillManageArgs);
+      case 'discord':
+        return this.nativeDiscord(args as unknown as DiscordArgs);
+      case 'discord_admin':
+        return this.nativeDiscordAdmin(args as unknown as DiscordAdminArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -1149,6 +1173,37 @@ export class ToolExecutionService {
         return { action: 'delete', deleted: true, name: args.name };
       }
     }
+  }
+
+  /** Read Discord server information (M17c.4). */
+  private async nativeDiscord(args: DiscordArgs): Promise<unknown> {
+    if (!this.discordAdmin) throw new Error('discord_unavailable');
+    if (args.action === 'member_info') {
+      if (!args.user_id) throw new Error('invalid_args');
+      return this.discordAdmin.run({
+        action: 'member_info',
+        userId: args.user_id,
+      });
+    }
+    return this.discordAdmin.run({ action: args.action });
+  }
+
+  /** Discord moderation (M17c.4); approval-gated. */
+  private async nativeDiscordAdmin(args: DiscordAdminArgs): Promise<unknown> {
+    if (!this.discordAdmin) throw new Error('discord_unavailable');
+    if (args.action === 'timeout_member') {
+      return this.discordAdmin.run({
+        action: 'timeout_member',
+        userId: args.user_id,
+        durationMs: args.duration_ms ?? 0,
+        ...(args.reason !== undefined ? { reason: args.reason } : {}),
+      });
+    }
+    return this.discordAdmin.run({
+      action: 'kick_member',
+      userId: args.user_id,
+      ...(args.reason !== undefined ? { reason: args.reason } : {}),
+    });
   }
 
   /**

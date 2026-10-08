@@ -25,7 +25,9 @@ export type ToolName =
   | 'terminal'
   | 'process_start'
   | 'process_manage'
-  | 'skill_manage';
+  | 'skill_manage'
+  | 'discord'
+  | 'discord_admin';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -193,6 +195,20 @@ export interface SkillManageArgs {
   readonly body?: string;
 }
 
+export interface DiscordArgs {
+  readonly action: 'server_info' | 'member_info' | 'channel_list';
+  /** Required for member_info. */
+  readonly user_id?: string;
+}
+
+export interface DiscordAdminArgs {
+  readonly action: 'timeout_member' | 'kick_member';
+  readonly user_id: string;
+  /** Required for timeout_member. */
+  readonly duration_ms?: number;
+  readonly reason?: string;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -229,7 +245,9 @@ export type ValidatedToolArgs =
   | TerminalArgs
   | ProcessStartArgs
   | ProcessManageArgs
-  | SkillManageArgs;
+  | SkillManageArgs
+  | DiscordArgs
+  | DiscordAdminArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -255,6 +273,8 @@ export type ValidatedToolRequest = {
   | { readonly name: 'process_start'; readonly args: ProcessStartArgs }
   | { readonly name: 'process_manage'; readonly args: ProcessManageArgs }
   | { readonly name: 'skill_manage'; readonly args: SkillManageArgs }
+  | { readonly name: 'discord'; readonly args: DiscordArgs }
+  | { readonly name: 'discord_admin'; readonly args: DiscordAdminArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -355,6 +375,9 @@ const SKILL_NAME_PATTERN = '^[a-z0-9-]{1,64}$';
 const MAX_SKILL_NAME_LENGTH = 64;
 const MAX_SKILL_DESCRIPTION_LENGTH = 500;
 const MAX_SKILL_BODY_LENGTH = 64 * 1024;
+const MAX_DISCORD_REASON_LENGTH = 500;
+const MIN_DISCORD_TIMEOUT_MS = 1000;
+const MAX_DISCORD_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -796,6 +819,53 @@ const SKILL_MANAGE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const DISCORD_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['server_info', 'member_info', 'channel_list'],
+    },
+    user_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const DISCORD_ADMIN_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action', 'user_id'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['timeout_member', 'kick_member'],
+    },
+    user_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+    duration_ms: {
+      type: 'integer',
+      minimum: MIN_DISCORD_TIMEOUT_MS,
+      maximum: MAX_DISCORD_TIMEOUT_MS,
+    },
+    reason: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_DISCORD_REASON_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -993,6 +1063,26 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'skills',
     argsSchema: SKILL_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'discord',
+    version: 1,
+    description:
+      'Read Discord server information: server_info, member_info, or ' +
+      'channel_list.',
+    approval: 'none',
+    toolset: 'discord',
+    argsSchema: DISCORD_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'discord_admin',
+    version: 1,
+    description:
+      'Discord moderation: timeout_member or kick_member. Requires approval ' +
+      'and the bot must hold the relevant permissions.',
+    approval: 'required',
+    toolset: 'discord',
+    argsSchema: DISCORD_ADMIN_SCHEMA,
   }),
 ]);
 
@@ -1823,6 +1913,107 @@ function validateSkillManageArgs(
   };
 }
 
+function validateDiscordArgs(
+  args: Record<string, unknown>,
+): ParseResult<DiscordArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'user_id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (
+    action !== 'server_info' &&
+    action !== 'member_info' &&
+    action !== 'channel_list'
+  ) {
+    return {
+      ok: false,
+      message: 'action must be "server_info", "member_info", or "channel_list"',
+    };
+  }
+  let userId: string | undefined;
+  if (Object.hasOwn(args, 'user_id')) {
+    const parsed = validText(
+      ownValue(args, 'user_id'),
+      'user_id',
+      MAX_ID_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    userId = parsed.value;
+  }
+  if (action === 'member_info' && userId === undefined) {
+    return { ok: false, message: 'member_info requires user_id' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      ...(userId !== undefined ? { user_id: userId } : {}),
+    }),
+  };
+}
+
+function validateDiscordAdminArgs(
+  args: Record<string, unknown>,
+): ParseResult<DiscordAdminArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'user_id',
+    'duration_ms',
+    'reason',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action !== 'timeout_member' && action !== 'kick_member') {
+    return {
+      ok: false,
+      message: 'action must be "timeout_member" or "kick_member"',
+    };
+  }
+  const userId = validText(ownValue(args, 'user_id'), 'user_id', MAX_ID_LENGTH);
+  if (!userId.ok) return userId;
+  let durationMs: number | undefined;
+  if (Object.hasOwn(args, 'duration_ms')) {
+    const value = ownValue(args, 'duration_ms');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_DISCORD_TIMEOUT_MS ||
+      value > MAX_DISCORD_TIMEOUT_MS
+    ) {
+      return {
+        ok: false,
+        message: `duration_ms must be an integer between ${MIN_DISCORD_TIMEOUT_MS} and ${MAX_DISCORD_TIMEOUT_MS}`,
+      };
+    }
+    durationMs = value;
+  }
+  let reason: string | undefined;
+  if (Object.hasOwn(args, 'reason')) {
+    const parsed = validText(
+      ownValue(args, 'reason'),
+      'reason',
+      MAX_DISCORD_REASON_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    reason = parsed.value;
+  }
+  if (action === 'timeout_member' && durationMs === undefined) {
+    return { ok: false, message: 'timeout_member requires duration_ms' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      user_id: userId.value,
+      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -2195,6 +2386,34 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'skill_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'discord') {
+      const result = validateDiscordArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'discord',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'discord_admin') {
+      const result = validateDiscordAdminArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'discord_admin',
           ...base,
           args: result.value,
         }),

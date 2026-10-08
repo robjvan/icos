@@ -388,6 +388,8 @@ describe('ConversationService', () => {
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
       'clarify',
+      'discord',
+      'discord_admin',
       'image_generate',
       'memory',
       'patch',
@@ -439,6 +441,8 @@ describe('ConversationService', () => {
       'process_start',
       'process_manage',
       'skill_manage',
+      'discord',
+      'discord_admin',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1086,6 +1090,8 @@ describe('ConversationService', () => {
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
         'clarify',
+        'discord',
+        'discord_admin',
         'image_generate',
         'memory',
         'patch',
@@ -1133,6 +1139,8 @@ describe('ConversationService', () => {
         'process_start',
         'process_manage',
         'skill_manage',
+        'discord',
+        'discord_admin',
       ]);
     });
 

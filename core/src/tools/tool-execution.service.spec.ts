@@ -31,6 +31,7 @@ import type { PersonaRepository } from '../persona/persona.repository';
 import type { VisionService } from '../vision/vision.service';
 import type { ImageGenService } from '../image/image-gen.service';
 import { ProcessRegistry } from '../process/process-registry.service';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -108,6 +109,7 @@ describe('ToolExecutionService SQLite', () => {
     vision?: VisionService,
     imageGen?: ImageGenService,
     processes?: ProcessRegistry,
+    discordAdmin?: DiscordAdminPort,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -165,6 +167,7 @@ describe('ToolExecutionService SQLite', () => {
       vision,
       imageGen,
       processes ?? new ProcessRegistry(),
+      discordAdmin,
     );
     return {
       database,
@@ -970,6 +973,62 @@ describe('ToolExecutionService SQLite', () => {
     });
     expect(skills.listDescriptors().map((d) => d.name)).not.toContain('demo');
     rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  it('reads Discord info and runs approved moderation (M17c.4)', async () => {
+    const run = jest.fn((request: { action: string }) =>
+      Promise.resolve({ action: request.action, ok: true }),
+    );
+    const discordAdmin = { run } as unknown as DiscordAdminPort;
+    const { sessions, service, approvalService } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      discordAdmin,
+    );
+    await sessions.createSession('s1');
+
+    const info = await service.consume(
+      toolInput('req-dc-info', 'discord', { action: 'server_info' }),
+    );
+    expect(info.state).toBe('succeeded');
+    expect(info.execution).toMatchObject({
+      ok: true,
+      tool: 'discord',
+      result: { action: 'server_info' },
+    });
+
+    const parked = await service.consume(
+      toolInput('req-dc-timeout', 'discord_admin', {
+        action: 'timeout_member',
+        user_id: 'u1',
+        duration_ms: 60000,
+        reason: 'spam',
+      }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-dc-timeout', 's1', {
+      skipFinal: true,
+    });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'discord_admin',
+      result: { action: 'timeout_member', ok: true },
+    });
+    expect(run).toHaveBeenCalledWith({
+      action: 'timeout_member',
+      userId: 'u1',
+      durationMs: 60000,
+      reason: 'spam',
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

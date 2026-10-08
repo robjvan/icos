@@ -7,6 +7,7 @@ import { ChannelPresenceService } from './channel-presence.service';
 import { ChannelRepository } from './channel.repository';
 import { ChannelSendService } from './channel-send.service';
 import { CHANNEL_SEND } from './channel-send.port';
+import { DISCORD_ADMIN } from './discord-admin.port';
 import { ChannelToolSender } from './channel-tool-sender.service';
 import { DiscordAdapter } from './discord.adapter';
 import { EmailAdapter } from './email.adapter';
@@ -39,6 +40,7 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
     ChannelToolSender,
     ChannelPresenceService,
     { provide: CHANNEL_SEND, useExisting: ChannelToolSender },
+    { provide: DISCORD_ADMIN, useExisting: DiscordAdapter },
   ],
   exports: [
     ChannelDatabaseService,
@@ -49,6 +51,7 @@ import { SqliteChannelRepository } from './sqlite-channel.repository';
     DiscordAdapter,
     EmailAdapter,
     CHANNEL_SEND,
+    DISCORD_ADMIN,
   ],
 })
 export class ChannelsCoreModule {}
