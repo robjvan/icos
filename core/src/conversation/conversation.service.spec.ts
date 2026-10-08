@@ -397,6 +397,7 @@ describe('ConversationService', () => {
       'search_files',
       'session.rename',
       'session.search',
+      'skill_manage',
       'skill_view',
       'skills_list',
       'terminal',
@@ -437,6 +438,7 @@ describe('ConversationService', () => {
       'terminal',
       'process_start',
       'process_manage',
+      'skill_manage',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1093,6 +1095,7 @@ describe('ConversationService', () => {
         'search_files',
         'session.rename',
         'session.search',
+        'skill_manage',
         'skill_view',
         'skills_list',
         'terminal',
@@ -1129,6 +1132,7 @@ describe('ConversationService', () => {
         'terminal',
         'process_start',
         'process_manage',
+        'skill_manage',
       ]);
     });
 

@@ -24,7 +24,8 @@ export type ToolName =
   | 'image_generate'
   | 'terminal'
   | 'process_start'
-  | 'process_manage';
+  | 'process_manage'
+  | 'skill_manage';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -183,6 +184,15 @@ export type ProcessManageArgs =
   | { readonly action: 'output'; readonly id: string }
   | { readonly action: 'kill'; readonly id: string };
 
+export interface SkillManageArgs {
+  readonly action: 'create' | 'update' | 'delete';
+  readonly name: string;
+  /** Required for create/update. */
+  readonly description?: string;
+  /** Required for create/update. */
+  readonly body?: string;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -218,7 +228,8 @@ export type ValidatedToolArgs =
   | ImageGenerateArgs
   | TerminalArgs
   | ProcessStartArgs
-  | ProcessManageArgs;
+  | ProcessManageArgs
+  | SkillManageArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -243,6 +254,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'terminal'; readonly args: TerminalArgs }
   | { readonly name: 'process_start'; readonly args: ProcessStartArgs }
   | { readonly name: 'process_manage'; readonly args: ProcessManageArgs }
+  | { readonly name: 'skill_manage'; readonly args: SkillManageArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -339,6 +351,10 @@ const MAX_IMAGE_SIZE_LENGTH = 11;
 const MAX_COMMAND_LENGTH = 4000;
 const MIN_TERMINAL_TIMEOUT_MS = 1000;
 const MAX_TERMINAL_TIMEOUT_MS = 300000;
+const SKILL_NAME_PATTERN = '^[a-z0-9-]{1,64}$';
+const MAX_SKILL_NAME_LENGTH = 64;
+const MAX_SKILL_DESCRIPTION_LENGTH = 500;
+const MAX_SKILL_BODY_LENGTH = 64 * 1024;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -750,6 +766,36 @@ const PROCESS_MANAGE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const SKILL_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action', 'name'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['create', 'update', 'delete'],
+    },
+    name: {
+      type: 'string',
+      pattern: SKILL_NAME_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_NAME_LENGTH,
+    },
+    description: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_DESCRIPTION_LENGTH,
+    },
+    body: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_BODY_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -937,6 +983,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'terminal',
     argsSchema: PROCESS_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skill_manage',
+    version: 1,
+    description:
+      'Create, update, or delete a skill (a kebab-case name plus a one-line ' +
+      'description and a markdown body). Guarded and validated before write.',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILL_MANAGE_SCHEMA,
   }),
 ]);
 
@@ -1700,6 +1756,73 @@ function validateProcessManageArgs(
   return { ok: true, value: Object.freeze({ action, id: id.value }) };
 }
 
+function validateSkillManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<SkillManageArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'name',
+    'description',
+    'body',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action !== 'create' && action !== 'update' && action !== 'delete') {
+    return {
+      ok: false,
+      message: 'action must be "create", "update", or "delete"',
+    };
+  }
+  const name = validText(ownValue(args, 'name'), 'name', MAX_SKILL_NAME_LENGTH);
+  if (!name.ok) return name;
+  if (!new RegExp(SKILL_NAME_PATTERN).test(name.value)) {
+    return { ok: false, message: 'name must be kebab-case (a-z0-9-, 1-64)' };
+  }
+  let description: string | undefined;
+  if (Object.hasOwn(args, 'description')) {
+    const parsed = validText(
+      ownValue(args, 'description'),
+      'description',
+      MAX_SKILL_DESCRIPTION_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    description = parsed.value;
+  }
+  let body: string | undefined;
+  if (Object.hasOwn(args, 'body')) {
+    const parsed = validText(
+      ownValue(args, 'body'),
+      'body',
+      MAX_SKILL_BODY_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    body = parsed.value;
+  }
+  if (action === 'delete') {
+    if (description !== undefined || body !== undefined) {
+      return { ok: false, message: 'delete takes no description or body' };
+    }
+  } else {
+    if (description === undefined) {
+      return { ok: false, message: `${action} requires a description` };
+    }
+    if (body === undefined) {
+      return { ok: false, message: `${action} requires a body` };
+    }
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      name: name.value,
+      ...(description !== undefined ? { description } : {}),
+      ...(body !== undefined ? { body } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -2058,6 +2181,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'process_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skill_manage') {
+      const result = validateSkillManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skill_manage',
           ...base,
           args: result.value,
         }),

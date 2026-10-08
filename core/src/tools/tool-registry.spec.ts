@@ -29,6 +29,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'terminal',
   'process_start',
   'process_manage',
+  'skill_manage',
 ];
 
 function contextWith(
@@ -90,6 +91,7 @@ describe('ToolRegistry', () => {
       'terminal',
       'process_start',
       'process_manage',
+      'skill_manage',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -114,6 +116,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('terminal')?.approval).toBe('required');
     expect(registry.lookup('process_start')?.approval).toBe('required');
     expect(registry.lookup('process_manage')?.approval).toBe('none');
+    expect(registry.lookup('skill_manage')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1232,6 +1235,94 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('skill_manage tool (M17c.3)', () => {
+    it('validates create/update/delete', () => {
+      const create = expectOk(
+        registry.validate(
+          {
+            name: 'skill_manage',
+            version: 1,
+            args: {
+              action: 'create',
+              name: 'demo',
+              description: 'Demo.',
+              body: 'Step.',
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(create).toMatchObject({
+        name: 'skill_manage',
+        args: {
+          action: 'create',
+          name: 'demo',
+          description: 'Demo.',
+          body: 'Step.',
+        },
+      });
+
+      const del = expectOk(
+        registry.validate(
+          {
+            name: 'skill_manage',
+            version: 1,
+            args: { action: 'delete', name: 'demo' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(del).toMatchObject({
+        name: 'skill_manage',
+        args: { action: 'delete', name: 'demo' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'skill_manage', version: 1, args: {} },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: {
+            action: 'create',
+            name: 'Bad Name',
+            description: 'x',
+            body: 'y',
+          },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'create', name: 'demo', body: 'y' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'create', name: 'demo', description: 'x' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'delete', name: 'demo', body: 'y' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'nope', name: 'demo' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'delete', name: 'demo', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1284,6 +1375,7 @@ describe('ToolRegistry', () => {
         'terminal',
         'process_start',
         'process_manage',
+        'skill_manage',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

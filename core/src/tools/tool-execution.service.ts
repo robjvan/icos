@@ -37,6 +37,7 @@ import type {
 import type { PersonaRepository } from '../persona/persona.repository';
 import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
 import type { SkillService } from '../skills/skill.service';
+import type { SkillDescriptor } from '../skills/skill.types';
 import type { TodoRepository } from '../session/todo.repository';
 import type { VisionService } from '../vision/vision.service';
 import { ImageGenError } from '../image/image-gen.service';
@@ -56,6 +57,7 @@ import type {
   ProcessStartArgs,
   ReadFileArgs,
   SearchFilesArgs,
+  SkillManageArgs,
   SkillViewArgs,
   TerminalArgs,
   TodoArgs,
@@ -134,6 +136,15 @@ function describeTerminal(args: TerminalArgs): string {
 function describeProcessStart(args: ProcessStartArgs): string {
   const cwd = args.cwd ? ` (cwd: ${args.cwd})` : '';
   return `Start a background process${cwd}: ${args.command.slice(0, 400)}`;
+}
+
+/** Compact, model-facing view of one skill descriptor. */
+function skillView(skill: SkillDescriptor): Record<string, unknown> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+  };
 }
 
 /** Approval action label for a parked native/foreign call. */
@@ -572,6 +583,8 @@ export class ToolExecutionService {
         return Promise.resolve(
           this.nativeProcessManage(args as unknown as ProcessManageArgs),
         );
+      case 'skill_manage':
+        return this.nativeSkillManage(args as unknown as SkillManageArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -742,11 +755,7 @@ export class ToolExecutionService {
   private nativeSkillsList(): unknown {
     if (!this.skills) throw new Error('skills_unavailable');
     return {
-      skills: this.skills.listDescriptors().map((d) => ({
-        name: d.name,
-        description: d.description,
-        version: d.version,
-      })),
+      skills: this.skills.listDescriptors().map(skillView),
     };
   }
 
@@ -1111,6 +1120,33 @@ export class ToolExecutionService {
         const killed = this.processes.kill(args.id);
         if (!killed) throw new Error('process_not_found');
         return { killed: true };
+      }
+    }
+  }
+
+  /** Create / update / delete a skill (M17c.3). */
+  private async nativeSkillManage(args: SkillManageArgs): Promise<unknown> {
+    if (!this.skills) throw new Error('skills_unavailable');
+    switch (args.action) {
+      case 'create': {
+        const skill = await this.skills.createSkill({
+          name: args.name,
+          description: args.description ?? '',
+          body: args.body ?? '',
+        });
+        return { action: 'create', skill: skillView(skill) };
+      }
+      case 'update': {
+        const skill = await this.skills.updateSkill({
+          name: args.name,
+          description: args.description ?? '',
+          body: args.body ?? '',
+        });
+        return { action: 'update', skill: skillView(skill) };
+      }
+      case 'delete': {
+        await this.skills.deleteSkill(args.name);
+        return { action: 'delete', deleted: true, name: args.name };
       }
     }
   }

@@ -6,9 +6,18 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
-import { loadSkillBody, scanSkillDir } from './skill-loader';
+import {
+  loadSkillBody,
+  scanSkillDir,
+  NAME_PATTERN,
+  MAX_DESCRIPTION_CHARS,
+  SKILL_FILE,
+  parseSkillFile,
+} from './skill-loader';
 import type { ParsedSkillFile } from './skill-loader';
 import { discoverSkills } from './skill-discovery';
 import { TopBudgetedSelector } from './skill-selector';
@@ -110,6 +119,136 @@ export class SkillService implements OnModuleInit {
   /** Last scan outcome, including skip reasons. */
   getReport(): SkillLoadReport {
     return this.report;
+  }
+
+  /**
+   * M17c.3 skill_manage: create a skill directory + SKILL.md. Guarded:
+   * kebab-case name, bounded description/body, a light content scan, and
+   * authoritative validation by the loader's own parser **before** any
+   * write, so a rejected skill leaves nothing on disk.
+   */
+  async createSkill(input: {
+    name: string;
+    description: string;
+    body: string;
+  }): Promise<SkillDescriptor> {
+    this.requireEnabled();
+    const content = this.buildSkillFile(input);
+    const dir = join(this.skillsDir, input.name);
+    if (await pathExists(dir)) {
+      throw new BadRequestException(`Skill "${input.name}" already exists`);
+    }
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
+    return this.reloadAndRequire(input.name);
+  }
+
+  /** Replace an existing skill's SKILL.md (guarded like create). */
+  async updateSkill(input: {
+    name: string;
+    description: string;
+    body: string;
+  }): Promise<SkillDescriptor> {
+    this.requireEnabled();
+    const content = this.buildSkillFile(input);
+    const dir = join(this.skillsDir, input.name);
+    if (!(await pathExists(dir))) {
+      throw new NotFoundException(`Unknown skill "${input.name}"`);
+    }
+    await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
+    return this.reloadAndRequire(input.name);
+  }
+
+  /** Delete a skill directory (recursive). */
+  async deleteSkill(name: string): Promise<void> {
+    this.requireEnabled();
+    const dir = join(this.skillsDir, name);
+    if (!(await pathExists(dir))) {
+      throw new NotFoundException(`Unknown skill "${name}"`);
+    }
+    await fs.rm(dir, { recursive: true, force: true });
+    await this.refresh();
+  }
+
+  private requireEnabled(): void {
+    if (!this.enabled) {
+      throw new BadRequestException(
+        'Skills are disabled (SKILLS_ENABLED=false).',
+      );
+    }
+  }
+
+  /** Build and validate a SKILL.md; rejects before anything is written. */
+  private buildSkillFile(input: {
+    name: string;
+    description: string;
+    body: string;
+  }): string {
+    const name = input.name.trim();
+    if (!NAME_PATTERN.test(name)) {
+      throw new BadRequestException(
+        'skill name must be kebab-case (a-z0-9-, 1-64 chars)',
+      );
+    }
+    const description = input.description.replace(/\s+/g, ' ').trim();
+    if (!description) {
+      throw new BadRequestException('description is required');
+    }
+    if (description.length > MAX_DESCRIPTION_CHARS) {
+      throw new BadRequestException(
+        `description exceeds ${MAX_DESCRIPTION_CHARS} chars`,
+      );
+    }
+    const body = input.body.replace(/\r\n/g, '\n').trim();
+    if (!body) {
+      throw new BadRequestException('body is required');
+    }
+    this.scanSkillContent(body);
+    const content = `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
+    try {
+      parseSkillFile(content, { maxBodyChars: this.config.skillsMaxBodyChars });
+    } catch (err) {
+      throw new BadRequestException(
+        `invalid skill: ${err instanceof Error ? err.message : 'unknown'}`,
+      );
+    }
+    return content;
+  }
+
+  /**
+   * Light first-pass content scan (NOT a sandbox): reject control bytes
+   * and a small denylist of obviously destructive patterns. The loader's
+   * parser is the authoritative structural validation.
+   */
+  private scanSkillContent(body: string): void {
+    for (const character of body) {
+      const code = character.charCodeAt(0);
+      if (code < 0x20 && code !== 0x09 && code !== 0x0a) {
+        throw new BadRequestException('skill body contains control characters');
+      }
+    }
+    const denylist: readonly RegExp[] = [
+      /\brm\s+-rf\s+\/(?:\s|$)/i,
+      /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, // fork bomb
+      /\b(?:curl|wget)\b[^\n|]*\|\s*(?:sh|bash|zsh)\b/i,
+    ];
+    for (const pattern of denylist) {
+      if (pattern.test(body)) {
+        throw new BadRequestException(
+          'skill body rejected by the security scan',
+        );
+      }
+    }
+  }
+
+  /** Refresh the catalog and require the named skill now loads. */
+  private async reloadAndRequire(name: string): Promise<SkillDescriptor> {
+    await this.refresh();
+    const descriptor = this.descriptors.get(name.toLowerCase());
+    if (!descriptor) {
+      throw new BadRequestException(`Skill "${name}" did not load after write`);
+    }
+    return descriptor;
   }
 
   /** Alphabetical descriptors — no body reads, safe for discovery/catalog. */
@@ -379,5 +518,14 @@ export class SkillService implements OnModuleInit {
   /** Record what the last completed turn injected (memory-only). */
   recordLastTurn(report: TurnSkillReport): void {
     this.lastTurn.set(report.sessionId, report);
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await fs.stat(path);
+    return true;
+  } catch {
+    return false;
   }
 }

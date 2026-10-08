@@ -69,6 +69,7 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   terminal: 'terminal',
   process_start: 'process_start',
   process_manage: 'process_manage',
+  skill_manage: 'skill_manage',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

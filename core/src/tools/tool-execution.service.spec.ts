@@ -21,7 +21,7 @@ import {
 import type { ChannelSendPort } from '../channels/channel-send.port';
 import { ClarificationService } from '../clarifications/clarification.service';
 import { SqliteClarificationRepository } from '../clarifications/sqlite-clarification.repository';
-import type { SkillService } from '../skills/skill.service';
+import { SkillService } from '../skills/skill.service';
 import type { TodoRepository } from '../session/todo.repository';
 import type { Claim } from '../memory/claim';
 import type { ClaimRepository } from '../memory/claim.repository';
@@ -918,6 +918,58 @@ describe('ToolExecutionService SQLite', () => {
       tool: 'process_manage',
       result: { killed: true },
     });
+  });
+
+  it('creates, updates, and deletes a skill through skill_manage (M17c.3)', async () => {
+    const skillsDir = mkdtempSync(join(tmpdir(), 'icos-skills-'));
+    const skills = new SkillService({
+      skillsEnabled: true,
+      skillsDirPath: skillsDir,
+      skillsMaxBodyChars: 64 * 1024,
+    } as unknown as CoreConfig);
+    await skills.onModuleInit();
+    const { sessions, service } = open(undefined, undefined, skills);
+    await sessions.createSession('s1');
+
+    const created = await service.consume(
+      toolInput('req-skill-create', 'skill_manage', {
+        action: 'create',
+        name: 'demo',
+        description: 'Demo.',
+        body: 'Step.',
+      }),
+    );
+    expect(created.state).toBe('succeeded');
+    expect(created.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_manage',
+      result: { action: 'create', skill: { name: 'demo' } },
+    });
+
+    const updated = await service.consume(
+      toolInput('req-skill-update', 'skill_manage', {
+        action: 'update',
+        name: 'demo',
+        description: 'Updated.',
+        body: 'Step two.',
+      }),
+    );
+    expect(updated.state).toBe('succeeded');
+
+    const deleted = await service.consume(
+      toolInput('req-skill-delete', 'skill_manage', {
+        action: 'delete',
+        name: 'demo',
+      }),
+    );
+    expect(deleted.state).toBe('succeeded');
+    expect(deleted.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_manage',
+      result: { deleted: true },
+    });
+    expect(skills.listDescriptors().map((d) => d.name)).not.toContain('demo');
+    rmSync(skillsDir, { recursive: true, force: true });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {
