@@ -834,6 +834,52 @@ describe('ToolExecutionService SQLite', () => {
     });
   });
 
+  it('runs an approved terminal command in the workspace jail (M17c)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-term', 'terminal', { command: 'echo hello' }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    expect(parked.approvalId).toBeTruthy();
+    expect(parked.execution).toBeNull();
+
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-term', 's1', { skipFinal: true });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'terminal',
+      result: { exitCode: 0 },
+    });
+    const outcome = done.execution as unknown as {
+      result: { stdout: string };
+    };
+    expect(outcome.result.stdout).toContain('hello');
+  });
+
+  it('rejects a terminal cwd outside the workspace (M17c)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-term-esc', 'terminal', {
+        command: 'pwd',
+        cwd: '../..',
+      }),
+    );
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-term-esc', 's1', {
+      skipFinal: true,
+    });
+    expect(done.state).toBe('failed');
+    expect(done.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {
     const { sessions, service } = open();
     await sessions.createSession('s1');

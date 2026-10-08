@@ -397,6 +397,7 @@ describe('ConversationService', () => {
       'session.search',
       'skill_view',
       'skills_list',
+      'terminal',
       'todo',
       'vision_analyze',
       'web_extract',
@@ -431,6 +432,7 @@ describe('ConversationService', () => {
       'clarify',
       'vision_analyze',
       'image_generate',
+      'terminal',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1087,6 +1089,7 @@ describe('ConversationService', () => {
         'session.search',
         'skill_view',
         'skills_list',
+        'terminal',
         'todo',
         'vision_analyze',
         'web_extract',
@@ -1117,6 +1120,7 @@ describe('ConversationService', () => {
         'clarify',
         'vision_analyze',
         'image_generate',
+        'terminal',
       ]);
     });
 

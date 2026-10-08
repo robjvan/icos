@@ -26,6 +26,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'clarify',
   'vision_analyze',
   'image_generate',
+  'terminal',
 ];
 
 function contextWith(
@@ -84,6 +85,7 @@ describe('ToolRegistry', () => {
       'clarify',
       'vision_analyze',
       'image_generate',
+      'terminal',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -105,6 +107,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('clarify')?.approval).toBe('none');
     expect(registry.lookup('vision_analyze')?.approval).toBe('none');
     expect(registry.lookup('image_generate')?.approval).toBe('none');
+    expect(registry.lookup('terminal')?.approval).toBe('required');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1118,6 +1121,48 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('terminal tool (M17c)', () => {
+    it('accepts a command with optional cwd/timeout and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          { name: 'terminal', version: 1, args: { command: 'ls -la' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'terminal',
+        args: { command: 'ls -la' },
+      });
+
+      const full = expectOk(
+        registry.validate(
+          {
+            name: 'terminal',
+            version: 1,
+            args: { command: 'ls', cwd: 'notes', timeoutMs: 5000 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(full).toMatchObject({
+        name: 'terminal',
+        args: { command: 'ls', cwd: 'notes', timeoutMs: 5000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'terminal', version: 1, args: {} },
+        { name: 'terminal', version: 1, args: { command: '   ' } },
+        { name: 'terminal', version: 1, args: { command: 'ls', timeoutMs: 0 } },
+        { name: 'terminal', version: 1, args: { command: 'ls', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1167,6 +1212,7 @@ describe('ToolRegistry', () => {
         'clarify',
         'vision_analyze',
         'image_generate',
+        'terminal',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

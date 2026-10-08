@@ -631,6 +631,54 @@ export class ToolExecutionRepository {
     );
   }
 
+  /**
+   * Claim an approval-parked native call for execution once granted
+   * (M17c). Generic native arm: any non-foreign, non-channel.send,
+   * non-rename native tool (e.g. terminal) that parked on approval.
+   * Mirrors claimChannelSend with the native check.
+   */
+  claimApprovedNativeTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'awaiting_approval' || !record.approvalId)
+            return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            'foreign' in validation.request ||
+            validation.request.name === 'channel.send' ||
+            validation.request.name === 'session.rename' ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'awaiting_approval'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'awaiting_approval' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
   /** Persist a native channel.send outcome (same shape contract as finishTool). */
   finishChannelSend(
     requestId: string,

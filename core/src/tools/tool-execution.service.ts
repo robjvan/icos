@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { spawn } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -52,6 +53,7 @@ import type {
   ReadFileArgs,
   SearchFilesArgs,
   SkillViewArgs,
+  TerminalArgs,
   TodoArgs,
   ValidatedToolRequest,
   VisionAnalyzeArgs,
@@ -80,6 +82,12 @@ export const MCP_EXECUTE_ACTION = 'mcp.execute';
 /** Approval action for a native channel.send. */
 export const CHANNEL_SEND_ACTION = 'channel.send';
 
+/** Approval action for a native terminal command (M17c). */
+export const TERMINAL_EXECUTE_ACTION = 'terminal.execute';
+
+const DEFAULT_TERMINAL_TIMEOUT_MS = 30_000;
+const MAX_TERMINAL_OUTPUT_BYTES = 48 * 1024;
+
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
 const MAX_SEARCH_LINE_CHARS = 200;
@@ -107,6 +115,32 @@ function describeChannelSend(args: ChannelSendArgs): string {
       ? 'the operator'
       : `${args.target} ${args.id ?? ''}`.trim();
   return `Send a ${args.channel} message to ${to}: ${args.body.slice(0, 300)}`;
+}
+
+/** Approval description for a terminal command (M17c). */
+function describeTerminal(args: TerminalArgs): string {
+  const cwd = args.cwd ? ` (cwd: ${args.cwd})` : '';
+  return `Run a shell command${cwd}: ${args.command.slice(0, 400)}`;
+}
+
+/** Minimal env for a terminal command: never leak core secrets. */
+function terminalEnv(): NodeJS.ProcessEnv {
+  const keep = [
+    'PATH',
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'TERM',
+    'TMPDIR',
+    'USER',
+    'SHELL',
+  ];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of keep) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
 }
 
 /** Compact, model-facing view of one belief. */
@@ -229,14 +263,21 @@ export class ToolExecutionService {
         if (descriptor && descriptor.approval !== 'none') {
           const request = preview.request;
           const foreign = 'foreign' in request;
+          const isTerminal = !foreign && request.name === 'terminal';
           const approval = await this.approvalService.create({
             sessionId: input.sessionId,
-            action: foreign ? MCP_EXECUTE_ACTION : CHANNEL_SEND_ACTION,
+            action: foreign
+              ? MCP_EXECUTE_ACTION
+              : isTerminal
+                ? TERMINAL_EXECUTE_ACTION
+                : CHANNEL_SEND_ACTION,
             description: foreign
               ? `Execute foreign tool ${request.foreign.server}/` +
                 `${request.foreign.tool} (${request.name}) ` +
                 `with args ${JSON.stringify(request.args).slice(0, 500)}`
-              : describeChannelSend(request.args as ChannelSendArgs),
+              : isTerminal
+                ? describeTerminal(request.args)
+                : describeChannelSend(request.args as ChannelSendArgs),
           });
           parkedApprovalId = approval.id;
         } else if (
@@ -504,6 +545,8 @@ export class ToolExecutionService {
         return this.nativeVisionAnalyze(args);
       case 'image_generate':
         return this.nativeImageGenerate(args as unknown as ImageGenerateArgs);
+      case 'terminal':
+        return this.nativeTerminal(args as unknown as TerminalArgs);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -954,6 +997,71 @@ export class ToolExecutionService {
     }
   }
 
+  /** Run a shell command in the workspace jail (M17c). */
+  private async nativeTerminal(args: TerminalArgs): Promise<unknown> {
+    const cwd = this.resolveWithinWorkspace(args.cwd ?? '.');
+    const timeoutMs = args.timeoutMs ?? DEFAULT_TERMINAL_TIMEOUT_MS;
+    return await new Promise<unknown>((resolve) => {
+      const child = spawn('/bin/sh', ['-c', args.command], {
+        cwd,
+        env: terminalEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+      });
+      let stdout = '';
+      let stderr = '';
+      let bytes = 0;
+      let truncated = false;
+      let timedOut = false;
+      let settled = false;
+      const append = (chunk: Buffer, which: 'stdout' | 'stderr'): void => {
+        if (bytes >= MAX_TERMINAL_OUTPUT_BYTES) {
+          truncated = true;
+          return;
+        }
+        let text = chunk.toString('utf8');
+        const remaining = MAX_TERMINAL_OUTPUT_BYTES - bytes;
+        if (Buffer.byteLength(text) > remaining) {
+          text = text.slice(0, remaining);
+          truncated = true;
+        }
+        bytes += Buffer.byteLength(text);
+        if (which === 'stdout') stdout += text;
+        else stderr += text;
+      };
+      child.stdout?.on('data', (chunk: Buffer) => append(chunk, 'stdout'));
+      child.stderr?.on('data', (chunk: Buffer) => append(chunk, 'stderr'));
+      const timer = setTimeout(() => {
+        timedOut = true;
+        // Kill the whole process group so a shell's children die too.
+        if (child.pid) {
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+          } catch {
+            child.kill('SIGKILL');
+          }
+        }
+      }, timeoutMs);
+      const finish = (exitCode: number | null, error?: string): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({
+          command: args.command,
+          ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+          exitCode,
+          timedOut,
+          truncated,
+          ...(error !== undefined ? { error } : {}),
+          stdout,
+          stderr,
+        });
+      };
+      child.on('error', () => finish(null, 'spawn_failed'));
+      child.on('close', (code) => finish(code));
+    });
+  }
+
   /**
    * Resolve a tool path against the workspace root and refuse anything that
    * escapes it (M17b). For a not-yet-existing path (a write target), the
@@ -1133,7 +1241,11 @@ export class ToolExecutionService {
             if (token) {
               await this.executeChannelSend(requestId, token);
             }
-          } else {
+          } else if (
+            validated.ok &&
+            'request' in validated &&
+            validated.request.name === 'session.rename'
+          ) {
             const token = this.ledger.claimRename(requestId, (saved) =>
               this.validate(saved),
             );
@@ -1150,6 +1262,14 @@ export class ToolExecutionService {
                 sessionId: claimed.sessionId,
                 title: claimed.validation.request.args.title,
               });
+            }
+          } else {
+            const token = this.ledger.claimApprovedNativeTool(
+              requestId,
+              (saved) => this.validate(saved),
+            );
+            if (token) {
+              await this.executeNativeTool(requestId, token);
             }
           }
         } else if (approval.status !== 'pending') {
@@ -1273,20 +1393,9 @@ export class ToolExecutionService {
     );
     if (!validation.ok)
       return { ok: false, failure: { code: validation.failure.code } };
-    const descriptor = this.registry.lookup(validation.request.name);
-    // Native tools are approval-free except channel.send (approval-required,
-    // parked in consume). Anything else native requiring approval fails
-    // closed here. Foreign required-approval tools pass through —
-    // consumeForeign parks them with a minted approval.
-    const nativeApprovalTool =
-      !('foreign' in validation.request) &&
-      validation.request.name === 'channel.send';
-    if (
-      descriptor?.approval !== 'none' &&
-      !('foreign' in validation.request) &&
-      !nativeApprovalTool
-    )
-      return { ok: false, failure: { code: 'unpermitted_tool' } };
+    // Approval-required tools park (the approval is minted in consume):
+    // native ones execute through the generic native approval path
+    // (channel.send has its own arm), foreign ones through consumeForeign.
     try {
       if (
         typeof call.rawArguments !== 'string' ||

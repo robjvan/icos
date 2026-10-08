@@ -21,7 +21,8 @@ export type ToolName =
   | 'memory'
   | 'clarify'
   | 'vision_analyze'
-  | 'image_generate';
+  | 'image_generate'
+  | 'terminal';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -159,6 +160,15 @@ export interface ImageGenerateArgs {
   readonly size?: string;
 }
 
+export interface TerminalArgs {
+  /** Shell command to run. */
+  readonly command: string;
+  /** Working directory relative to the workspace root (default: root). */
+  readonly cwd?: string;
+  /** Optional timeout in milliseconds. */
+  readonly timeoutMs?: number;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -191,7 +201,8 @@ export type ValidatedToolArgs =
   | MemoryArgs
   | ClarifyArgs
   | VisionAnalyzeArgs
-  | ImageGenerateArgs;
+  | ImageGenerateArgs
+  | TerminalArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -213,6 +224,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'clarify'; readonly args: ClarifyArgs }
   | { readonly name: 'vision_analyze'; readonly args: VisionAnalyzeArgs }
   | { readonly name: 'image_generate'; readonly args: ImageGenerateArgs }
+  | { readonly name: 'terminal'; readonly args: TerminalArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -306,6 +318,9 @@ const MIN_CLARIFY_TTL_MS = 1000;
 const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_SIZE_PATTERN = '^[0-9]{2,5}x[0-9]{2,5}$';
 const MAX_IMAGE_SIZE_LENGTH = 11;
+const MAX_COMMAND_LENGTH = 4000;
+const MIN_TERMINAL_TIMEOUT_MS = 1000;
+const MAX_TERMINAL_TIMEOUT_MS = 300000;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -654,6 +669,31 @@ const IMAGE_GENERATE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const TERMINAL_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['command'],
+  properties: {
+    command: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_COMMAND_LENGTH,
+    },
+    cwd: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    timeoutMs: {
+      type: 'integer',
+      minimum: MIN_TERMINAL_TIMEOUT_MS,
+      maximum: MAX_TERMINAL_TIMEOUT_MS,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -811,6 +851,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'image',
     argsSchema: IMAGE_GENERATE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'terminal',
+    version: 1,
+    description:
+      'Run a shell command in the workspace (jailed to the workspace root) ' +
+      'and return its exit code, stdout, and stderr. Requires approval.',
+    approval: 'required',
+    toolset: 'terminal',
+    argsSchema: TERMINAL_SCHEMA,
   }),
 ]);
 
@@ -1473,6 +1523,57 @@ function validateImageGenerateArgs(
   };
 }
 
+function validateTerminalArgs(
+  args: Record<string, unknown>,
+): ParseResult<TerminalArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'command',
+    'cwd',
+    'timeoutMs',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const command = validText(
+    ownValue(args, 'command'),
+    'command',
+    MAX_COMMAND_LENGTH,
+  );
+  if (!command.ok) {
+    return command;
+  }
+  let cwd: string | undefined;
+  if (Object.hasOwn(args, 'cwd')) {
+    const parsed = validText(ownValue(args, 'cwd'), 'cwd', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    cwd = parsed.value;
+  }
+  let timeoutMs: number | undefined;
+  if (Object.hasOwn(args, 'timeoutMs')) {
+    const value = ownValue(args, 'timeoutMs');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_TERMINAL_TIMEOUT_MS ||
+      value > MAX_TERMINAL_TIMEOUT_MS
+    ) {
+      return {
+        ok: false,
+        message: `timeoutMs must be an integer between ${MIN_TERMINAL_TIMEOUT_MS} and ${MAX_TERMINAL_TIMEOUT_MS}`,
+      };
+    }
+    timeoutMs = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      command: command.value,
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -1789,6 +1890,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'image_generate',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'terminal') {
+      const result = validateTerminalArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'terminal',
           ...base,
           args: result.value,
         }),
