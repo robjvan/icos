@@ -2,7 +2,7 @@
 
 > Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
 > layer); M17b.1–9 (files, web, skills, todo, memory, clarify, vision, image);
-> M17c.1–2 (terminal, process tools) — with evidence under
+> M17c.1–3 (terminal, process tools, skill_manage) — with evidence under
 > `.reference/plans/evidence/milestone-17/`. **Tier 1 complete** (image_generate
 > live test deferred — no credits/hardware); **Tier 2 in progress**. **Tier 3:**
 > not started. Captured
@@ -125,7 +125,9 @@ frame declaration of disabled tools. Unlocks M18 and M19.
   always-approval, generic native approval path)*; `process_start` +
   `process_manage` — *done (M17c.2; split so read-only actions stay
   approval-free)*
-- **Skill manage**: `skill_manage` (guarded CRUD; frontmatter/security scan)
+- **Skill manage**: `skill_manage` (guarded CRUD; frontmatter/security scan) —
+  *done (M17c.3; create/update/delete, validated before write; enable/disable is
+  M18)*
 - **Discord**: `discord`, `discord_admin` (extend the channel adapter; admin
   needs Discord permissions + approval)
 - **Docker**: `docker` (local Docker control; approval-gated)
