@@ -78,4 +78,21 @@ describe('SkillSeedService', () => {
     expect(second.copied).toBe(0);
     expect(second.skipped).toBe(1);
   });
+
+  it('force overwrites existing files (M18.y)', async () => {
+    writeSkill(source, 'research', 'arxiv', 'SHIPPED');
+    mkdirSync(join(target, 'research', 'arxiv'), { recursive: true });
+    writeFileSync(
+      join(target, 'research', 'arxiv', 'SKILL.md'),
+      '---\nname: arxiv\ndescription: USER EDITED\n---\n\nEdited.\n',
+    );
+
+    const report = await service.seed({ force: true });
+    expect(report.overwritten).toBe(1);
+    expect(report.copied).toBe(0);
+    expect(report.skipped).toBe(0);
+    expect(
+      readFileSync(join(target, 'research', 'arxiv', 'SKILL.md'), 'utf8'),
+    ).toContain('SHIPPED');
+  });
 });

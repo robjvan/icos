@@ -11,8 +11,10 @@ import { SkillService } from './skill.service';
 export interface SeedReport {
   source: string;
   target: string;
-  /** Files written this run. */
+  /** New files written this run. */
   copied: number;
+  /** Existing files replaced (only with `force`). */
+  overwritten: number;
   /** Files left alone because the destination already existed. */
   skipped: number;
 }
@@ -21,8 +23,10 @@ export interface SeedReport {
  * M18.1 skill seeding. On startup (and on demand via `/skills seed`) the
  * shipped collection is copied into the runtime skills dir, **never
  * overwriting** an existing file — user edits always win, and deleting a skill
- * re-seeds it on the next run. The source defaults to the app's own `skills/`
- * directory (baked into the image); `SKILLS_SEED_ROOT` overrides it.
+ * re-seeds it on the next run. M18.y adds an explicit `force` mode that
+ * overwrites existing files so shipped updates can propagate. The source
+ * defaults to the app's own `skills/` directory (baked into the image);
+ * `SKILLS_SEED_ROOT` overrides it.
  */
 @Injectable()
 export class SkillSeedService implements OnModuleInit {
@@ -49,11 +53,18 @@ export class SkillSeedService implements OnModuleInit {
     }
   }
 
-  /** Copy shipped skills into the runtime dir, never overwriting. */
-  async seed(): Promise<SeedReport> {
+  /**
+   * Copy shipped skills into the runtime dir. Default: never overwrite an
+   * existing file (user edits win). With `force`, existing files are replaced
+   * by the shipped versions so an adapted shipped skill reaches a runtime copy
+   * that already exists — local edits to those files are lost.
+   */
+  async seed(options: { force?: boolean } = {}): Promise<SeedReport> {
+    const force = options.force === true;
     const source = this.seedRoot();
     const target = this.skills.skillsDir;
     let copied = 0;
+    let overwritten = 0;
     let skipped = 0;
 
     const walk = async (dir: string, rel: string): Promise<void> => {
@@ -72,19 +83,21 @@ export class SkillSeedService implements OnModuleInit {
         }
         if (!entry.isFile()) continue;
         const dest = join(target, childRel);
-        if (existsSync(dest)) {
+        const exists = existsSync(dest);
+        if (exists && !force) {
           skipped += 1;
           continue;
         }
         await fs.mkdir(join(target, rel), { recursive: true });
         await fs.copyFile(join(dir, entry.name), dest);
-        copied += 1;
+        if (exists) overwritten += 1;
+        else copied += 1;
       }
     };
 
     await walk(source, '');
     await this.skills.refresh();
-    return { source, target, copied, skipped };
+    return { source, target, copied, overwritten, skipped };
   }
 
   /** The shipped-skills source dir (override, else the app's `skills/`). */

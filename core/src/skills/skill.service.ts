@@ -64,6 +64,8 @@ export class SkillService implements OnModuleInit {
   private pending = new Map<string, Set<string>>();
   /** Last completed turn's injection record, keyed by session id. */
   private lastTurn = new Map<string, TurnSkillReport>();
+  /** Sessions where skills are explicitly turned off (M18.x). */
+  private readonly sessionDisabled = new Set<string>();
   private readonly selector: SkillSelector = new TopBudgetedSelector();
 
   constructor(@Inject(CORE_CONFIG) private readonly config: CoreConfig) {}
@@ -329,6 +331,26 @@ export class SkillService implements OnModuleInit {
     return descriptor;
   }
 
+  /**
+   * M18.x: turn skills on/off for one session (context-window pressure). Off
+   * means no catalog block, no auto-discovery, and no pinned/one-shot
+   * injection for that session — the global kill-switch (`SKILLS_ENABLED`)
+   * still wins. Returns the resulting state.
+   */
+  setSessionSkillsEnabled(sessionId: string, enabled: boolean): boolean {
+    if (enabled) {
+      this.sessionDisabled.delete(sessionId);
+    } else {
+      this.sessionDisabled.add(sessionId);
+    }
+    return this.isSessionSkillsEnabled(sessionId);
+  }
+
+  /** Whether skills are active for this session (default true). */
+  isSessionSkillsEnabled(sessionId: string): boolean {
+    return this.enabled && !this.sessionDisabled.has(sessionId);
+  }
+
   /** Pin a skill for the session until dropped. Idempotent. */
   useSkill(sessionId: string, name: string): string {
     const descriptor = this.resolveName(name);
@@ -427,8 +449,9 @@ export class SkillService implements OnModuleInit {
   /** Catalog block for model context: names + descriptions only, bounded.
    * Empty string when disabled or the catalog is empty (callers then emit
    * byte-identical pre-M7 context). */
-  buildCatalogBlock(): string {
+  buildCatalogBlock(sessionId?: string): string {
     if (!this.enabled) return '';
+    if (sessionId && !this.isSessionSkillsEnabled(sessionId)) return '';
     const catalog = this.listDescriptors().slice(
       0,
       this.config.skillsMaxCatalogItems,
@@ -467,7 +490,7 @@ export class SkillService implements OnModuleInit {
       contextual: [],
       considered: [],
     };
-    if (!this.enabled) return empty;
+    if (!this.isSessionSkillsEnabled(sessionId)) return empty;
     const maxChars = this.config.skillsMaxContextChars;
     let used = 0;
 

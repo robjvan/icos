@@ -128,7 +128,7 @@ export class SkillsController {
 
   @Post('seed')
   @HttpCode(200)
-  async seedSkills() {
-    return this.seed.seed();
+  async seedSkills(@Body() dto?: { force?: boolean }) {
+    return this.seed.seed({ force: dto?.force === true });
   }
 }

@@ -547,7 +547,7 @@ export class ConversationService {
     // and catalog refresh from current config; skill bodies stay frozen
     // with the turn that loaded them.
     const prompt = this.config.systemPrompt.trim();
-    const catalog = this.skills.buildCatalogBlock().trim();
+    const catalog = this.skills.buildCatalogBlock(sessionId).trim();
     const resumeBase = [prompt, catalog].filter((part) => part !== '');
     const baseSystemText =
       resumeBase.length > 0 ? resumeBase.join('\n\n') : undefined;
@@ -1150,7 +1150,7 @@ export class ConversationService {
         };
         // M9k: frozen rest plus a rebuilt head every round.
         const prompt = this.config.systemPrompt.trim();
-        const catalog = this.skills.buildCatalogBlock().trim();
+        const catalog = this.skills.buildCatalogBlock(sessionId).trim();
         const resumeBase = [prompt, catalog].filter((part) => part !== '');
         const baseSystemText =
           resumeBase.length > 0 ? resumeBase.join('\n\n') : undefined;
@@ -1755,12 +1755,18 @@ export class ConversationService {
       attachments,
       images.parts.length > 0,
     );
-    const textMessages = this.prepareMessages(history, message, skills, {
-      ...recalled.bands,
-      personaBand,
-      sourceBand: sourceBand ?? null,
-      attachmentBand,
-    });
+    const textMessages = this.prepareMessages(
+      sessionId,
+      history,
+      message,
+      skills,
+      {
+        ...recalled.bands,
+        personaBand,
+        sourceBand: sourceBand ?? null,
+        attachmentBand,
+      },
+    );
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = this.withTurnImages(
@@ -2027,6 +2033,7 @@ export class ConversationService {
   }
 
   private prepareMessages(
+    sessionId: string,
     history: ChatMessage[],
     message: string,
     turnSkills?: ResolvedTurnSkills,
@@ -2039,7 +2046,7 @@ export class ConversationService {
       this.config.maxHistory,
       turnSkills
         ? {
-            catalog: this.skills.buildCatalogBlock(),
+            catalog: this.skills.buildCatalogBlock(sessionId),
             explicit: turnSkills.explicit,
             requested: turnSkills.requested,
             contextual: turnSkills.contextual,

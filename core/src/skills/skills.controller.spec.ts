@@ -10,7 +10,13 @@ import { SkillsController } from './skills.controller';
 
 const seedStub = {
   seed: () =>
-    Promise.resolve({ source: '', target: '', copied: 0, skipped: 0 }),
+    Promise.resolve({
+      source: '',
+      target: '',
+      copied: 0,
+      overwritten: 0,
+      skipped: 0,
+    }),
 } as unknown as SkillSeedService;
 
 function testConfig(
