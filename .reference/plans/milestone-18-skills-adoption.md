@@ -3,7 +3,8 @@
 > Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
 > layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
 > child), M18.3 (adapt research/web/data-science), M18.3a (trim research
-> over-cap bodies). Objective: adopt the 98-skill
+> over-cap bodies), M18.4 (adapt software-development/devops/mlops/dogfood).
+> Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -56,14 +57,17 @@ and `templates/`.
   `evidence/milestone-18/m18.3a-body-trims-evidence.md`) — trimming is part of
   M18.4+ per category. Some are Hermes-specific (`hermes-agent`, `honcho`,
   `grok`, `computer-use`, `xurl`, …) and may be dropped.
-- **M18.4+ — Adapt by category** (one slice per group):
-  - software-development + devops + mlops + dogfood
+- **M18.4 — Adapt software-development + devops + mlops + dogfood.** *Done.*
+  Dropped 4 Hermes-app-specific skills; rewrote `dogfood` for the minimal
+  `browser` tool; added `delegate_task` (M21) fallbacks; trimmed 3 over-cap
+  bodies into `references/`. See `evidence/milestone-18/m18.4-sw-dev-evidence.md`.
+- **M18.5+ — Adapt by category** (one slice per group):
   - productivity + note-taking + communication + email
   - creative + media + gaming
   - apple + autonomous-ai-agents + health + social-media + legacy
   Each: rewrite bodies/scripts to ICOS tools, trim over-cap bodies into
-  `references/`, drop Hermes internals (`_hermes_home.py`), and handle
-  `delegate_task` → **defer to M21**.
+  `references/`, drop Hermes-specific skills, and handle `delegate_task` →
+  **defer to M21**.
 - **M18.y — Shipped-skill update path.** The seed never overwrites, so an
   adapted shipped skill does not reach a runtime copy that already exists.
   Decide on a re-seed/force update (e.g. `/skills seed --force`).
