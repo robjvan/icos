@@ -37,16 +37,16 @@ Specify currency, all-in vs pre-tax price, maximum price, availability/stock rul
 
 ### 3. Establish a live baseline, then schedule
 
-Fetch a bounded live result with `web_extract` or `browser_navigate` and record retrieval time, source price, fees/taxes, availability, and terms. Do not schedule until one foreground fetch works. Write the watch contract (item, condition, baseline observation) to a state file under `~/.hermes/price-watches/<watch-slug>.json`, then create the job:
+Fetch a bounded live result with `web_extract` or the `browser` tool and record retrieval time, source price, fees/taxes, availability, and terms. Do not schedule until one foreground fetch works. Write the watch contract (item, condition, baseline observation) to a state file under `price-watches/<watch-slug>.json` (relative to the workspace), then create the job:
 
 ```
-cronjob(action="create",
-        schedule="every 6h",
-        prompt="Load the product-price-monitor skill and run the tick for the watch contract at ~/.hermes/price-watches/<watch-slug>.json.",
-        deliver=<user's destination>)
+cronjob_manage({action: "create", name: "price-watch",
+                schedule: "0 */6 * * *",
+                prompt: "Load the product-price-monitor skill and run the tick for the watch contract at price-watches/<watch-slug>.json.",
+                deliver_channel: "discord", deliver_target: "user", deliver_id: "<user id>"})
 ```
 
-Pick a cadence that respects rate limits and site terms. Done when the baseline matches the exact item contract and the job exists.
+The schedule is a 5-field cron expression (minute hour day-of-month month day-of-week); delivery is optional (omit `deliver_*` to keep the reply in the job's session). Pick a cadence that respects rate limits and site terms. Done when the baseline matches the exact item contract and the job exists.
 
 ## Procedure — Tick (each scheduled run)
 
