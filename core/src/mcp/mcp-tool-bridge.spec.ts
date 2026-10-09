@@ -3,8 +3,16 @@ import {
   splitForeignToolName,
   toArgsSchema,
   toNamespacedName,
+  toolsetFor,
   validateForeignArgs,
 } from './mcp-tool-bridge';
+
+describe('toolsetFor', () => {
+  it('generates mcp-<server>', () => {
+    expect(toolsetFor('github')).toBe('mcp-github');
+    expect(toolsetFor('bytestash')).toBe('mcp-bytestash');
+  });
+});
 
 describe('toNamespacedName', () => {
   it('namespaces server and tool deterministically', () => {

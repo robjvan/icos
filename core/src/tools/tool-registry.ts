@@ -362,6 +362,8 @@ export interface UnavailableForeignServer {
 export interface ForeignToolSource {
   listForeign(): readonly {
     readonly name: string;
+    /** Generated toolset (M19); absent → pooled under `mcp`. */
+    readonly toolset?: string;
     readonly description: string;
     readonly approval: ApprovalPolicy;
     readonly argsSchema: ToolDescriptor['argsSchema'];
@@ -371,6 +373,8 @@ export interface ForeignToolSource {
         readonly name: string;
         readonly server: string;
         readonly tool: string;
+        /** Generated toolset (M19); absent → pooled under `mcp`. */
+        readonly toolset?: string;
         readonly description: string;
         readonly approval: ApprovalPolicy;
         readonly argsSchema: ToolDescriptor['argsSchema'];
@@ -2443,7 +2447,7 @@ export class ToolRegistry {
         version: 1,
         description: descriptor.description,
         approval: descriptor.approval,
-        toolset: 'mcp',
+        toolset: descriptor.toolset ?? 'mcp',
         argsSchema: descriptor.argsSchema,
       })) ?? [];
     return [...DESCRIPTORS, ...foreign];
@@ -2473,7 +2477,7 @@ export class ToolRegistry {
       version: 1,
       description: foreign.description,
       approval: foreign.approval,
-      toolset: 'mcp',
+      toolset: foreign.toolset ?? 'mcp',
       argsSchema: foreign.argsSchema,
     };
   }

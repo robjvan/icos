@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { McpConnectionService } from './mcp-connection.service';
-import { toArgsSchema, toNamespacedName } from './mcp-tool-bridge';
+import { toArgsSchema, toNamespacedName, toolsetFor } from './mcp-tool-bridge';
 import type { TranslatedSchema } from './mcp-tool-bridge';
 import type {
   ApprovalPolicy,
@@ -13,6 +13,8 @@ export interface ForeignToolDescriptor {
   readonly name: string;
   readonly server: string;
   readonly tool: string;
+  /** Generated toolset (M19): `mcp-<server>`. */
+  readonly toolset: string;
   readonly description: string;
   readonly approval: ApprovalPolicy;
   readonly argsSchema: TranslatedSchema;
@@ -75,6 +77,7 @@ export class McpToolBridge implements ForeignToolSource, OnModuleInit {
         name,
         server,
         tool: tool.name,
+        toolset: toolsetFor(server),
         description: tool.description?.trim() || `${server}/${tool.name}`,
         approval: entry?.approval ?? 'required',
         argsSchema,

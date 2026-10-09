@@ -36,6 +36,16 @@ export function isForeignToolName(name: string): name is ForeignToolName {
   return /^mcp_[a-z0-9][a-z0-9_-]*_[a-z0-9][a-z0-9_-]*$/.test(name);
 }
 
+/**
+ * The generated toolset for a server (M19): `mcp-<server>`. Dashes follow the
+ * toolset convention and are independent of the underscore tool-name namespace
+ * (`mcp_<server>_<tool>`). Server names are already validated to
+ * `^[a-z0-9][a-z0-9-]*$`, so the result is a well-formed toolset string.
+ */
+export function toolsetFor(server: string): string {
+  return `mcp-${server}`;
+}
+
 export function splitForeignToolName(name: string): {
   server: string;
   tool: string;
