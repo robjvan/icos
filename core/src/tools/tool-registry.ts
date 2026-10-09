@@ -27,7 +27,8 @@ export type ToolName =
   | 'process_manage'
   | 'skill_manage'
   | 'discord'
-  | 'discord_admin';
+  | 'discord_admin'
+  | 'cronjob_manage';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -209,6 +210,22 @@ export interface DiscordAdminArgs {
   readonly reason?: string;
 }
 
+export type CronJobManageArgs =
+  | { readonly action: 'list' }
+  | {
+      readonly action: 'create';
+      readonly name: string;
+      readonly schedule: string;
+      readonly prompt: string;
+      readonly deliver_channel?: 'discord' | 'email';
+      readonly deliver_target?: 'operator' | 'channel' | 'user';
+      readonly deliver_id?: string;
+    }
+  | { readonly action: 'pause'; readonly id: string }
+  | { readonly action: 'resume'; readonly id: string }
+  | { readonly action: 'remove'; readonly id: string }
+  | { readonly action: 'run'; readonly id: string };
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -247,7 +264,8 @@ export type ValidatedToolArgs =
   | ProcessManageArgs
   | SkillManageArgs
   | DiscordArgs
-  | DiscordAdminArgs;
+  | DiscordAdminArgs
+  | CronJobManageArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -275,6 +293,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'skill_manage'; readonly args: SkillManageArgs }
   | { readonly name: 'discord'; readonly args: DiscordArgs }
   | { readonly name: 'discord_admin'; readonly args: DiscordAdminArgs }
+  | { readonly name: 'cronjob_manage'; readonly args: CronJobManageArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -378,6 +397,9 @@ const MAX_SKILL_BODY_LENGTH = 64 * 1024;
 const MAX_DISCORD_REASON_LENGTH = 500;
 const MIN_DISCORD_TIMEOUT_MS = 1000;
 const MAX_DISCORD_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
+const MAX_CRON_NAME_LENGTH = 120;
+const MAX_CRON_SCHEDULE_LENGTH = 120;
+const MAX_CRON_PROMPT_LENGTH = 4000;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -866,6 +888,50 @@ const DISCORD_ADMIN_SCHEMA = deepFreeze({
   },
 } as const);
 
+const CRONJOB_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'create', 'pause', 'resume', 'remove', 'run'],
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+    name: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_NAME_LENGTH,
+    },
+    schedule: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_SCHEDULE_LENGTH,
+    },
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_PROMPT_LENGTH,
+    },
+    deliver_channel: { type: 'string', enum: ['discord', 'email'] },
+    deliver_target: { type: 'string', enum: ['operator', 'channel', 'user'] },
+    deliver_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -1083,6 +1149,17 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'required',
     toolset: 'discord',
     argsSchema: DISCORD_ADMIN_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'cronjob_manage',
+    version: 1,
+    description:
+      'Manage scheduled jobs: list, create, pause, resume, remove, or run a ' +
+      'cron job. A job runs its prompt as a turn on schedule and may deliver ' +
+      'the reply to a channel.',
+    approval: 'none',
+    toolset: 'cron',
+    argsSchema: CRONJOB_MANAGE_SCHEMA,
   }),
 ]);
 
@@ -2014,6 +2091,116 @@ function validateDiscordAdminArgs(
   };
 }
 
+function validateCronJobManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<CronJobManageArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'id',
+    'name',
+    'schedule',
+    'prompt',
+    'deliver_channel',
+    'deliver_target',
+    'deliver_id',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list') {
+    return { ok: true, value: Object.freeze({ action: 'list' }) };
+  }
+  if (action === 'create') {
+    const name = validText(
+      ownValue(args, 'name'),
+      'name',
+      MAX_CRON_NAME_LENGTH,
+    );
+    if (!name.ok) return name;
+    const schedule = validText(
+      ownValue(args, 'schedule'),
+      'schedule',
+      MAX_CRON_SCHEDULE_LENGTH,
+    );
+    if (!schedule.ok) return schedule;
+    const prompt = validText(
+      ownValue(args, 'prompt'),
+      'prompt',
+      MAX_CRON_PROMPT_LENGTH,
+    );
+    if (!prompt.ok) return prompt;
+    let deliverChannel: 'discord' | 'email' | undefined;
+    if (Object.hasOwn(args, 'deliver_channel')) {
+      const value = ownValue(args, 'deliver_channel');
+      if (value !== 'discord' && value !== 'email') {
+        return {
+          ok: false,
+          message: 'deliver_channel must be "discord" or "email"',
+        };
+      }
+      deliverChannel = value;
+    }
+    let deliverTarget: 'operator' | 'channel' | 'user' | undefined;
+    if (Object.hasOwn(args, 'deliver_target')) {
+      const value = ownValue(args, 'deliver_target');
+      if (value !== 'operator' && value !== 'channel' && value !== 'user') {
+        return {
+          ok: false,
+          message: 'deliver_target must be "operator", "channel", or "user"',
+        };
+      }
+      deliverTarget = value;
+    }
+    let deliverId: string | undefined;
+    if (Object.hasOwn(args, 'deliver_id')) {
+      const parsed = validText(
+        ownValue(args, 'deliver_id'),
+        'deliver_id',
+        MAX_ID_LENGTH,
+      );
+      if (!parsed.ok) return parsed;
+      deliverId = parsed.value;
+    }
+    if ((deliverChannel === undefined) !== (deliverTarget === undefined)) {
+      return {
+        ok: false,
+        message: 'deliver_channel and deliver_target go together',
+      };
+    }
+    return {
+      ok: true,
+      value: Object.freeze({
+        action: 'create',
+        name: name.value,
+        schedule: schedule.value,
+        prompt: prompt.value,
+        ...(deliverChannel !== undefined
+          ? { deliver_channel: deliverChannel }
+          : {}),
+        ...(deliverTarget !== undefined
+          ? { deliver_target: deliverTarget }
+          : {}),
+        ...(deliverId !== undefined ? { deliver_id: deliverId } : {}),
+      }),
+    };
+  }
+  if (
+    action !== 'pause' &&
+    action !== 'resume' &&
+    action !== 'remove' &&
+    action !== 'run'
+  ) {
+    return {
+      ok: false,
+      message: 'action must be list, create, pause, resume, remove, or run',
+    };
+  }
+  const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+  if (!id.ok) return id;
+  return { ok: true, value: Object.freeze({ action, id: id.value }) };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -2414,6 +2601,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'discord_admin',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'cronjob_manage') {
+      const result = validateCronJobManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'cronjob_manage',
           ...base,
           args: result.value,
         }),

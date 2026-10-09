@@ -26,6 +26,8 @@ import { McpConnectionService } from '../mcp/mcp-connection.service';
 import { terminalEnv } from '../process/terminal-env';
 import type { ProcessRegistry } from '../process/process-registry.service';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
+import type { CronService } from '../cron/cron.service';
+import type { CronJob } from '../cron/cron-job.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
@@ -50,6 +52,7 @@ import type {
 import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
+  CronJobManageArgs,
   DiscordAdminArgs,
   DiscordArgs,
   ForeignToolCall,
@@ -160,6 +163,21 @@ function describeDiscordAdmin(args: DiscordAdminArgs): string {
     return `Discord: time out user ${args.user_id} for ${String(args.duration_ms ?? 0)}ms${reason}`;
   }
   return `Discord: kick user ${args.user_id}${reason}`;
+}
+
+/** Compact, model-facing view of one cron job. */
+function cronJobView(job: CronJob): Record<string, unknown> {
+  return {
+    id: job.id,
+    name: job.name,
+    schedule: job.schedule,
+    prompt: job.prompt,
+    sessionId: job.sessionId,
+    deliver: job.deliver,
+    enabled: job.enabled,
+    lastRunAt: job.lastRunAt,
+    nextRunAt: job.nextRunAt,
+  };
 }
 
 /** Approval action label for a parked native/foreign call. */
@@ -273,6 +291,7 @@ export class ToolExecutionService {
     private readonly imageGen?: ImageGenService,
     private readonly processes?: ProcessRegistry,
     private readonly discordAdmin?: DiscordAdminPort,
+    private readonly cron?: CronService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -609,6 +628,11 @@ export class ToolExecutionService {
         return this.nativeDiscord(args as unknown as DiscordArgs);
       case 'discord_admin':
         return this.nativeDiscordAdmin(args as unknown as DiscordAdminArgs);
+      case 'cronjob_manage':
+        return this.nativeCronJobManage(
+          args as unknown as CronJobManageArgs,
+          sessionId,
+        );
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -1204,6 +1228,56 @@ export class ToolExecutionService {
       userId: args.user_id,
       ...(args.reason !== undefined ? { reason: args.reason } : {}),
     });
+  }
+
+  /** Manage scheduled cron jobs (M17d). */
+  private async nativeCronJobManage(
+    args: CronJobManageArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.cron) throw new Error('cron_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { jobs: (await this.cron.list()).map(cronJobView) };
+      case 'create': {
+        const job = await this.cron.create({
+          name: args.name,
+          schedule: args.schedule,
+          prompt: args.prompt,
+          sessionId,
+          ...(args.deliver_channel !== undefined &&
+          args.deliver_target !== undefined
+            ? {
+                deliver: {
+                  channel: args.deliver_channel,
+                  target: args.deliver_target,
+                  ...(args.deliver_id !== undefined
+                    ? { id: args.deliver_id }
+                    : {}),
+                },
+              }
+            : {}),
+        });
+        return { action: 'create', job: cronJobView(job) };
+      }
+      case 'pause':
+        return {
+          action: 'pause',
+          job: cronJobView(await this.cron.pause(args.id)),
+        };
+      case 'resume':
+        return {
+          action: 'resume',
+          job: cronJobView(await this.cron.resume(args.id)),
+        };
+      case 'remove':
+        await this.cron.remove(args.id);
+        return { action: 'remove', removed: true };
+      case 'run': {
+        const result = await this.cron.runNow(args.id);
+        return { action: 'run', ...result };
+      }
+    }
   }
 
   /**

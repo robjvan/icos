@@ -32,6 +32,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'skill_manage',
   'discord',
   'discord_admin',
+  'cronjob_manage',
 ];
 
 function contextWith(
@@ -96,6 +97,7 @@ describe('ToolRegistry', () => {
       'skill_manage',
       'discord',
       'discord_admin',
+      'cronjob_manage',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -123,6 +125,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('skill_manage')?.approval).toBe('none');
     expect(registry.lookup('discord')?.approval).toBe('none');
     expect(registry.lookup('discord_admin')?.approval).toBe('required');
+    expect(registry.lookup('cronjob_manage')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1405,6 +1408,93 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('cronjob_manage tool (M17d)', () => {
+    it('validates create and management actions', () => {
+      const create = expectOk(
+        registry.validate(
+          {
+            name: 'cronjob_manage',
+            version: 1,
+            args: {
+              action: 'create',
+              name: 'morning',
+              schedule: '0 9 * * *',
+              prompt: 'summarize',
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(create).toMatchObject({
+        name: 'cronjob_manage',
+        args: {
+          action: 'create',
+          name: 'morning',
+          schedule: '0 9 * * *',
+          prompt: 'summarize',
+        },
+      });
+
+      const list = expectOk(
+        registry.validate(
+          { name: 'cronjob_manage', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({
+        name: 'cronjob_manage',
+        args: { action: 'list' },
+      });
+
+      const run = expectOk(
+        registry.validate(
+          {
+            name: 'cronjob_manage',
+            version: 1,
+            args: { action: 'run', id: 'j1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(run).toMatchObject({
+        name: 'cronjob_manage',
+        args: { action: 'run', id: 'j1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'cronjob_manage', version: 1, args: {} },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: { action: 'create', name: 'x', schedule: '0 9 * * *' },
+        },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: {
+            action: 'create',
+            name: 'x',
+            schedule: '0 9 * * *',
+            prompt: 'p',
+            deliver_channel: 'discord',
+          },
+        },
+        { name: 'cronjob_manage', version: 1, args: { action: 'run' } },
+        { name: 'cronjob_manage', version: 1, args: { action: 'nope' } },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: { action: 'list', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1460,6 +1550,7 @@ describe('ToolRegistry', () => {
         'skill_manage',
         'discord',
         'discord_admin',
+        'cronjob_manage',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

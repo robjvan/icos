@@ -206,6 +206,25 @@ CREATE TABLE IF NOT EXISTS session_todos (
 
 CREATE INDEX IF NOT EXISTS idx_session_todos_session
 ON session_todos(session_id, status, created_at);
+
+-- M17d: durable scheduled jobs (the cronjob_manage tool). The scheduler
+-- reads due rows; a job's session is optional (null = a fresh session).
+CREATE TABLE IF NOT EXISTS cron_jobs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    deliver_json TEXT CHECK (deliver_json IS NULL OR json_valid(deliver_json)),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    last_run_at TEXT,
+    next_run_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_due
+ON cron_jobs(enabled, next_run_at);
 `;
 
 /**
@@ -784,6 +803,7 @@ const SCHEMAS: Record<
       'tool_requests',
       'agent_runs',
       'session_todos',
+      'cron_jobs',
     ],
     triggers: [
       'messages_ai',

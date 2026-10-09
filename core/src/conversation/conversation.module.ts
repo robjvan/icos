@@ -82,6 +82,10 @@ import { SkillsController } from '../skills/skills.controller';
 import { VisionService } from '../vision/vision.service';
 import { ImageGenService } from '../image/image-gen.service';
 import { ProcessRegistry } from '../process/process-registry.service';
+import { CronJobRepository } from '../cron/cron-job.repository';
+import { SqliteCronJobRepository } from '../cron/sqlite-cron-job.repository';
+import { CronService } from '../cron/cron.service';
+import { CronScheduler } from '../cron/cron-scheduler.service';
 import { DISCORD_ADMIN } from '../channels/discord-admin.port';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import { LlmClient } from '../llm/llm.client';
@@ -125,6 +129,7 @@ const toolExecutionServiceProvider = {
     imageGen: ImageGenService,
     processes: ProcessRegistry,
     discordAdmin: DiscordAdminPort,
+    cron: CronService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -151,6 +156,7 @@ const toolExecutionServiceProvider = {
       imageGen,
       processes,
       discordAdmin,
+      cron,
     ),
   inject: [
     ToolExecutionRepository,
@@ -173,6 +179,7 @@ const toolExecutionServiceProvider = {
     ImageGenService,
     ProcessRegistry,
     DISCORD_ADMIN,
+    CronService,
   ],
 };
 
@@ -281,6 +288,9 @@ const toolExecutionServiceProvider = {
     ImageGenService,
     AttachmentImageResolver,
     ProcessRegistry,
+    { provide: CronJobRepository, useClass: SqliteCronJobRepository },
+    CronScheduler,
+    CronService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

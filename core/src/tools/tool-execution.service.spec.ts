@@ -32,6 +32,7 @@ import type { VisionService } from '../vision/vision.service';
 import type { ImageGenService } from '../image/image-gen.service';
 import { ProcessRegistry } from '../process/process-registry.service';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
+import type { CronService } from '../cron/cron.service';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -110,6 +111,7 @@ describe('ToolExecutionService SQLite', () => {
     imageGen?: ImageGenService,
     processes?: ProcessRegistry,
     discordAdmin?: DiscordAdminPort,
+    cron?: CronService,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -168,6 +170,7 @@ describe('ToolExecutionService SQLite', () => {
       imageGen,
       processes ?? new ProcessRegistry(),
       discordAdmin,
+      cron,
     );
     return {
       database,
@@ -1028,6 +1031,85 @@ describe('ToolExecutionService SQLite', () => {
       userId: 'u1',
       durationMs: 60000,
       reason: 'spam',
+    });
+  });
+
+  it('manages cron jobs through cronjob_manage (M17d)', async () => {
+    const job = {
+      id: 'j1',
+      name: 'morning',
+      schedule: '0 9 * * *',
+      prompt: 'p',
+      sessionId: 's1',
+      deliver: null,
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: '2026-10-10T09:00:00.000Z',
+      createdAt: 't',
+      updatedAt: 't',
+    };
+    const cronCreate = jest.fn(() => Promise.resolve(job));
+    const cron = {
+      list: jest.fn(() => Promise.resolve([job])),
+      create: cronCreate,
+      pause: jest.fn(() => Promise.resolve({ ...job, enabled: false })),
+      resume: jest.fn(() => Promise.resolve(job)),
+      remove: jest.fn(() => Promise.resolve()),
+      runNow: jest.fn(() => Promise.resolve({ reply: 'ok', delivered: false })),
+    } as unknown as CronService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      cron,
+    );
+    await sessions.createSession('s1');
+
+    const list = await service.consume(
+      toolInput('req-cron-list', 'cronjob_manage', { action: 'list' }),
+    );
+    expect(list.state).toBe('succeeded');
+    expect(list.execution).toMatchObject({
+      ok: true,
+      tool: 'cronjob_manage',
+      result: { jobs: [{ id: 'j1' }] },
+    });
+
+    const create = await service.consume(
+      toolInput('req-cron-create', 'cronjob_manage', {
+        action: 'create',
+        name: 'morning',
+        schedule: '0 9 * * *',
+        prompt: 'p',
+      }),
+    );
+    expect(create.state).toBe('succeeded');
+    expect(cronCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'morning',
+        schedule: '0 9 * * *',
+        prompt: 'p',
+        sessionId: 's1',
+      }),
+    );
+
+    const remove = await service.consume(
+      toolInput('req-cron-remove', 'cronjob_manage', {
+        action: 'remove',
+        id: 'j1',
+      }),
+    );
+    expect(remove.state).toBe('succeeded');
+    expect(remove.execution).toMatchObject({
+      ok: true,
+      result: { removed: true },
     });
   });
 

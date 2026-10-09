@@ -388,6 +388,7 @@ describe('ConversationService', () => {
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
       'channel.send',
       'clarify',
+      'cronjob_manage',
       'discord',
       'discord_admin',
       'image_generate',
@@ -443,6 +444,7 @@ describe('ConversationService', () => {
       'skill_manage',
       'discord',
       'discord_admin',
+      'cronjob_manage',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1090,6 +1092,7 @@ describe('ConversationService', () => {
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
         'channel.send',
         'clarify',
+        'cronjob_manage',
         'discord',
         'discord_admin',
         'image_generate',
@@ -1141,6 +1144,7 @@ describe('ConversationService', () => {
         'skill_manage',
         'discord',
         'discord_admin',
+        'cronjob_manage',
       ]);
     });
 
