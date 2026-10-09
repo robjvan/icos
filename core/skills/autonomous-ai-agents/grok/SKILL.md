@@ -11,10 +11,10 @@ metadata:
     related_skills: [codex, claude-code, hermes-agent]
 ---
 
-# Grok Build CLI — Hermes Orchestration Guide
+# Grok Build CLI — ICOS Orchestration Guide
 
 Delegate coding tasks to [Grok Build](https://docs.x.ai/build/overview) (xAI's
-autonomous coding agent CLI, the `grok` command) via the Hermes terminal. Grok
+autonomous coding agent CLI, the `grok` command) via the `terminal` tool. Grok
 can read files, write code, run shell commands, spawn subagents, and manage git
 workflows. It runs three ways: an interactive TUI, **headless** (`-p`), and as
 an **ACP agent** over JSON-RPC.
@@ -102,79 +102,13 @@ For pure automation, headless `-p` is still cleaner than the TUI.
 
 ## Headless Deep Dive
 
-### Common Flags
-
-| Flag | Effect |
-|------|--------|
-| `-p, --single <PROMPT>` | Send one prompt, run headless, exit |
-| `-m, --model <MODEL>` | Choose a model |
-| `-s, --session-id <UUID>` | Assign a **NEW** valid UUID to a fresh conversation (must not already exist). Does **not** resume — use `--resume`/`--continue` for that. Only valid with `--resume`/`--continue` when paired with `--fork-session` |
-| `-r, --resume [<UUID>]` | Resume an existing session by its UUID (or the most recent if omitted) |
-| `-c, --continue` | Continue the most recent session in the current directory |
-| `--fork-session` | When resuming, create a new session ID instead of reusing the original |
-| `--max-turns <N>` | Cap the maximum number of agent turns |
-| `--cwd <PATH>` | Set the working directory |
-| `--output-format <FMT>` | `plain` (default), `json`, or `streaming-json` |
-| `--always-approve` | Auto-approve all tool executions (the `--full-auto` / `--yolo` equivalent) |
-| `--no-alt-screen` | Run inline, no fullscreen TUI takeover |
-| `--no-auto-update` | Skip background update checks (use in all automation; hidden from `--help` but still works) |
-
-### Output Formats
-
-- `plain` — human-readable text (default)
-- `json` — one JSON object at the end of the run (parse the result cleanly)
-- `streaming-json` — newline-delimited JSON events as they arrive
-
-```
-# Structured result for parsing
-terminal(command="grok --no-auto-update -p 'List all TODO comments in src/' --output-format json", workdir="/project", timeout=120)
-
-# Auto-approve for autonomous building
-terminal(command="grok --no-auto-update --always-approve -p 'Refactor the database layer and run the tests'", workdir="/project", timeout=300)
-```
-
-### Background Mode (Long Tasks)
-
-```
-# Start headless in background
-terminal(command="grok --no-auto-update --always-approve -p 'Refactor the auth module'", workdir="/project", background=true, notify_on_complete=true)
-# Returns session_id
-
-# Monitor
-process(action="poll", session_id="<id>")
-process(action="log", session_id="<id>")
-
-# Kill if needed
-process(action="kill", session_id="<id>")
-```
-
-For an interactive (TUI) background session, use `pty=true` + tmux and monitor
-with `tmux capture-pane`, exactly like the `claude-code` / `codex` skills.
-
-### Session Continuation
-
-Sessions are keyed by **UUID**, not by name. `--session-id` assigns a *new* UUID
-to a fresh run (it does **not** resume); `--resume` takes an existing session's
-UUID (or omit the value to resume the most recent).
-
-```
-# Start a session with a self-assigned UUID (must be a valid, unused UUID)
-SID=$(uuidgen)
-terminal(command="grok --no-auto-update -s $SID -p 'Start refactoring the database layer' --always-approve", workdir="/project", timeout=240)
-
-# Resume that exact session later by its UUID
-terminal(command="grok --no-auto-update -r $SID -p 'Now add connection pooling' --always-approve", workdir="/project", timeout=180)
-
-# Or just continue the most recent session in this directory (no UUID needed)
-terminal(command="grok --no-auto-update -c -p 'What did you change last time?'", workdir="/project", timeout=60)
-```
-
+The full headless-mode guide is in `references/headless.md`.
 ## Read-Only Audit → Markdown Note Pattern
 
 To have Grok review local artifacts and return a clean markdown note (for
 Obsidian or a repo) without mutating anything:
 
-1. Prepare stable input files first with Hermes tools (`read_file`,
+1. Prepare stable input files first with ICOS tools (`read_file`,
    `write_file`). Snapshot only the relevant context into a temp file rather
    than dumping raw paths.
 2. Run Grok headless **without** `--always-approve` so it cannot auto-write, and
@@ -271,7 +205,7 @@ Put global preferences in `~/.grok/config.toml` (not project-scoped
 1. **Auth is subscription-gated.** `grok login` requires a SuperGrok or X
    Premium+ subscription. If login fails or there's no `~/.grok/auth.json`,
    confirm the subscription is active before falling back to `XAI_API_KEY`.
-2. **Don't conflate Hermes' xAI auth with the `grok` CLI's auth.** Hermes'
+2. **Don't conflate ICOS' xAI auth with the `grok` CLI's auth.** ICOS'
    `x_search` runs on its own xAI OAuth; the standalone `grok` CLI has a
    separate token in `~/.grok/auth.json`. A working `x_search` does NOT mean
    `grok` is logged in.
@@ -290,7 +224,7 @@ Put global preferences in `~/.grok/config.toml` (not project-scoped
    `mktemp -d && git init` for scratch commit tasks.
 9. **Clean up tmux sessions** with `tmux kill-session -t <name>` when done.
 
-## Rules for Hermes Agents
+## Rules for ICOS Agents
 
 1. **Prefer headless `-p`** for single tasks — cleanest integration, structured
    output via `--output-format json`.
@@ -303,6 +237,6 @@ Put global preferences in `~/.grok/config.toml` (not project-scoped
 6. **Use tmux for multi-turn interactive work** and monitor with
    `tmux capture-pane -t <session> -p -S -50`.
 7. **Verify auth before relying on it** — check `~/.grok/auth.json` or run a
-   cheap `grok -p "Say ok."` smoke test; don't assume Hermes' xAI auth carries
+   cheap `grok -p "Say ok."` smoke test; don't assume ICOS' xAI auth carries
    over.
 8. **Report results to the user** — summarize what Grok changed and what's left.

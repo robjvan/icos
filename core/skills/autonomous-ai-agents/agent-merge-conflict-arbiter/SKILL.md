@@ -7,8 +7,8 @@ license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [Multi-Agent, Git, Merge-Conflict, Kanban, Arbitration]
-    related_skills: [hermes-agent]
+    tags: [Multi-Agent, Git, Merge-Conflict, Arbitration]
+    related_skills: []
 ---
 
 # Agent Merge-Conflict Arbiter
@@ -22,7 +22,7 @@ produces a merged result, like a merge-queue arbiter.
 
 ## When to Use
 
-- Two agent branches/worktrees collide during a parallel campaign (kanban
+- Two agent branches/worktrees collide during a parallel campaign (parallel
   engineering pipeline, parallel-PR wave, multi-worktree refactor).
 - `git merge` or `git rebase` halts on conflicts between two agents' work and
   neither original agent should self-adjudicate.
@@ -33,9 +33,8 @@ produces a merged result, like a merge-queue arbiter.
 
 - A repo checkout containing the halted merge, or the two branch names plus
   permission to run the merge yourself.
-- Both sides' intent sources: kanban completion summaries (`terminal` running
-  `hermes kanban show <task-id>`), PR bodies, or at minimum each branch's
-  commit messages.
+- Both sides' intent sources: completion summaries (PR bodies, task notes), or
+  at minimum each branch's commit messages.
 - The project's build/test command, if one exists.
 
 ## How to Run
@@ -44,16 +43,11 @@ produces a merged result, like a merge-queue arbiter.
 repo: load the skill, then follow the Procedure top to bottom.
 
 **Spawned neutral agent** — the preferred shape in multi-agent campaigns:
-
-- `delegate_task`: spawn a subagent whose task message contains the repo path,
-  both branch names, and both sides' intent summaries verbatim, plus an
-  instruction to follow this skill.
-- Kanban-native: create a reconciliation card assigned to a **third profile**
-  (not either worker's profile) with BOTH conflicted cards linked as parents —
-  `kanban_create(title="reconcile branch-a x branch-b", assignee="reconciler",
-  parents=["t_a", "t_b"])`. The parent links carry both sides' completion
-  summaries into the reconciler's context automatically; the card body should
-  name the repo path and the two branches.
+dispatch a fresh subagent whose task message contains the repo path, both branch
+names, and both sides' intent summaries verbatim, plus an instruction to follow
+this skill. Subagent delegation (`delegate_task`) is not yet available in ICOS
+(M21); until then, run the procedure yourself as the neutral arbiter and state
+your neutrality explicitly in the hand-back summary.
 
 ## Quick Reference
 
@@ -76,8 +70,8 @@ explicitly in the hand-back summary.
   `git log --oneline <base>..<side>` and `git diff <base>..<side> -- <file>`
   for every conflicted file. In a halted merge, `HEAD` is one side and
   `MERGE_HEAD` is the other.
-- Collect each side's intent: `hermes kanban show <task-id>` for completion
-  summaries/metadata, or the PR body, or the commit messages from the log
+- Collect each side's intent: the task's completion summary/metadata, or the PR
+  body, or the commit messages from the log
   above. Write down one sentence of intent per side before touching any file.
 - Done when: you can state both intents in your own words and have both diffs
   for every conflicted file.
@@ -105,7 +99,7 @@ explicitly in the hand-back summary.
     into a hybrid neither side asked for.
   - superseded → keep the surviving side; delete the dead premise.
 - Never favor the side that spawned you. If intents genuinely tie, escalate
-  (block the kanban card / report back) rather than guess.
+  (report back / block the task) rather than guess.
 - Change nothing outside conflict markers — no formatting, renames, or
   opportunistic fixes.
 - `git add` each resolved file via `terminal`.
@@ -127,7 +121,7 @@ explicitly in the hand-back summary.
   `file:lines — class — which side(s) kept — rationale`. For every
   same-question-different-answer hunk, state the design question and the
   answer you picked so a human can veto it — never bury a design call.
-- Kanban: `kanban_complete(summary=...)`. Standalone: print the summary.
+- Print the completion summary.
 - Done when: the summary is delivered and lists all hunks.
 
 ## Pitfalls
@@ -141,12 +135,12 @@ explicitly in the hand-back summary.
   whole file as one class silently drops a disjoint change.
 - **Drive-by edits** make the merge unreviewable and steal decisions from the
   original agents.
-- **Missing intents**: commit messages alone can be thin; prefer kanban
-  completion summaries or PR bodies. If neither side's intent is recoverable,
+- **Missing intents**: commit messages alone can be thin; prefer completion
+  summaries or PR bodies. If neither side's intent is recoverable,
   escalate instead of guessing.
 - **Repeat offenders**: repeated conflicts on the SAME file across rounds are
   a hotspot signal, not routine reconciliation work — flag it (e.g. a
-  `hotspot: <path> — <reason>` kanban comment) so the orchestrator decomposes
+  `hotspot: <path> — <reason>` note) so the orchestrator decomposes
   that file, rather than serially reconciling every new collision on it.
 
 ## Verification

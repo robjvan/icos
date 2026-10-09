@@ -14,9 +14,9 @@ metadata:
 # Antigravity CLI (`agy`)
 
 Operator guide for the Antigravity CLI, invoked as `agy`. Run all `agy`
-commands through the Hermes `terminal` tool; inspect its config and logs with
+commands through the ICOS `terminal` tool; inspect its config and logs with
 `read_file`. This skill is reference + procedure — it does not wrap a network
-API, so there is nothing to authenticate from Hermes itself.
+API, so there is nothing to authenticate from ICOS itself.
 
 ## When to Use
 
@@ -116,7 +116,7 @@ review capacity can absorb.
 
 Antigravity is a **worker execution backend or third-opinion reviewer** — an
 execution detail owned by the agent/profile running a task, NOT a first-class
-orchestration primitive. Do not put `agy` on a kanban board as its own card or
+orchestration primitive. Do not put `agy` on a task board as its own card or
 treat it as a coordination layer; route work through the normal task graph and
 let the assigned worker choose `agy` (vs. codex/claude-code/direct tools) as its
 method. Reach for it explicitly only when the user asks, when a worker is

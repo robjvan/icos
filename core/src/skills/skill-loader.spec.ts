@@ -284,8 +284,9 @@ describe('scanSkillDir / loadSkillBody', () => {
   it('loads the real skill collection under its category layout (M18)', async () => {
     const root = join(__dirname, '..', '..', 'skills');
     const result = await scanSkillDir(root, { maxBodyChars: 64 * 1024 });
-    // The collection ships ~98 skills; almost all should now load.
-    expect(result.descriptors.length).toBeGreaterThanOrEqual(90);
+    // The collection ships ~98 skills; ~10 Hermes-specific ones were dropped
+    // in M18, so ~88 remain.
+    expect(result.descriptors.length).toBeGreaterThanOrEqual(88);
     const arxiv = result.descriptors.find((d) => d.name === 'arxiv');
     expect(arxiv).toMatchObject({
       path: 'research/arxiv',
