@@ -51,6 +51,9 @@ slice (M20.5), then the two larger features (M20.6–M20.7).
 
 ## M20.1 — Frontend correctness & polish
 
+> **Done** (2026-10-09) — operator-tested. Commits: `5207d2b` (initial) +
+> `2b9937f` (inline-code `/g`, pipe tables, chat-overflow fixes).
+
 **Covers:** M20a (markdown), M20b (tab styling), M20c (duplicate controls),
 M20d (viewport overflow), M20n (credit). Plus the extra styling defects above.
 
