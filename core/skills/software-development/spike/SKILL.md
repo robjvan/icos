@@ -25,7 +25,7 @@ Load this when the user says things like "let me try this", "I want to see if X 
 
 ## If the user has the full GSD system installed
 
-If `gsd-spike` shows up as a sibling skill (installed via `npx get-shit-done-cc --hermes`), prefer **`gsd-spike`** when the user wants the full GSD workflow: persistent `.planning/spikes/` state, MANIFEST tracking across sessions, Given/When/Then verdict format, and commit patterns that integrate with the rest of GSD. This skill is the lightweight standalone version for users who don't have (or don't want) the full system.
+If `gsd-spike` shows up as a sibling skill (an optional external skill), prefer **`gsd-spike`** when the user wants the full GSD workflow: persistent `.planning/spikes/` state, MANIFEST tracking across sessions, Given/When/Then verdict format, and commit patterns that integrate with the rest of GSD. This skill is the lightweight standalone version for users who don't have (or don't want) the full system.
 
 ## Core method
 
@@ -122,16 +122,11 @@ terminal("cd spikes/001-websocket-streaming && python main.py")
 # Observe output, iterate.
 ```
 
-**Parallel comparison spikes (002a / 002b) — delegate.** When two approaches can run in parallel and both need real engineering (not 10-line prototypes), fan out with `delegate_task`:
-
-```
-delegate_task(tasks=[
-    {"goal": "Build 002a-pdf-parse-pdfjs: ...", "toolsets": ["terminal", "file", "web"]},
-    {"goal": "Build 002b-pdf-parse-camelot: ...", "toolsets": ["terminal", "file", "web"]},
-])
-```
-
-Each subagent returns its own verdict; you write the head-to-head.
+**Parallel comparison spikes (002a / 002b) — sequential for now.** When two
+approaches both need real engineering, fanning out to subagents
+(`delegate_task`) is not yet available in ICOS (M21). Until then, run the two
+spikes sequentially (or interleave with `execute_code`), then write the
+head-to-head yourself.
 
 ### 5. Verdict
 
@@ -194,4 +189,4 @@ Propose 2-4 candidates as Given/When/Then. Let the user pick.
 
 ## Attribution
 
-Adapted from the GSD (Get Shit Done) project's `/gsd-spike` workflow — MIT © 2025 Lex Christopherson ([gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done)). The full GSD system offers persistent spike state, MANIFEST tracking, and integration with a broader spec-driven development pipeline; install with `npx get-shit-done-cc --hermes --global`.
+Adapted from the GSD (Get Shit Done) project's `/gsd-spike` workflow — MIT © 2025 Lex Christopherson ([gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done)). The full GSD system offers persistent spike state, MANIFEST tracking, and integration with a broader spec-driven development pipeline; it is an optional external tool.

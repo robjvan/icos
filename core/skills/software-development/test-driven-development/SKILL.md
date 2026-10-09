@@ -316,28 +316,12 @@ terminal("pytest tests/test_feature.py::test_name -v")
 terminal("pytest tests/ -q")
 ```
 
-### With delegate_task
+### Parallel implementation (subagents)
 
-When dispatching subagents for implementation, enforce TDD in the goal:
-
-```python
-delegate_task(
-    goal="Implement [feature] using strict TDD",
-    context="""
-    Follow test-driven-development skill:
-    1. Write failing test FIRST
-    2. Run test to verify it fails
-    3. Write minimal code to pass
-    4. Run test to verify it passes
-    5. Refactor if needed
-    6. Commit
-
-    Project test command: pytest tests/ -q
-    Project structure: [describe relevant files]
-    """,
-    toolsets=['terminal', 'file']
-)
-```
+Dispatching implementation subagents (`delegate_task`) is not yet available in
+ICOS (M21). Until then, enforce the same TDD discipline inline: write the failing
+test first, run it to confirm it fails, write the minimal fix, run it to confirm
+it passes, refactor, then commit.
 
 ### With systematic-debugging
 

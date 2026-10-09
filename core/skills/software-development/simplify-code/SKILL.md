@@ -79,27 +79,21 @@ changed lines), warn the user that four subagents each carrying the full diff
 will be token-heavy, and offer to scope it down (per-directory, per-commit)
 before proceeding.
 
-### Phase 2 — Launch four reviewers in parallel
+### Phase 2 — Run four reviewers
 
-Use `delegate_task` **batch mode** — pass all four tasks in one `tasks`
-array so they run concurrently. Four is the right fan-out for this pattern;
-it's within the `delegation.max_concurrent_children` budget on any default
-install.
+The ideal is a **parallel fan-out**: four focused reviewers, each carrying the
+whole diff, run concurrently. Subagent delegation (`delegate_task`) is not yet
+available in ICOS (M21). **Until then, work through all four reviewer angles
+yourself, sequentially, in this context** — same search standards, same finding
+format — and say clearly in your final summary that this was a single-pass
+inline review rather than the parallel fan-out, so the user knows what ran.
+(When M21 lands, dispatch the four tasks concurrently in one batch.)
 
-**No delegation available?** If you can't call `delegate_task` in this
-context (you're a leaf subagent, delegation is disabled, or the budget is
-exhausted), do NOT skip the review or drop angles. Work through all four
-reviewer angles yourself, sequentially, in this context — same search
-standards, same finding format. Then say clearly in your final summary that
-this was a single-pass inline review, not the parallel fan-out, so the user
-knows what actually ran.
+Give **every** angle the **complete diff** (not fragments — cross-file issues
+hide in the gaps) plus the absolute repo path so you can search the wider
+codebase (`git`, `read_file`, `search_files`/grep).
 
-Give **every** reviewer the **complete diff** (not fragments — cross-file
-issues hide in the gaps) plus the absolute repo path so they can search the
-wider codebase. Each reviewer gets `terminal`, `file`, and `search`
-toolsets (so they can `git`, `read_file`, and `search_files`/grep).
-
-Tell each reviewer to:
+For each angle:
 - Search the existing codebase for evidence (don't reason from the diff alone).
 - **Apply Chesterton's Fence:** before flagging anything for removal, run
   `git blame` on the line to understand why it exists. If you can't determine
@@ -121,68 +115,17 @@ Tell each reviewer to:
 - Skip nits and style-only churn. Only flag things that materially improve
   the code.
 
-Pass these four goals (drop any the user's focus excludes):
+Pass these four goals (drop any the user's focus excludes). The full prompts
+are in `references/reviewer-angles.md`:
 
-**Reviewer 1 — Code Reuse**
-> Review this diff for code that duplicates functionality already in the
-> codebase. Search utility modules, shared helpers, and adjacent files
-> (use search_files / grep) for existing functions, constants, or patterns
-> the new code could call instead of reimplementing. Flag: new functions
-> that duplicate existing ones; hand-rolled logic that an existing utility
-> already does (manual string/path manipulation, custom env checks, ad-hoc
-> type guards, re-implemented parsing). For each, name the existing thing to
-> use and where it lives.
-
-**Reviewer 2 — Code Quality**
-> Review this diff for quality problems. Look for: redundant state (values
-> that duplicate or could be derived from existing state; caches that don't
-> need to exist); parameter sprawl (new params bolted on where the function
-> should have been restructured); copy-paste-with-variation (near-duplicate
-> blocks that should share an abstraction); leaky abstractions (exposing
-> internals, breaking an existing encapsulation boundary); stringly-typed
-> code (raw strings where a constant/enum/registry already exists — check the
-> canonical registries before flagging); deeply nested conditionals (ternary
-> chains, 3+-level if/else pyramids — flatten with guard clauses, early
-> returns, or a lookup table); AI-generated slop patterns (extra
-> comments restating obvious code like `// increment counter` above `count++`;
-> unnecessary defensive null-checks on already-validated inputs; `as any`
-> casts that bypass the type system; patterns inconsistent with the rest of
-> the file). For each, give the concrete refactor.
-
-**Reviewer 3 — Efficiency**
-> Review this diff for efficiency problems. Look for: unnecessary work
-> (redundant computation, repeated file reads, duplicate API calls, N+1
-> access patterns); missed concurrency (independent ops run sequentially);
-> hot-path bloat (heavy/blocking work on startup or per-request paths);
-> TOCTOU anti-patterns (existence pre-checks before an op instead of doing
-> the op and handling the error); memory issues (unbounded growth, missing
-> cleanup, listener/handle leaks; long-lived callbacks or objects built as
-> closures that capture the whole enclosing scope — everything captured
-> stays alive as long as the object does, so prefer a small class or
-> explicit-fields struct that copies only what it needs); overly broad reads
-> (loading whole files when a slice would do); silent failures (empty catch
-> blocks, ignored error returns, `except: pass`, `.catch(() => {})` with no
-> handling, error propagation gaps — these hide bugs and should at minimum
-> log before swallowing). For each, give the concrete fix and why it's
-> faster or safer.
-
-**Reviewer 4 — Altitude**
-> Review this diff for changes implemented at the wrong depth — band-aids
-> layered on top of shared infrastructure instead of fixes to the
-> infrastructure itself. Signs of a too-shallow fix: a special case added to
-> a generic code path to handle one caller (an `if (caller == X)` branch, a
-> type check, a magic-value escape hatch); a symptom patched at the call
-> site while sibling call sites keep the same flaw; a workaround stacked on
-> an earlier workaround; a wrapper added to avoid touching the thing that
-> actually needs changing; configuration or flags introduced to route around
-> a broken default instead of fixing the default. For each, identify the
-> underlying mechanism the change is dodging and describe the deeper fix —
-> generalize the shared path, fix the root default, or fix the whole bug
-> class — and honestly note when the deeper fix is large enough that it
-> should be its own task rather than part of this cleanup. Read the
-> surrounding code and `git blame` first: what looks like a band-aid is
-> sometimes a deliberate boundary (compat shims, staged migrations,
-> vendored-code isolation). Don't flag those.
+1. **Code Reuse** — code that duplicates functionality already in the codebase;
+   name the existing thing to use and where it lives.
+2. **Code Quality** — redundant state, parameter sprawl, copy-paste-with-
+   variation, leaky abstractions, stringly-typed code, deep nesting, AI-slop.
+3. **Efficiency** — unnecessary work, missed concurrency, hot-path bloat, TOCTOU,
+   memory leaks, overly broad reads, silent failures.
+4. **Altitude** — band-aids on shared infrastructure instead of fixing the root;
+   identify the deeper fix (and note when it deserves its own task).
 
 ### Phase 3 — Aggregate and apply
 

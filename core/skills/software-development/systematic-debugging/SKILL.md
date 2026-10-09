@@ -320,36 +320,9 @@ This is NOT a failed hypothesis — this is a wrong architecture.
 
 ## Red Flags — STOP and Follow Process
 
-If you catch yourself thinking:
-- "Quick fix for now, investigate later"
-- "Just try changing X and see if it works"
-- "Add multiple changes, run tests"
-- "Skip the test, I'll manually verify"
-- "It's probably X, let me fix that"
-- "I don't fully understand but this might work"
-- "Pattern says X but I'll adapt it differently"
-- "Here are the main problems: [lists fixes without investigation]"
-- Proposing solutions before tracing data flow
-- **"One more fix attempt" (when already tried 2+)**
-- **Each fix reveals a new problem in a different place**
-
-**ALL of these mean: STOP. Return to Phase 1.**
-
-**If 3+ fixes failed:** Question the architecture (Phase 4 step 5).
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "Issue is simple, don't need process" | Simple issues have root causes too. Process is fast for simple bugs. |
-| "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. |
-| "Just try this first, then investigate" | First fix sets the pattern. Do it right from the start. |
-| "I'll write test after confirming fix works" | Untested fixes don't stick. Test first proves it. |
-| "Multiple fixes at once saves time" | Can't isolate what worked. Causes new bugs. |
-| "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs. Read it completely. |
-| "I see the problem, let me fix it" | Seeing symptoms ≠ understanding root cause. |
-| "One more fix attempt" (after 2+ failures) | 3+ failures = architectural problem. Question the pattern, don't fix again. |
-
+If you catch yourself cutting corners (jumping to a fix, guessing at the
+cause, patching symptoms), stop and follow the four phases. The full list of
+red flags and the rationalizations to avoid is in `references/red-flags.md`.
 ## Quick Reference
 
 | Phase | Key Activities | Success Criteria |
@@ -359,7 +332,7 @@ If you catch yourself thinking:
 | **3. Hypothesis** | Form theory, test minimally, one variable at a time | Confirmed or new hypothesis |
 | **4. Implementation** | Create regression test, fix root cause, verify | Bug resolved, all tests pass |
 
-## Hermes Agent Integration
+## ICOS Integration
 
 ### Investigation Tools
 
@@ -370,27 +343,12 @@ Use these Hermes tools during Phase 1:
 - **`terminal`** — Run tests, check git history, reproduce bugs
 - **`web_search`/`web_extract`** — Research error messages, library docs
 
-### With delegate_task
+### Parallel investigation (subagents)
 
-For complex multi-component debugging, dispatch investigation subagents:
-
-```python
-delegate_task(
-    goal="Investigate why [specific test/behavior] fails",
-    context="""
-    Follow systematic-debugging skill:
-    1. Read the error message carefully
-    2. Reproduce the issue
-    3. Trace the data flow to find root cause
-    4. Report findings — do NOT fix yet
-
-    Error: [paste full error]
-    File: [path to failing code]
-    Test command: [exact command]
-    """,
-    toolsets=['terminal', 'file']
-)
-```
+Dispatching investigation subagents (`delegate_task`) is not yet available in
+ICOS (M21). Until then, investigate inline following the same discipline: read
+the error carefully, reproduce it, trace the data flow to the root cause, and
+report findings before fixing.
 
 ### With test-driven-development
 
@@ -402,10 +360,5 @@ When fixing bugs:
 
 ## Real-World Impact
 
-From debugging sessions:
-- Systematic approach: 15-30 minutes to fix
-- Random fixes approach: 2-3 hours of thrashing
-- First-time fix rate: 95% vs 40%
-- New bugs introduced: Near zero vs common
-
-**No shortcuts. No guessing. Systematic always wins.**
+Systematic debugging fixes in 15-30 min vs 2-3 h of thrashing, with a 95% vs
+40% first-time fix rate and near-zero new bugs. No shortcuts, no guessing.

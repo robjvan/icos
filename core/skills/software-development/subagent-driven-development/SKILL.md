@@ -17,6 +17,12 @@ metadata:
 
 Execute implementation plans by dispatching fresh subagents per task with systematic two-stage review.
 
+**Requires the subagent/delegation feature (M21).** `delegate_task` is not yet
+available in ICOS. Until it lands, execute the plan directly — one task at a
+time, with the same two-stage review (spec compliance, then code quality) and a
+deliberately fresh context per task — and revisit this skill once subagents
+exist. The `delegate_task` snippets below document the intended workflow.
+
 **Core principle:** Fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration.
 
 ## When to Use
