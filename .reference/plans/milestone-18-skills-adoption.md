@@ -4,8 +4,8 @@
 > layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
 > child), M18.3 (adapt research/web/data-science), M18.3a (trim research
 > over-cap bodies), M18.4 (adapt software-development/devops/mlops/dogfood),
-> M18.5 (adapt productivity/note-taking/communication/email).
-> Objective: adopt the 98-skill
+> M18.5 (adapt productivity/note-taking/communication/email), M18.6 (adapt
+> creative/media/gaming). Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -65,12 +65,15 @@ and `templates/`.
 - **M18.5 — Adapt productivity + note-taking + communication + email.** *Done.*
   Dropped `teams-meeting-pipeline`; fixed paths/env/tools; trimmed 3 over-cap
   bodies. See `evidence/milestone-18/m18.5-productivity-evidence.md`.
-- **M18.6+ — Adapt by category** (one slice per group):
-  - creative + media + gaming
-  - apple + autonomous-ai-agents + health + social-media + legacy
-  Each: rewrite bodies/scripts to ICOS tools, trim over-cap bodies into
-  `references/`, drop Hermes-specific skills, and handle `delegate_task` →
-  **defer to M21**.
+- **M18.6 — Adapt creative + media + gaming.** *Done.* Dropped `unreal-mcp` +
+  `impeccable`; fixed paths/tools (incl. `sketch` local-HTML serving); trimmed 7
+  over-cap bodies. See `evidence/milestone-18/m18.6-creative-evidence.md`.
+- **M18.7 — Adapt apple + autonomous-ai-agents + health + social-media +
+  legacy.** The final group; the 6 remaining over-cap skills are here
+  (`claude-code`, `computer-use`, `grok`, `hermes-agent`, `honcho`, `xurl`),
+  all Hermes/other-tool-specific (candidates to drop).
+- **M18.x — Per-session enable/disable** (context-window pressure), if the
+  existing `/skills use|drop|pull` pinning is not enough.
 - **M18.y — Shipped-skill update path.** The seed never overwrites, so an
   adapted shipped skill does not reach a runtime copy that already exists.
   Decide on a re-seed/force update (e.g. `/skills seed --force`).
