@@ -63,6 +63,24 @@
   text-decoration: underline;
 }
 
+.message table {
+  border-collapse: collapse;
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.message th,
+.message td {
+  border: 1px solid var(--border-default);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+
+.message th {
+  background: rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+}
+
 .user {
   align-self: flex-end;
   background: var(--bg-user-bubble);

@@ -101,6 +101,12 @@ app-root {
   height: 100%;
 }
 
+/* The router-outlet element is only a marker; left inline it adds a stray line
+   box that pushes routed content past the viewport (M20d). */
+router-outlet {
+  display: none;
+}
+
 /* Shared tab-pane layout (M20b). Defined globally so every tab pane — including
    MCP, Models, and Server, whose component CSS omitted them — gets the same
    padding, header, badge, and scroll behaviour. */

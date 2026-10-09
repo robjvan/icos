@@ -15,6 +15,20 @@ describe('renderMarkdown', () => {
     );
   });
 
+  it('renders every inline code span, not just the first', () => {
+    expect(renderMarkdown('a `x` and `y` b')).toBe(
+      '<p>a <code>x</code> and <code>y</code> b</p>',
+    );
+  });
+
+  it('renders GitHub-style pipe tables', () => {
+    const md = 'title | number\n--- | ---\ntest | 1\ntest | 2';
+    expect(renderMarkdown(md)).toBe(
+      '<table><thead><tr><th>title</th><th>number</th></tr></thead>' +
+        '<tbody><tr><td>test</td><td>1</td></tr><tr><td>test</td><td>2</td></tr></tbody></table>',
+    );
+  });
+
   it('renders fenced code blocks verbatim', () => {
     const html = renderMarkdown('```js\nconst x = **1**;\n```');
     expect(html).toBe('<pre><code class="language-js">const x = **1**;</code></pre>');
