@@ -1,6 +1,6 @@
 # M19 — Dynamic MCP Server toolsets
 
-> Status: **planned** (2026-10-09; decisions confirmed). Client side only: ICOS
+> Status: **complete** (2026-10-09; decisions confirmed). Client side only: ICOS
 > **connects to** configured MCP servers and **auto-generates a toolset from each
 > server's discovered tools** — ICOS is not itself exposed as an MCP server.
 > Related: **M13** (the MCP client this extends), **M17a** (the toolset policy
@@ -198,15 +198,15 @@ ByteStash exposes six tools (`list_snippets`, `get_snippet`, `create_snippet`,
 
 ## Slices
 
-- **M19.1 — Descriptor toolset.** Extend the `ForeignToolSource` projection;
-  bridge sets `mcp-<server>`; registry emits it. Unit: naming + registry.
-- **M19.2 — Aliases + composition.** `toolsetAliases` seam; alias-aware
-  `resolveToolPolicy`; conversation wiring. Unit: policy matrix.
-- **M19.3 — Surface + docs.** `/core/mcp/servers` toolset field; `.env.sample`;
-  a short note in `docs/`.
-- **M19.4 — Verification.** E2E with the in-process fake MCP transport (already
-  exists in `sdk-mcp-client.transport.spec.ts`) + a live run against a tiny
-  local stdio MCP server.
+- **M19.1 — Descriptor toolset.** *Done.* `ForeignToolSource` projection carries
+  `toolset`; the bridge sets `mcp-<server>`; the registry emits it.
+- **M19.2 — Aliases + composition.** *Done.* `toolsetAliases` seam; alias-aware
+  `resolveToolPolicy`; conversation wiring.
+- **M19.3 — Surface + docs.** *Done.* `GET /core/mcp/servers` reports the
+  generated `toolset`; `.env.sample` documents the aliases + composition.
+- **M19.4 — Verification.** *Done.* Unit matrix + live verification against the
+  ByteStash MCP server (connect/discover, bare-name alias, `browser`-name
+  composition). See `evidence/milestone-19/`.
 
 ## Verification plan
 
