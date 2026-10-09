@@ -94,7 +94,12 @@ describe('SkillsController', () => {
     const body = (await controller()).list();
     expect(body.enabled).toBe(true);
     expect(body.skills).toEqual([
-      { name: 'daily-journal', description: 'Journal.', version: '0.0.0' },
+      {
+        name: 'daily-journal',
+        description: 'Journal.',
+        version: '0.0.0',
+        path: 'daily-journal',
+      },
     ]);
     expect(body.skipped).toEqual([]);
   });

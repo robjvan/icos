@@ -134,10 +134,12 @@ export class SkillService implements OnModuleInit {
   }): Promise<SkillDescriptor> {
     this.requireEnabled();
     const content = this.buildSkillFile(input);
-    const dir = join(this.skillsDir, input.name);
-    if (await pathExists(dir)) {
+    if (this.descriptors.has(input.name.toLowerCase())) {
       throw new BadRequestException(`Skill "${input.name}" already exists`);
     }
+    // Managed skills are written flat at the root (still discovered
+    // recursively); shipped skills keep their category paths.
+    const dir = join(this.skillsDir, input.name);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
     return this.reloadAndRequire(input.name);
@@ -150,11 +152,12 @@ export class SkillService implements OnModuleInit {
     body: string;
   }): Promise<SkillDescriptor> {
     this.requireEnabled();
-    const content = this.buildSkillFile(input);
-    const dir = join(this.skillsDir, input.name);
-    if (!(await pathExists(dir))) {
+    const descriptor = this.descriptors.get(input.name.toLowerCase());
+    if (!descriptor) {
       throw new NotFoundException(`Unknown skill "${input.name}"`);
     }
+    const content = this.buildSkillFile(input);
+    const dir = join(this.skillsDir, descriptor.path ?? descriptor.name);
     await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
     return this.reloadAndRequire(input.name);
   }
@@ -162,11 +165,14 @@ export class SkillService implements OnModuleInit {
   /** Delete a skill directory (recursive). */
   async deleteSkill(name: string): Promise<void> {
     this.requireEnabled();
-    const dir = join(this.skillsDir, name);
-    if (!(await pathExists(dir))) {
+    const descriptor = this.descriptors.get(name.toLowerCase());
+    if (!descriptor) {
       throw new NotFoundException(`Unknown skill "${name}"`);
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(join(this.skillsDir, descriptor.path ?? descriptor.name), {
+      recursive: true,
+      force: true,
+    });
     await this.refresh();
   }
 
@@ -282,9 +288,13 @@ export class SkillService implements OnModuleInit {
     if (cached) return cached;
     let parsed: ParsedSkillFile;
     try {
-      parsed = await loadSkillBody(this.config.skillsDirPath, descriptor.name, {
-        maxBodyChars: this.config.skillsMaxBodyChars,
-      });
+      parsed = await loadSkillBody(
+        this.config.skillsDirPath,
+        descriptor.path ?? descriptor.name,
+        {
+          maxBodyChars: this.config.skillsMaxBodyChars,
+        },
+      );
     } catch {
       // File changed or vanished since the scan: evict rather than serve
       // stale or invalid content.
@@ -518,14 +528,5 @@ export class SkillService implements OnModuleInit {
   /** Record what the last completed turn injected (memory-only). */
   recordLastTurn(report: TurnSkillReport): void {
     this.lastTurn.set(report.sessionId, report);
-  }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await fs.stat(path);
-    return true;
-  } catch {
-    return false;
   }
 }
