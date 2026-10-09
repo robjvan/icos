@@ -40,8 +40,8 @@
 
 ### Phase 3 - Environment & Agency
 
-- [ ] M16: External communication integrations
-- [ ] M17: Tools Expansion
+- [x] M16: External communication integrations
+- [x] M17: Tools Expansion
 - [ ] M18: Skills Adoption
 - [ ] M19: Dynamic MCP Server toolsets
 - [ ] M20: Web client catchup Work
@@ -70,26 +70,19 @@
 
 ---
 
-### Phase 6 - Distribution & Embodiment
-
-- [ ] M33: Distributed ICOS
-- [ ] M34: Embodied Autonomy
-- [ ] M35: Situated Learning
-
----
-
-### Phase 7 - Open-Ended Inquiry
+### Phase 6 - Open-Ended Inquiry
 
 - [ ] M36: Open-Ended Knowledge Acquisition
 - [ ] M37: Self-Directed Research
 - [ ] M38: Continuity
-- [ ] M39: ICOS Ecosystem
 - [ ] M40: Open-Ended Research
 
 ---
 
-### Phase 8 - Physical Mastery
+### Phase 7 - Physical Mastery
 
+- [ ] M34: Embodied Autonomy
+- [ ] M35: Situated Learning
 - [ ] M41: Advanced Perception
 - [ ] M42: Building-Scale Environment Control
 - [ ] M43: Mobile Embodiment
@@ -97,6 +90,8 @@
 
 ## Deferred / Under Consideration
 
+- [ ] M33: Distributed ICOS
+- [ ] M39: ICOS Ecosystem
 - [ ] Episodic consolidation
 - [ ] Knowledge-source synchronization
 

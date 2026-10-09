@@ -8,6 +8,8 @@
 ![Commits](https://img.shields.io/github/commit-activity/t/robjvan/icos?logo=github)
 ![LastCommit](https://img.shields.io/github/last-commit/robjvan/icos?color=CBA701&logo=github)
 
+![LatestRelease](https://img.shields.io/github/v/release/robjvan/icos?include_prereleases)
+
 ![Tests](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
 ![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7-green?logo=jest)
 ![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9-green?logo=jest)
@@ -202,33 +204,33 @@ Development is active and the architecture is expected to change substantially a
 ICOS is being developed as a sequence of increasingly capable experiments.
 Each milestone states a **goal** — a capability to reach, not a claim to defend.
 
-|  Milestone   | Goal                                                                          |
-| :----------: | :---------------------------------------------------------------------------- |
-|    **M1**    | Establish the core conversation loop.                                         |
-|    **M2**    | Stream responses token by token.                                              |
-|    **M3**    | Persist and search conversation history.                                      |
-|    **M4**    | Extract candidate memories from turns.                                        |
-|    **M5**    | Swap LLM providers without touching core.                                     |
-|    **M6**    | Structured human interaction: commands, approvals, clarifications.            |
-|    **M7**    | Acquire skills from a filesystem catalog.                                     |
-|    **M8**    | Execute tools reliably, durably, and with approval.                           |
-|    **M9**    | Complete tasks autonomously via an agent loop.                                |
-|   **M10**    | Form durable, provenance-tracked knowledge.                                   |
-|   **M11**    | Retrieve and apply knowledge in context.                                      |
-|   **M12**    | Let knowledge evolve: consolidation, decay, revision.                         |
-|   **M13**    | Use capabilities provided by external systems (MCP).                          |
-|   **M14**    | Maintain a persistent, reviewable persona.                                    |
-|   **M15**    | Detect and report identity drift.                                             |
-|   **M16**    | Communicate through external channels.                                        |
-|   **M17**    | Expand the tool surface.                                                      |
-|   **M18**    | Adopt a broader skill library.                                                |
-|   **M19**    | Dynamic MCP server toolsets.                                                  |
-|   **M20**    | Catch the web client up, including Discord slash commands.                    |
-|   **M21**    | Delegate work to subagents.                                                   |
-|   **M22**    | Execute autonomous actions.                                                   |
-|   **M23**    | Steward the knowledge base.                                                   |
-| **Deferred** | **_Episodic consolidation:_** abstracting experience into knowledge.          |
-| **Deferred** | **_Source synchronization:_** keeping knowledge aligned with the world.       |
+|  Milestone   | Goal                                                                    |
+| :----------: | :---------------------------------------------------------------------- |
+|    **M1**    | Establish the core conversation loop.                                   |
+|    **M2**    | Stream responses token by token.                                        |
+|    **M3**    | Persist and search conversation history.                                |
+|    **M4**    | Extract candidate memories from turns.                                  |
+|    **M5**    | Swap LLM providers without touching core.                               |
+|    **M6**    | Structured human interaction: commands, approvals, clarifications.      |
+|    **M7**    | Acquire skills from a filesystem catalog.                               |
+|    **M8**    | Execute tools reliably, durably, and with approval.                     |
+|    **M9**    | Complete tasks autonomously via an agent loop.                          |
+|   **M10**    | Form durable, provenance-tracked knowledge.                             |
+|   **M11**    | Retrieve and apply knowledge in context.                                |
+|   **M12**    | Let knowledge evolve: consolidation, decay, revision.                   |
+|   **M13**    | Use capabilities provided by external systems (MCP).                    |
+|   **M14**    | Maintain a persistent, reviewable persona.                              |
+|   **M15**    | Detect and report identity drift.                                       |
+|   **M16**    | Communicate through external channels.                                  |
+|   **M17**    | Expand the tool surface.                                                |
+|   **M18**    | Adopt a broader skill library.                                          |
+|   **M19**    | Dynamic MCP server toolsets.                                            |
+|   **M20**    | Catch the web client up, including Discord slash commands.              |
+|   **M21**    | Delegate work to subagents.                                             |
+|   **M22**    | Execute autonomous actions.                                             |
+|   **M23**    | Steward the knowledge base.                                             |
+| **Deferred** | **_Episodic consolidation:_** abstracting experience into knowledge.    |
+| **Deferred** | **_Source synchronization:_** keeping knowledge aligned with the world. |
 
 Each milestone is tracked in `.reference/plans/` (plans and evidence), with
 completed plans under `.reference/plans/closed/` and their verification under
