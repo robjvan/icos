@@ -297,11 +297,11 @@ For local, GPU-based generation instead of Suno, two optional skills
 cover this (heavy dependencies, so not installed by default):
 
 - **heartmula** — full songs with vocals from lyrics + tags
-  (open-source Suno alternative, 8-16GB VRAM):
-  `hermes skills install official/creative/heartmula`
+  (open-source Suno alternative, 8-16GB VRAM): install from its source repo
+  (not bundled with ICOS).
 - **audiocraft** — Meta's MusicGen (instrumental text-to-music) and
-  AudioGen (sound effects):
-  `hermes skills install official/creative/audiocraft-audio-generation`
+  AudioGen (sound effects): install from its source repo (not bundled with
+  ICOS).
 
 The lyric-writing and prompting craft in this skill applies to
 heartmula too — its input format is lyrics with bracketed structure

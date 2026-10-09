@@ -26,7 +26,7 @@ Load this when the user says things like "sketch this screen", "show me what X c
 
 ## If the user has the full GSD system installed
 
-If `gsd-sketch` shows up as a sibling skill (installed via `npx get-shit-done-cc --hermes`), you can use **`gsd-sketch`** for the fuller workflow: persistent `.planning/sketches/` with MANIFEST, frontier mode analysis, consistency audits across past sketches, and integration with the rest of GSD. This skill is the lightweight standalone version — one-off sketching without the state machinery.
+If `gsd-sketch` shows up as a sibling skill (an optional external skill), you can use **`gsd-sketch`** for the fuller workflow: persistent `.planning/sketches/` with MANIFEST, frontier mode analysis, consistency audits across past sketches, and integration with the rest of GSD. This skill is the lightweight standalone version — one-off sketching without the state machinery.
 
 > **Note:** The upstream GSD project ([gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done)) is **archived / no longer maintained** on GitHub. The npm package (`get-shit-done-cc`) still installs, but treat it as an archived community project — this standalone `sketch` skill is the maintained path and needs nothing extra.
 
@@ -87,14 +87,16 @@ Each variant is a **single self-contained HTML file**:
 
 Open it in a browser. If it looks broken, fix it before showing the user.
 
-**Verify variants visually — use Hermes' browser tools.** Don't just write HTML and hope it renders; load each variant and look at it:
+**Verify variants visually — use ICOS' `browser` tool.** Don't just write HTML and hope it renders; serve the sketches over a local HTTP server and look at each variant. ICOS' `browser` tool only navigates http(s) (not `file://`), so start a server from the workspace:
 
 ```
-browser_navigate(url="file:///absolute/path/to/sketches/001-calm-editorial/index.html")
-browser_vision(question="Does this layout look clean and readable? Any visible bugs (overlapping text, unstyled elements, broken images)?")
+terminal("python3 -m http.server 8765 --directory sketches")
+browser {action: "navigate", url: "http://127.0.0.1:8765/001-calm-editorial/index.html"}
+browser {action: "screenshot"}            # → {path}
+vision_analyze {image_path: "<path>", question: "Does this layout look clean and readable? Any visible bugs (overlapping text, unstyled elements, broken images)?"}
 ```
 
-`browser_vision` returns an AI description of what's actually on the page plus a screenshot path — catches layout bugs that pure source inspection misses (e.g. a font import that silently failed, a flex container that collapsed). Fix and re-navigate until each variant looks right.
+`vision_analyze` on the screenshot catches layout bugs that pure source inspection misses (e.g. a font import that silently failed, a flex container that collapsed). Fix and re-navigate until each variant looks right.
 
 **Default CSS reset + system font stack** for fast starts:
 
@@ -209,12 +211,13 @@ Propose 2-4 named candidates. Let the user pick.
 terminal("mkdir -p sketches/001-calm-editorial")
 write_file("sketches/001-calm-editorial/index.html", "<!doctype html>...")
 write_file("sketches/001-calm-editorial/README.md", "## Variant: Calm editorial\n...")
-browser_navigate(url="file://$(pwd)/sketches/001-calm-editorial/index.html")
-browser_vision(question="How does this look? Any obvious layout issues?")
+terminal("python3 -m http.server 8765 --directory sketches")
+browser {action: "navigate", url: "http://127.0.0.1:8765/001-calm-editorial/index.html"}
+browser {action: "screenshot"} → vision_analyze {image_path: "<path>", question: "How does this look? Any obvious layout issues?"}
 ```
 
 Repeat for each variant, then present the comparison table.
 
 ## Attribution
 
-Adapted from the GSD (Get Shit Done) project's `/gsd-sketch` workflow — MIT © 2025 Lex Christopherson ([gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done)). The upstream GSD repo is now **archived/unmaintained** on GitHub; the `get-shit-done-cc` npm package still installs (`npx get-shit-done-cc --hermes --global`) and ships persistent sketch state, theme/variant pattern references, and consistency-audit workflows, but treat it as an archived community project.
+Adapted from the GSD (Get Shit Done) project's `/gsd-sketch` workflow — MIT © 2025 Lex Christopherson ([gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done)). The upstream GSD repo is now **archived/unmaintained** on GitHub; the `get-shit-done-cc` npm package still installs (via its own CLI) and ships persistent sketch state, theme/variant pattern references, and consistency-audit workflows, but treat it as an archived community project.
