@@ -3,7 +3,8 @@
 > Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
 > layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
 > child), M18.3 (adapt research/web/data-science), M18.3a (trim research
-> over-cap bodies), M18.4 (adapt software-development/devops/mlops/dogfood).
+> over-cap bodies), M18.4 (adapt software-development/devops/mlops/dogfood),
+> M18.5 (adapt productivity/note-taking/communication/email).
 > Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
@@ -61,8 +62,10 @@ and `templates/`.
   Dropped 4 Hermes-app-specific skills; rewrote `dogfood` for the minimal
   `browser` tool; added `delegate_task` (M21) fallbacks; trimmed 3 over-cap
   bodies into `references/`. See `evidence/milestone-18/m18.4-sw-dev-evidence.md`.
-- **M18.5+ — Adapt by category** (one slice per group):
-  - productivity + note-taking + communication + email
+- **M18.5 — Adapt productivity + note-taking + communication + email.** *Done.*
+  Dropped `teams-meeting-pipeline`; fixed paths/env/tools; trimmed 3 over-cap
+  bodies. See `evidence/milestone-18/m18.5-productivity-evidence.md`.
+- **M18.6+ — Adapt by category** (one slice per group):
   - creative + media + gaming
   - apple + autonomous-ai-agents + health + social-media + legacy
   Each: rewrite bodies/scripts to ICOS tools, trim over-cap bodies into
