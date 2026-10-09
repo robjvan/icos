@@ -42,7 +42,7 @@
 
 - [x] M16: External communication integrations
 - [x] M17: Tools Expansion
-- [ ] M18: Skills Adoption
+- [x] M18: Skills Adoption
 - [ ] M19: Dynamic MCP Server toolsets
 - [ ] M20: Web client catchup Work
 - [ ] M21: Subagent support

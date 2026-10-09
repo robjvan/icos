@@ -189,20 +189,20 @@
     > decision model. Blocking pre-send mitigation, a Linux CUDA verifier
     > service, and propositional drift tuning remain later slices._
 
-- [ ] **M16: External Communication Integrations**
-  - [ ] Discord integration
-  - [ ] Email integration
-  - [ ] Unified inbound / outbound message model
-  - [ ] Identity and conversation mapping across channels
-  - [ ] Channel-specific permissions and capabilities
-  - [ ] Attachment / media handling
-  - [ ] Rate limits, retries, and delivery state
-  - [ ] Cross-channel context continuity
-  - [ ] Integration verification
+- [x] **M16: External Communication Integrations**
+  - [x] Discord integration
+  - [x] Email integration
+  - [x] Unified inbound / outbound message model
+  - [x] Identity and conversation mapping across channels
+  - [x] Channel-specific permissions and capabilities
+  - [x] Attachment / media handling
+  - [x] Rate limits, retries, and delivery state
+  - [x] Cross-channel context continuity
+  - [x] Integration verification
 
-- [ ] **M17: Tools Expansion**
+- [x] **M17: Tools Expansion**
 
-- [ ] **M18: Skills Adoption**
+- [x] **M18: Skills Adoption**
 
 - [ ] **M19: Dynamic MCP Server toolsets**
 
