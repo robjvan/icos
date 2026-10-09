@@ -213,11 +213,11 @@ splitting into its own milestone (M20.7 → a standalone M) if it grows.
   this is a memory-layer patch that pairs with **M29** (long-horizon agency) and
   **M34** (continuity). Deferred to the memory/agency band, not M20.
 
-## Open questions for the operator
+## Decisions (confirmed 2026-10-09)
 
-1. **Scope:** all of M20.1–M20.7 now, or land the leaks (M20.1) + surfaces
-   (M20.2–M20.3) and defer M20.6–M20.7?
-2. **Auto-approve (M20f):** global per-tool, or per-session? (The M17a layer was
-   built for "per-session later".)
-3. **Tools out of context (M20.7):** intent-classifier vs router meta-tool vs
-   generalizing the skills-discovery pattern?
+1. **Scope:** work the whole plan, **one sub-milestone at a time**, starting
+   with M20.1. No committed evidence for M20.1 — the operator tests it manually.
+2. **Auto-approve (M20f):** a **global per-tool** override (persisted
+   server-side).
+3. **Tools out of context (M20.7):** **generalize the existing skills-discovery
+   + selector** to the tool registry, with an explicit pull path.
