@@ -2,7 +2,7 @@
 
 > Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
 > layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
-> child). Objective: adopt the 98-skill
+> child), M18.3 (adapt research/web/data-science). Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -45,14 +45,23 @@ and `templates/`.
   workspace** (`<TOOLS_WORKSPACE_ROOT>/skills`), so the existing file/terminal
   tools reach a skill's `scripts/`/`references/`/`templates/` directly — no
   materialization, no boundary change. `SKILLS_DIR_PATH` still overrides.
-- **M18.3+ — Adapt by category** (one slice per group):
-  - research + web + data-science
+- **M18.3 — Adapt research + web + data-science.** *Done.* Sweep (paths,
+  config names) + tool-ref fixes across the 11 skills. See
+  `evidence/milestone-18/m18.3-research-evidence.md`.
+- **M18.3a — Trim over-cap bodies.** The three skills whose bodies exceed
+  `SKILLS_MAX_BODY_CHARS` (grounded-citations 12.5k, llm-wiki 20k,
+  research-paper-writing 72k) are skipped at load; move detail into
+  `references/` and leave a concise procedure + pointers.
+- **M18.4+ — Adapt by category** (one slice per group):
   - software-development + devops + mlops + dogfood
   - productivity + note-taking + communication + email
   - creative + media + gaming
   - apple + autonomous-ai-agents + health + social-media + legacy
   Each: rewrite bodies/scripts to ICOS tools, drop Hermes internals
   (`_hermes_home.py`), and handle `delegate_task` → **defer to M21**.
+- **M18.y — Shipped-skill update path.** The seed never overwrites, so an
+  adapted shipped skill does not reach a runtime copy that already exists.
+  Decide on a re-seed/force update (e.g. `/skills seed --force`).
 - **M18.x — Per-session enable/disable** (context-window pressure), if the
   existing `/skills use|drop|pull` pinning is not enough.
 
