@@ -21,6 +21,8 @@ ICOS tools.
 | M18.5 | Adapt productivity + note-taking + communication + email | [m18.5-productivity-evidence.md](m18.5-productivity-evidence.md) |
 | M18.6 | Adapt creative + media + gaming | [m18.6-creative-evidence.md](m18.6-creative-evidence.md) |
 | M18.7 | Adapt apple + autonomous-ai-agents + health + social-media | [m18.7-final-group-evidence.md](m18.7-final-group-evidence.md) |
+| M18.x | Per-session enable/disable (`/skills on\|off`) | [m18.x-y-session-seed-evidence.md](m18.x-y-session-seed-evidence.md) |
+| M18.y | Seed `--force` (shipped-skill update path) | [m18.x-y-session-seed-evidence.md](m18.x-y-session-seed-evidence.md) |
 
 ## Final state
 
@@ -37,8 +39,5 @@ ICOS tools.
 
 ## Remaining
 
-- **M18.x — per-session enable/disable** of skills (context-window pressure),
-  if the existing `/skills use|drop|pull` pinning is not enough.
-- **M18.y — shipped-skill update path** (the seed never overwrites, so an
-  adapted shipped skill does not reach a runtime copy that already exists;
-  consider `/skills seed --force`).
+None. M18.x (per-session enable/disable) and M18.y (seed `--force` update path)
+are both complete.

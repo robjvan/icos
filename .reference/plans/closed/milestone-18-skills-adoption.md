@@ -1,11 +1,9 @@
 # M18 — Skills Adoption
 
-> Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
-> layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
-> child), M18.3 (adapt research/web/data-science), M18.3a (trim research
-> over-cap bodies), M18.4 (adapt software-development/devops/mlops/dogfood),
-> M18.5 (adapt productivity/note-taking/communication/email), M18.6 (adapt
-> creative/media/gaming). Objective: adopt the 98-skill
+> Status: **complete** (2026-10-09). All slices M18.0–M18.7 done. The 98-skill
+> collection is adopted: seeded from `core/skills/`, loaded recursively by
+> category, adapted to ICOS, Hermes-specific skills dropped (88 shipped remain).
+> Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -69,16 +67,16 @@ and `templates/`.
   `impeccable`; fixed paths/tools (incl. `sketch` local-HTML serving); trimmed 7
   over-cap bodies. See `evidence/milestone-18/m18.6-creative-evidence.md`.
 - **M18.7 — Adapt apple + autonomous-ai-agents + health + social-media +
-  legacy.** The final group; the 6 remaining over-cap skills are here
-  (`claude-code`, `computer-use`, `grok`, `hermes-agent`, `honcho`, `xurl`),
-  all Hermes/other-tool-specific (candidates to drop).
-- **M18.x — Per-session enable/disable** (context-window pressure), if the
-  existing `/skills use|drop|pull` pinning is not enough.
-- **M18.y — Shipped-skill update path.** The seed never overwrites, so an
-  adapted shipped skill does not reach a runtime copy that already exists.
-  Decide on a re-seed/force update (e.g. `/skills seed --force`).
-- **M18.x — Per-session enable/disable** (context-window pressure), if the
-  existing `/skills use|drop|pull` pinning is not enough.
+  legacy.** *Done.* Dropped `hermes-agent`, `honcho`, `computer-use`; branding
+  + Kanban/auth reframing; trimmed `claude-code`/`grok`/`xurl`. See
+  `evidence/milestone-18/m18.7-final-group-evidence.md`.
+- **M18.x — Per-session enable/disable.** *Done.* Session-scoped on/off in
+  `SkillService`; gates the catalog block + turn resolution; `/skills on|off`
+  and `enabled:` in `/skills active`. See
+  `evidence/milestone-18/m18.x-y-session-seed-evidence.md`.
+- **M18.y — Shipped-skill update path.** *Done.* `SkillSeedService.seed({force})`
+  overwrites existing files; `/skills seed --force` + `POST /core/skills/seed
+  {force}`. See `evidence/milestone-18/m18.x-y-session-seed-evidence.md`.
 
 ## The collection (98 skills)
 
