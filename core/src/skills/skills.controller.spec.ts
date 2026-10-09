@@ -5,7 +5,19 @@ import { join } from 'node:path';
 import type { CoreConfig } from '../config';
 import { SKILL_FILE } from './skill-loader';
 import { SkillService } from './skill.service';
+import type { SkillSeedService } from './skill-seed.service';
 import { SkillsController } from './skills.controller';
+
+const seedStub = {
+  seed: () =>
+    Promise.resolve({
+      source: '',
+      target: '',
+      copied: 0,
+      overwritten: 0,
+      skipped: 0,
+    }),
+} as unknown as SkillSeedService;
 
 function testConfig(
   skillsDirPath: string,
@@ -87,14 +99,19 @@ describe('SkillsController', () => {
   ): Promise<SkillsController> {
     const service = new SkillService(testConfig(dir, overrides));
     await service.onModuleInit();
-    return new SkillsController(service);
+    return new SkillsController(service, seedStub);
   }
 
   it('lists descriptors plus skip reasons', async () => {
     const body = (await controller()).list();
     expect(body.enabled).toBe(true);
     expect(body.skills).toEqual([
-      { name: 'daily-journal', description: 'Journal.', version: '0.0.0' },
+      {
+        name: 'daily-journal',
+        description: 'Journal.',
+        version: '0.0.0',
+        path: 'daily-journal',
+      },
     ]);
     expect(body.skipped).toEqual([]);
   });
@@ -126,7 +143,7 @@ describe('SkillsController', () => {
   it('reports explicit, requested, and last-turn scopes', async () => {
     const service = new SkillService(testConfig(dir, {}));
     await service.onModuleInit();
-    const ctl = new SkillsController(service);
+    const ctl = new SkillsController(service, seedStub);
     expect(() => ctl.active()).toThrow(BadRequestException);
     expect(ctl.active('s1')).toEqual({
       sessionId: 's1',

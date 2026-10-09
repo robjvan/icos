@@ -236,6 +236,7 @@ describe('Conversation (e2e)', () => {
         ],
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
+        skillsSeedEnabled: false,
         skillsMaxBodyChars: 12000,
         skillsMaxCatalogItems: 50,
         skillsMaxActivePerSession: 5,

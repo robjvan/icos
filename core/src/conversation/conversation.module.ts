@@ -78,6 +78,7 @@ import { SqliteSessionRepository } from '../session/sqlite-session.repository';
 import { TodoRepository } from '../session/todo.repository';
 import { SqliteTodoRepository } from '../session/sqlite-todo.repository';
 import { SkillService } from '../skills/skill.service';
+import { SkillSeedService } from '../skills/skill-seed.service';
 import { SkillsController } from '../skills/skills.controller';
 import { VisionService } from '../vision/vision.service';
 import { ImageGenService } from '../image/image-gen.service';
@@ -310,6 +311,7 @@ const toolExecutionServiceProvider = {
     HostHealthProvider,
     HealthService,
     SkillService,
+    SkillSeedService,
     CommandDispatcher,
     ToolRegistry,
     ToolExecutionRepository,

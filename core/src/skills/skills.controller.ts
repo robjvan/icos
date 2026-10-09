@@ -1,19 +1,28 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
+  Post,
   Query,
 } from '@nestjs/common';
 import { SkillService } from './skill.service';
+import { SkillSeedService } from './skill-seed.service';
 
 /**
- * Read-only skill inspection endpoints. Debug/observation surface —
- * the filesystem is the writer; there are no skill mutations here.
+ * Skill inspection + management endpoints. The filesystem is the writer;
+ * create/delete mirror the `skill_manage` tool and `/skills` commands, and
+ * `seed` copies shipped skills into the runtime dir.
  */
 @Controller('core/skills')
 export class SkillsController {
-  constructor(private readonly skills: SkillService) {}
+  constructor(
+    private readonly skills: SkillService,
+    private readonly seed: SkillSeedService,
+  ) {}
 
   @Get()
   list(): {
@@ -83,5 +92,43 @@ export class SkillsController {
       version: skill.version,
       body: skill.body,
     };
+  }
+
+  @Post()
+  @HttpCode(201)
+  async create(
+    @Body() dto: { name?: string; description?: string; body?: string },
+  ): Promise<{ name: string; description: string; version: string }> {
+    const name = dto?.name?.trim();
+    const description = dto?.description?.trim();
+    if (!name || !description) {
+      throw new BadRequestException('name and description are required');
+    }
+    const skill = await this.skills.createSkill({
+      name,
+      description,
+      body:
+        dto.body?.trim() ||
+        'TODO: describe the procedure this skill should follow.',
+    });
+    return {
+      name: skill.name,
+      description: skill.description,
+      version: skill.version,
+    };
+  }
+
+  @Delete(':name')
+  async remove(
+    @Param('name') name: string,
+  ): Promise<{ deleted: true; name: string }> {
+    await this.skills.deleteSkill(name);
+    return { deleted: true, name };
+  }
+
+  @Post('seed')
+  @HttpCode(200)
+  async seedSkills(@Body() dto?: { force?: boolean }) {
+    return this.seed.seed({ force: dto?.force === true });
   }
 }

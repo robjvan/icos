@@ -64,6 +64,8 @@ export class SkillService implements OnModuleInit {
   private pending = new Map<string, Set<string>>();
   /** Last completed turn's injection record, keyed by session id. */
   private lastTurn = new Map<string, TurnSkillReport>();
+  /** Sessions where skills are explicitly turned off (M18.x). */
+  private readonly sessionDisabled = new Set<string>();
   private readonly selector: SkillSelector = new TopBudgetedSelector();
 
   constructor(@Inject(CORE_CONFIG) private readonly config: CoreConfig) {}
@@ -134,10 +136,12 @@ export class SkillService implements OnModuleInit {
   }): Promise<SkillDescriptor> {
     this.requireEnabled();
     const content = this.buildSkillFile(input);
-    const dir = join(this.skillsDir, input.name);
-    if (await pathExists(dir)) {
+    if (this.descriptors.has(input.name.toLowerCase())) {
       throw new BadRequestException(`Skill "${input.name}" already exists`);
     }
+    // Managed skills are written flat at the root (still discovered
+    // recursively); shipped skills keep their category paths.
+    const dir = join(this.skillsDir, input.name);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
     return this.reloadAndRequire(input.name);
@@ -150,11 +154,12 @@ export class SkillService implements OnModuleInit {
     body: string;
   }): Promise<SkillDescriptor> {
     this.requireEnabled();
-    const content = this.buildSkillFile(input);
-    const dir = join(this.skillsDir, input.name);
-    if (!(await pathExists(dir))) {
+    const descriptor = this.descriptors.get(input.name.toLowerCase());
+    if (!descriptor) {
       throw new NotFoundException(`Unknown skill "${input.name}"`);
     }
+    const content = this.buildSkillFile(input);
+    const dir = join(this.skillsDir, descriptor.path ?? descriptor.name);
     await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
     return this.reloadAndRequire(input.name);
   }
@@ -162,11 +167,14 @@ export class SkillService implements OnModuleInit {
   /** Delete a skill directory (recursive). */
   async deleteSkill(name: string): Promise<void> {
     this.requireEnabled();
-    const dir = join(this.skillsDir, name);
-    if (!(await pathExists(dir))) {
+    const descriptor = this.descriptors.get(name.toLowerCase());
+    if (!descriptor) {
       throw new NotFoundException(`Unknown skill "${name}"`);
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(join(this.skillsDir, descriptor.path ?? descriptor.name), {
+      recursive: true,
+      force: true,
+    });
     await this.refresh();
   }
 
@@ -282,9 +290,13 @@ export class SkillService implements OnModuleInit {
     if (cached) return cached;
     let parsed: ParsedSkillFile;
     try {
-      parsed = await loadSkillBody(this.config.skillsDirPath, descriptor.name, {
-        maxBodyChars: this.config.skillsMaxBodyChars,
-      });
+      parsed = await loadSkillBody(
+        this.config.skillsDirPath,
+        descriptor.path ?? descriptor.name,
+        {
+          maxBodyChars: this.config.skillsMaxBodyChars,
+        },
+      );
     } catch {
       // File changed or vanished since the scan: evict rather than serve
       // stale or invalid content.
@@ -317,6 +329,26 @@ export class SkillService implements OnModuleInit {
       throw new NotFoundException(`Unknown skill "${name}"`);
     }
     return descriptor;
+  }
+
+  /**
+   * M18.x: turn skills on/off for one session (context-window pressure). Off
+   * means no catalog block, no auto-discovery, and no pinned/one-shot
+   * injection for that session — the global kill-switch (`SKILLS_ENABLED`)
+   * still wins. Returns the resulting state.
+   */
+  setSessionSkillsEnabled(sessionId: string, enabled: boolean): boolean {
+    if (enabled) {
+      this.sessionDisabled.delete(sessionId);
+    } else {
+      this.sessionDisabled.add(sessionId);
+    }
+    return this.isSessionSkillsEnabled(sessionId);
+  }
+
+  /** Whether skills are active for this session (default true). */
+  isSessionSkillsEnabled(sessionId: string): boolean {
+    return this.enabled && !this.sessionDisabled.has(sessionId);
   }
 
   /** Pin a skill for the session until dropped. Idempotent. */
@@ -417,8 +449,9 @@ export class SkillService implements OnModuleInit {
   /** Catalog block for model context: names + descriptions only, bounded.
    * Empty string when disabled or the catalog is empty (callers then emit
    * byte-identical pre-M7 context). */
-  buildCatalogBlock(): string {
+  buildCatalogBlock(sessionId?: string): string {
     if (!this.enabled) return '';
+    if (sessionId && !this.isSessionSkillsEnabled(sessionId)) return '';
     const catalog = this.listDescriptors().slice(
       0,
       this.config.skillsMaxCatalogItems,
@@ -457,7 +490,7 @@ export class SkillService implements OnModuleInit {
       contextual: [],
       considered: [],
     };
-    if (!this.enabled) return empty;
+    if (!this.isSessionSkillsEnabled(sessionId)) return empty;
     const maxChars = this.config.skillsMaxContextChars;
     let used = 0;
 
@@ -518,14 +551,5 @@ export class SkillService implements OnModuleInit {
   /** Record what the last completed turn injected (memory-only). */
   recordLastTurn(report: TurnSkillReport): void {
     this.lastTurn.set(report.sessionId, report);
-  }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await fs.stat(path);
-    return true;
-  } catch {
-    return false;
   }
 }

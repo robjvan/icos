@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative } from 'node:path';
+import { join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import type { SkillDescriptor, SkillSkipped } from './skill.types';
@@ -8,6 +8,9 @@ export const SKILL_FILE = 'SKILL.md';
 
 /** Skill names are kebab-case, 1–64 chars, and must equal the directory. */
 export const NAME_PATTERN = /^[a-z0-9-]{1,64}$/;
+
+/** Maximum directory depth searched under the skills root (M18). */
+const MAX_SKILL_DEPTH = 4;
 
 /** Frontmatter description cap: one-line capability summary. */
 export const MAX_DESCRIPTION_CHARS = 500;
@@ -48,9 +51,11 @@ function unquote(value: string): string {
 }
 
 /**
- * Minimal `---`-delimited frontmatter parser for the three known keys.
- * Fail-closed: unknown keys, duplicates, and malformed lines reject the
- * skill rather than being silently ignored.
+ * Minimal `---`-delimited frontmatter parser. Reads the three known keys
+ * (`name`, `description`, `version`) and **tolerates everything else** (M18):
+ * unknown keys, list items, and nested/indented blocks (e.g. `metadata:`) are
+ * ignored, so a real-world skill library loads without per-file rewriting.
+ * Duplicate known keys still fail closed.
  */
 export function parseSkillFile(
   raw: string,
@@ -69,18 +74,14 @@ export function parseSkillFile(
   }
   const seen = new Map<string, string>();
   for (const line of lines.slice(1, closing)) {
-    if (!line.trim()) continue;
-    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
-    if (!match) {
-      throw new SkillParseError(
-        'bad-frontmatter',
-        `malformed line: "${line.trim()}"`,
-      );
-    }
+    // Indented lines belong to a nested block (e.g. `metadata:`); skip them.
+    if (/^\s/.test(line)) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(trimmed);
+    if (!match) continue; // tolerate list items / other top-level scalars
     const key = match[1];
-    if (!KNOWN_FRONTMATTER_KEYS.has(key)) {
-      throw new SkillParseError('bad-frontmatter', `unknown key "${key}"`);
-    }
+    if (!KNOWN_FRONTMATTER_KEYS.has(key)) continue; // tolerate unknown keys
     if (seen.has(key)) {
       throw new SkillParseError('bad-frontmatter', `duplicate key "${key}"`);
     }
@@ -133,105 +134,100 @@ export interface SkillScanResult {
 }
 
 /**
- * Scan a skills directory into validated descriptors. Reads each
- * `SKILL.md` once for fail-closed validation but retains descriptors only;
- * bodies are (re-)read on explicit `loadSkillBody()`. Missing directory is
- * a valid empty catalog. Never writes, never follows escaping symlinks.
+ * Scan a skills directory into validated descriptors. Walks the tree
+ * recursively (M18), so skills may sit at the root or under category
+ * directories (`<root>/<category>/<name>/SKILL.md`). A skill is any directory
+ * containing `SKILL.md`, and its frontmatter `name` must equal the directory
+ * name. Bodies are (re-)read on explicit `loadSkillBody()`. A missing
+ * directory is a valid empty catalog. Symlinked entries are skipped, never
+ * followed.
  */
 export async function scanSkillDir(
   dir: string,
   opts: { maxBodyChars: number },
 ): Promise<SkillScanResult> {
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { dir, descriptors: [], skipped: [] };
-    }
-    throw err;
-  }
   const descriptors: SkillDescriptor[] = [];
   const skipped: SkillSkipped[] = [];
   const seen = new Set<string>();
-  for (const entry of [...entries].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  )) {
-    if (entry.name.startsWith('.')) continue;
-    const full = join(dir, entry.name);
+
+  const visit = async (
+    current: string,
+    relPath: string,
+    depth: number,
+  ): Promise<void> => {
+    if (depth > MAX_SKILL_DEPTH) return;
+    let entries: Dirent[];
     try {
-      const stat = entry.isSymbolicLink()
-        ? await fs.stat(await containedRealpath(dir, full))
-        : await fs.stat(full);
-      if (!stat.isDirectory()) continue;
+      entries = await fs.readdir(current, { withFileTypes: true });
     } catch (err) {
-      skipped.push({
-        name: entry.name,
-        reason: err instanceof SkillParseError ? err.reason : 'unreadable',
-      });
-      continue;
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw err;
     }
-    let parsed: ParsedSkillFile;
-    try {
-      const raw = await fs.readFile(join(full, SKILL_FILE), 'utf8');
-      parsed = parseSkillFile(raw, opts);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        skipped.push({ name: entry.name, reason: 'missing-file' });
-      } else if (err instanceof SkillParseError) {
-        skipped.push({ name: entry.name, reason: err.reason });
-      } else {
-        skipped.push({ name: entry.name, reason: 'unreadable' });
+    for (const entry of [...entries].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      if (entry.name.startsWith('.')) continue;
+      const childRel = relPath ? `${relPath}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await visit(join(current, entry.name), childRel, depth + 1);
+        continue;
       }
-      continue;
+      if (!entry.isFile() || entry.name !== SKILL_FILE) continue;
+      const dirName = relPath.split('/').pop() ?? '';
+      let parsed: ParsedSkillFile;
+      try {
+        parsed = parseSkillFile(
+          await fs.readFile(join(current, entry.name), 'utf8'),
+          opts,
+        );
+      } catch (err) {
+        skipped.push({
+          name: dirName,
+          reason: err instanceof SkillParseError ? err.reason : 'unreadable',
+        });
+        continue;
+      }
+      if (parsed.name !== dirName) {
+        skipped.push({ name: dirName, reason: 'name-mismatch' });
+        continue;
+      }
+      const key = parsed.name.toLowerCase();
+      if (seen.has(key)) {
+        skipped.push({ name: dirName, reason: 'duplicate' });
+        continue;
+      }
+      seen.add(key);
+      descriptors.push({
+        name: parsed.name,
+        description: parsed.description,
+        version: parsed.version,
+        path: relPath,
+        ...(relPath.includes('/') ? { category: relPath.split('/')[0] } : {}),
+      });
     }
-    if (parsed.name !== entry.name) {
-      skipped.push({ name: entry.name, reason: 'name-mismatch' });
-      continue;
-    }
-    const key = parsed.name.toLowerCase();
-    if (seen.has(key)) {
-      skipped.push({ name: entry.name, reason: 'duplicate' });
-      continue;
-    }
-    seen.add(key);
-    descriptors.push({
-      name: parsed.name,
-      description: parsed.description,
-      version: parsed.version,
-    });
-  }
+  };
+
+  await visit(dir, '', 0);
   return { dir, descriptors, skipped };
 }
 
-/** Resolve a symlink target, rejecting escapes from the skills root. */
-async function containedRealpath(root: string, path: string): Promise<string> {
-  const real = await fs.realpath(path);
-  const rel = relative(root, real);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    throw new SkillParseError(
-      'symlink-escape',
-      `"${path}" escapes skills root`,
-    );
-  }
-  return real;
-}
-
 /**
- * Read + validate one skill body from its canonical location. Explicit
- * operation — discovery and catalog listing never call this.
+ * Read + validate one skill body from its canonical location (a directory
+ * path relative to the skills root). Explicit operation — discovery and
+ * catalog listing never call this.
  */
 export async function loadSkillBody(
-  dir: string,
-  entryName: string,
+  root: string,
+  relPath: string,
   opts: { maxBodyChars: number },
 ): Promise<ParsedSkillFile> {
-  const raw = await fs.readFile(join(dir, entryName, SKILL_FILE), 'utf8');
+  const raw = await fs.readFile(join(root, relPath, SKILL_FILE), 'utf8');
   const parsed = parseSkillFile(raw, opts);
-  if (parsed.name !== entryName) {
+  const dirName = relPath.split('/').pop() ?? '';
+  if (parsed.name !== dirName) {
     throw new SkillParseError(
       'name-mismatch',
-      `directory "${entryName}" declares name "${parsed.name}"`,
+      `directory "${relPath}" declares name "${parsed.name}"`,
     );
   }
   return parsed;

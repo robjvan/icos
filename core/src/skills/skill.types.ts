@@ -10,6 +10,10 @@ export interface SkillDescriptor {
   name: string;
   description: string;
   version: string;
+  /** Directory path relative to the skills root (e.g. "research/arxiv"). */
+  path?: string;
+  /** Top-level category directory, when the skill is nested (M18). */
+  category?: string;
 }
 
 /** A fully loaded skill, body injected verbatim when in context. */

@@ -8,6 +8,7 @@ import { DisplayPreferenceStore } from '../commands/display-preferences';
 import type { HostHealthProvider } from '../commands/host-health';
 import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
 import { FakeSessionRepository } from '../conversation/fake-session.repository';
+import type { SkillSeedService } from './skill-seed.service';
 import { SessionStore } from '../conversation/session.store';
 import { SKILL_FILE } from './skill-loader';
 import { SkillService } from './skill.service';
@@ -105,6 +106,17 @@ async function setup(
   } as unknown as HostHealthProvider;
   const skills = new SkillService(config);
   await skills.onModuleInit();
+  const seed = {
+    seed: jest.fn((opts?: { force?: boolean }) =>
+      Promise.resolve({
+        source: 'src',
+        target: 'dst',
+        copied: opts?.force === true ? 0 : 1,
+        overwritten: opts?.force === true ? 2 : 0,
+        skipped: opts?.force === true ? 0 : 1,
+      }),
+    ),
+  } as unknown as SkillSeedService;
   const dispatcher = new CommandDispatcher(
     store,
     candidates,
@@ -112,6 +124,7 @@ async function setup(
     host,
     skills,
     config,
+    seed,
   );
   return { dispatcher, config, skills, store };
 }
@@ -271,6 +284,30 @@ describe('/skills commands', () => {
     await expect(
       dispatcher.dispatch('/skills use capture-idea', id),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('/skills off/on toggles skills for the session', async () => {
+    const { dispatcher, store, skills } = await setup(dir);
+    const { id } = await store.resolve(undefined);
+    await expect(dispatcher.dispatch('/skills off')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    const off = await dispatcher.dispatch('/skills off', id);
+    expect(off.text).toContain('disabled for this session');
+    expect(skills.isSessionSkillsEnabled(id)).toBe(false);
+    const active = await dispatcher.dispatch('/skills active', id);
+    expect(active.text).toContain('enabled: no');
+    const on = await dispatcher.dispatch('/skills on', id);
+    expect(on.text).toContain('enabled for this session');
+    expect(skills.isSessionSkillsEnabled(id)).toBe(true);
+  });
+
+  it('/skills seed and seed --force report counts', async () => {
+    const { dispatcher } = await setup(dir);
+    const plain = await dispatcher.dispatch('/skills seed');
+    expect(plain.text).toContain('Seeded 1 new file(s)');
+    const forced = await dispatcher.dispatch('/skills seed --force');
+    expect(forced.text).toContain('overwrote 2');
   });
 
   it('/skills pull stages one turn without pinning', async () => {

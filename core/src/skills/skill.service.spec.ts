@@ -336,4 +336,37 @@ describe('SkillService', () => {
     await disabled.refresh();
     expect(disabled.buildCatalogBlock()).toBe('');
   });
+
+  it('turns skills off per session (M18.x)', async () => {
+    writeSkill(dir, 'a-skill', 'a-skill', 'A.');
+    const service = new SkillService(testConfig(dir));
+    await service.refresh();
+    service.useSkill('s1', 'a-skill');
+
+    // Default: on — catalog and pinned body present.
+    expect(service.isSessionSkillsEnabled('s1')).toBe(true);
+    expect(service.buildCatalogBlock('s1')).toContain('<available_skills>');
+    const on = await service.resolveTurnSkills('s1', 'a');
+    expect(on.explicit.map((s) => s.name)).toEqual(['a-skill']);
+
+    // Off for s1 only.
+    expect(service.setSessionSkillsEnabled('s1', false)).toBe(false);
+    expect(service.isSessionSkillsEnabled('s1')).toBe(false);
+    expect(service.buildCatalogBlock('s1')).toBe('');
+    const off = await service.resolveTurnSkills('s1', 'a');
+    expect(off).toEqual({
+      explicit: [],
+      requested: [],
+      contextual: [],
+      considered: [],
+    });
+
+    // Another session is unaffected.
+    expect(service.isSessionSkillsEnabled('s2')).toBe(true);
+
+    // Re-enable resumes injection.
+    expect(service.setSessionSkillsEnabled('s1', true)).toBe(true);
+    const back = await service.resolveTurnSkills('s1', 'a');
+    expect(back.explicit.map((s) => s.name)).toEqual(['a-skill']);
+  });
 });

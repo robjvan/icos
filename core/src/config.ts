@@ -320,6 +320,12 @@ export interface CoreConfig {
   skillsDirPath: string;
   /** Kill-switch: false restores pre-M7 behavior exactly. */
   skillsEnabled: boolean;
+  /**
+   * M18.1 seed: on startup, copy shipped skills into `skillsDirPath` without
+   * overwriting. `skillsSeedRoot` defaults to the app's own `skills/` dir.
+   */
+  skillsSeedEnabled?: boolean;
+  skillsSeedRoot?: string;
   /** Per-skill body cap, applied after trimming. */
   skillsMaxBodyChars: number;
   /** Cap on catalog summaries injected into model context. */
@@ -760,8 +766,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',
     ),
-    skillsDirPath: resolvePath(env.SKILLS_DIR_PATH, '~/.icos/skills'),
+    skillsDirPath: resolvePath(
+      env.SKILLS_DIR_PATH,
+      join(
+        resolvePath(env.TOOLS_WORKSPACE_ROOT, '~/.icos/workspace'),
+        'skills',
+      ),
+    ),
     skillsEnabled: parseBoolean(env.SKILLS_ENABLED, true),
+    skillsSeedEnabled: parseBoolean(env.SKILLS_SEED_ENABLED, true),
+    skillsSeedRoot: (env.SKILLS_SEED_ROOT ?? '').trim() || undefined,
     skillsMaxBodyChars: parsePositiveInt(
       env.SKILLS_MAX_BODY_CHARS,
       12000,

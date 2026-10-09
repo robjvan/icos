@@ -19,6 +19,7 @@ import { HostHealthProvider } from './host-health';
 import { registerRuntimeCommands } from './runtime-commands';
 import { registerSessionCommands } from './session-commands';
 import { registerSkillCommands } from '../skills/command-adapter';
+import { SkillSeedService } from '../skills/skill-seed.service';
 import { SkillService } from '../skills/skill.service';
 import {
   MalformedSlashCommandError,
@@ -43,6 +44,7 @@ export class CommandDispatcher {
     private readonly host: HostHealthProvider,
     private readonly skills: SkillService,
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
+    private readonly seed?: SkillSeedService,
   ) {
     const register = (handler: SlashCommandHandler): void => {
       this.registry.register(handler);
@@ -61,7 +63,7 @@ export class CommandDispatcher {
       prefs,
       host,
     });
-    registerSkillCommands(register, { skills, config });
+    registerSkillCommands(register, { skills, config, seed });
   }
 
   /** In-flight SSE streams; maintained by `ConversationService`. */

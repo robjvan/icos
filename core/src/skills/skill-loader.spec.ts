@@ -86,23 +86,8 @@ describe('parseSkillFile', () => {
       'bad-frontmatter',
     ],
     [
-      'unknown key',
-      '---\nname: a\ndescription: d\nexec: x\n---\n\nB\n',
-      'bad-frontmatter',
-    ],
-    [
-      'executable key',
-      '---\nname: a\ndescription: d\ntools: [x]\n---\n\nB\n',
-      'bad-frontmatter',
-    ],
-    [
       'duplicate key',
       '---\nname: a\nname: b\ndescription: d\n---\n\nB\n',
-      'bad-frontmatter',
-    ],
-    [
-      'malformed line',
-      '---\nname: a\njust some words\ndescription: d\n---\n\nB\n',
       'bad-frontmatter',
     ],
     ['uppercase name', skillFile('Bad', 'd'), 'bad-name'],
@@ -116,6 +101,30 @@ describe('parseSkillFile', () => {
     ['empty body', '---\nname: a\ndescription: d\n---\n', 'empty-body'],
   ])('rejects %s', (_label, raw, reason) => {
     expect(reasonOf(() => parseSkillFile(raw, OPTS))).toBe(reason);
+  });
+
+  it('tolerates unknown keys, nested blocks, and stray lines (M18)', () => {
+    const parsed = parseSkillFile(
+      [
+        '---',
+        'name: a',
+        'description: d',
+        'author: Hermes Agent',
+        'license: MIT',
+        'platforms: [linux, macos]',
+        'metadata:',
+        '  hermes:',
+        '    tags: [Research, Papers]',
+        'just some words',
+        '- a list item',
+        '---',
+        '',
+        'Body.',
+      ].join('\n'),
+      OPTS,
+    );
+    expect(parsed).toMatchObject({ name: 'a', description: 'd' });
+    expect(parsed.body).toBe('Body.');
   });
 
   it('rejects oversize bodies', () => {
@@ -164,13 +173,53 @@ describe('scanSkillDir / loadSkillBody', () => {
     const result = await scanSkillDir(dir, OPTS);
     expect(result.dir).toBe(dir);
     expect(result.descriptors).toEqual([
-      { name: 'capture-idea', description: 'Capture.', version: '0.0.0' },
-      { name: 'daily-journal', description: 'Journal.', version: '0.2.0' },
+      {
+        name: 'capture-idea',
+        description: 'Capture.',
+        version: '0.0.0',
+        path: 'capture-idea',
+      },
+      {
+        name: 'daily-journal',
+        description: 'Journal.',
+        version: '0.2.0',
+        path: 'daily-journal',
+      },
     ]);
     expect(result.skipped).toEqual([
       { name: 'bad-dir', reason: 'name-mismatch' },
       { name: 'empty-dir', reason: 'bad-frontmatter' },
-      { name: 'no-file', reason: 'missing-file' },
+    ]);
+  });
+
+  it('discovers skills nested under category directories (M18)', async () => {
+    mkdirSync(join(dir, 'research', 'arxiv'), { recursive: true });
+    writeFileSync(
+      join(dir, 'research', 'arxiv', SKILL_FILE),
+      skillFile('arxiv', 'Papers.'),
+    );
+    mkdirSync(join(dir, 'apple', 'imessage'), { recursive: true });
+    writeFileSync(
+      join(dir, 'apple', 'imessage', SKILL_FILE),
+      skillFile('imessage', 'Messages.'),
+    );
+
+    const result = await scanSkillDir(dir, OPTS);
+    expect(result.descriptors).toEqual([
+      {
+        name: 'imessage',
+        description: 'Messages.',
+        version: '0.0.0',
+        path: 'apple/imessage',
+        category: 'apple',
+      },
+      {
+        name: 'arxiv',
+        description: 'Papers.',
+        version: '0.0.0',
+        path: 'research/arxiv',
+        category: 'research',
+      },
     ]);
   });
 
@@ -183,7 +232,7 @@ describe('scanSkillDir / loadSkillBody', () => {
     });
   });
 
-  it('refuses symlinks escaping the skills root', async () => {
+  it('skips symlinked skill directories (never follows them)', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'icos-skills-outside-'));
     try {
       mkdirSync(join(outside, 'evil'), { recursive: true });
@@ -194,9 +243,7 @@ describe('scanSkillDir / loadSkillBody', () => {
       symlinkSync(join(outside, 'evil'), join(dir, 'evil'));
       const result = await scanSkillDir(dir, OPTS);
       expect(result.descriptors).toEqual([]);
-      expect(result.skipped).toEqual([
-        { name: 'evil', reason: 'symlink-escape' },
-      ]);
+      expect(result.skipped).toEqual([]);
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }
@@ -226,17 +273,7 @@ describe('scanSkillDir / loadSkillBody', () => {
     'capture-idea',
   ])('ship seed %s parses clean under the validator', (name) => {
     const raw = readFileSync(
-      join(
-        __dirname,
-        '..',
-        '..',
-        '..',
-        '.reference',
-        'skills',
-        'legacy',
-        name,
-        SKILL_FILE,
-      ),
+      join(__dirname, '..', '..', 'skills', 'legacy', name, SKILL_FILE),
       'utf8',
     );
     const parsed = parseSkillFile(raw, OPTS);
@@ -244,16 +281,23 @@ describe('scanSkillDir / loadSkillBody', () => {
     expect(parsed.body.length).toBeLessThanOrEqual(2000);
   });
 
+  it('loads the real skill collection under its category layout (M18)', async () => {
+    const root = join(__dirname, '..', '..', 'skills');
+    const result = await scanSkillDir(root, { maxBodyChars: 64 * 1024 });
+    // The collection ships ~98 skills; ~10 Hermes-specific ones were dropped
+    // in M18, so ~88 remain.
+    expect(result.descriptors.length).toBeGreaterThanOrEqual(88);
+    const arxiv = result.descriptors.find((d) => d.name === 'arxiv');
+    expect(arxiv).toMatchObject({
+      path: 'research/arxiv',
+      category: 'research',
+    });
+    const journal = result.descriptors.find((d) => d.name === 'daily-journal');
+    expect(journal?.path).toBe('legacy/daily-journal');
+  });
+
   it('anchors discovery on the real icos-v3-stack seed', () => {
-    const seeds = join(
-      __dirname,
-      '..',
-      '..',
-      '..',
-      '.reference',
-      'skills',
-      'legacy',
-    );
+    const seeds = join(__dirname, '..', '..', 'skills', 'legacy');
     const descriptors = (
       ['icos-v3-stack', 'daily-journal', 'comments-pass'] as const
     ).map((name) => {
