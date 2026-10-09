@@ -1,6 +1,7 @@
 # M18 — Skills Adoption
 
-> Status: **in progress** (started 2026-10-09). Objective: adopt the 98-skill
+> Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
+> layout), M18.1 (seed + management commands). Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -34,9 +35,11 @@ and `templates/`.
 - **M18.0 — Foundation (loader & layout).** Recursive discovery; tolerant
   frontmatter; `loadBody`/`skill_manage` resolve across the tree. Fixes the
   load. Unit + live.
-- **M18.1 — Seed.** Ship the collection in a tracked location; copy it into
-  `~/.icos/skills/` on startup **without overwriting** user edits (idempotent).
-  Config + docs + a way to see seeded vs user skills.
+- **M18.1 — Seed.** *Done.* The collection ships at `core/skills/` (tracked, in
+  the image); `SkillSeedService` copies it into `~/.icos/skills/` on startup
+  **without overwriting** user edits. Management commands: slash
+  `/skills seed|create|delete` + API `POST /core/skills`, `DELETE
+  /core/skills/:name`, `POST /core/skills/seed`.
 - **M18.2 — Supporting files.** Make a skill's `scripts/`/`references/`/
   `templates/` reachable by the agent (the file tools are workspace-confined;
   skills live outside). Design point.
