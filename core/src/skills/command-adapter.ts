@@ -7,9 +7,11 @@ import type {
 } from '../commands/command-result';
 import { requireSessionId } from '../commands/session-commands';
 import type { SkillService } from './skill.service';
+import type { SkillSeedService } from './skill-seed.service';
 
 export interface SkillCommandDeps {
   skills: SkillService;
+  seed?: SkillSeedService;
   config: CoreConfig;
 }
 
@@ -46,6 +48,13 @@ class SkillsCommand implements SlashCommandHandler {
         return this.show(rest);
       case 'refresh':
         return this.refresh();
+      case 'seed':
+        return this.seedSkills();
+      case 'create':
+        return this.create(rest);
+      case 'delete':
+      case 'remove':
+        return this.remove(rest);
       case 'use':
         return this.use(context, rest);
       case 'drop':
@@ -58,7 +67,7 @@ class SkillsCommand implements SlashCommandHandler {
         return this.suggest(rest);
       default:
         throw new BadRequestException(
-          'Usage: /skills [show <name> | refresh | suggest <text> | use <name> | drop <name> | active | pull <name>]',
+          'Usage: /skills [list | show <name> | refresh | seed | create <name> <description> | delete <name> | suggest <text> | use <name> | drop <name> | active | pull <name>]',
         );
     }
   }
@@ -229,6 +238,54 @@ class SkillsCommand implements SlashCommandHandler {
       kind: 'data',
       text: lines.join('\n'),
       data: { ...report },
+    };
+  }
+
+  /** Seed shipped skills into the runtime dir (never overwriting). */
+  private async seedSkills(): Promise<CommandResult> {
+    if (!this.deps.seed) {
+      throw new BadRequestException('Skill seeding is unavailable.');
+    }
+    const report = await this.deps.seed.seed();
+    return {
+      kind: 'data',
+      text: `Seeded ${String(report.copied)} file(s) into ${report.target} (${String(report.skipped)} already present).`,
+      data: { ...report },
+    };
+  }
+
+  /** Create a blank skill (edit its SKILL.md afterwards). */
+  private async create(args: string[]): Promise<CommandResult> {
+    const [name, ...descParts] = args;
+    const description = descParts.join(' ').trim();
+    if (!name || !description) {
+      throw new BadRequestException(
+        'Usage: /skills create <name> <description>',
+      );
+    }
+    const skill = await this.deps.skills.createSkill({
+      name,
+      description,
+      body: 'TODO: describe the procedure this skill should follow.',
+    });
+    return {
+      kind: 'data',
+      text: `Skill "${skill.name}" created — edit ${skill.path ?? skill.name}/SKILL.md.`,
+      data: { ...skill },
+    };
+  }
+
+  /** Delete a skill directory (recursive). */
+  private async remove(args: string[]): Promise<CommandResult> {
+    const [name] = args;
+    if (!name) {
+      throw new BadRequestException('Usage: /skills delete <name>');
+    }
+    await this.deps.skills.deleteSkill(name);
+    return {
+      kind: 'message',
+      text: `Skill "${name}" deleted.`,
+      data: { name, deleted: true },
     };
   }
 }

@@ -273,17 +273,7 @@ describe('scanSkillDir / loadSkillBody', () => {
     'capture-idea',
   ])('ship seed %s parses clean under the validator', (name) => {
     const raw = readFileSync(
-      join(
-        __dirname,
-        '..',
-        '..',
-        '..',
-        '.reference',
-        'skills',
-        'legacy',
-        name,
-        SKILL_FILE,
-      ),
+      join(__dirname, '..', '..', 'skills', 'legacy', name, SKILL_FILE),
       'utf8',
     );
     const parsed = parseSkillFile(raw, OPTS);
@@ -292,7 +282,7 @@ describe('scanSkillDir / loadSkillBody', () => {
   });
 
   it('loads the real skill collection under its category layout (M18)', async () => {
-    const root = join(__dirname, '..', '..', '..', '.reference', 'skills');
+    const root = join(__dirname, '..', '..', 'skills');
     const result = await scanSkillDir(root, { maxBodyChars: 64 * 1024 });
     // The collection ships ~98 skills; almost all should now load.
     expect(result.descriptors.length).toBeGreaterThanOrEqual(90);
@@ -306,15 +296,7 @@ describe('scanSkillDir / loadSkillBody', () => {
   });
 
   it('anchors discovery on the real icos-v3-stack seed', () => {
-    const seeds = join(
-      __dirname,
-      '..',
-      '..',
-      '..',
-      '.reference',
-      'skills',
-      'legacy',
-    );
+    const seeds = join(__dirname, '..', '..', 'skills', 'legacy');
     const descriptors = (
       ['icos-v3-stack', 'daily-journal', 'comments-pass'] as const
     ).map((name) => {
