@@ -1695,6 +1695,7 @@ export class ConversationService {
       disabledToolsets: this.config.toolsDisabledToolsets,
       enabledTools: this.config.toolsEnabled,
       disabledTools: this.config.toolsDisabled,
+      toolsetAliases: this.registry.toolsetAliases(),
     };
   }
 

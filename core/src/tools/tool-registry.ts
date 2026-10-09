@@ -385,6 +385,11 @@ export interface ForeignToolSource {
    * declared). The bridge serves it; test doubles omit it.
    */
   unavailableForeign?(): readonly UnavailableForeignServer[];
+  /**
+   * Selector aliases for dynamically-registered toolsets (optional seam,
+   * M19). Absent = no aliases (literal toolset names only).
+   */
+  toolsetAliases?(): Readonly<Record<string, readonly string[]>>;
 }
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -2467,6 +2472,14 @@ export class ToolRegistry {
    */
   unavailableForeign(): readonly UnavailableForeignServer[] {
     return this.foreign?.unavailableForeign?.() ?? [];
+  }
+
+  /**
+   * Selector aliases for the foreign source's generated toolsets (M19).
+   * Empty without a source or when the seam is absent.
+   */
+  toolsetAliases(): Readonly<Record<string, readonly string[]>> {
+    return this.foreign?.toolsetAliases?.() ?? {};
   }
 
   private foreignSourceDescriptor(name: string): ToolDescriptor | undefined {

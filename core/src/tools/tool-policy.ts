@@ -14,6 +14,14 @@ export interface ToolPolicyConfig {
   /** Per-tool overrides; an explicit enable wins over a disable. */
   enabledTools?: readonly string[];
   disabledTools?: readonly string[];
+  /**
+   * Selector aliases (M19). A selector token matches its own toolset plus any
+   * toolset listed here. Generated MCP toolsets alias both ways: the bare
+   * server name (`github` → `mcp-github`) and `mcp` → every `mcp-<server>`.
+   * Aliases are **additive**, so a name shared with a built-in toolset (e.g.
+   * `browser` → `mcp-browser`) selects both — composition, never shadowing.
+   */
+  toolsetAliases?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface ResolvedToolPolicy {
@@ -27,14 +35,24 @@ export interface ResolvedToolPolicy {
  * Resolve which tools are offered. Default is **opt-out**: every toolset is
  * enabled unless `enabledToolsets` is non-empty (then it is opt-in). Explicit
  * per-tool enables win over disables, so a single tool can be re-enabled
- * inside an otherwise-disabled toolset.
+ * inside an otherwise-disabled toolset. Selectors are expanded through
+ * `toolsetAliases` first (M19), so aliases compose with the literal names.
  */
 export function resolveToolPolicy(
   descriptors: readonly ToolDescriptor[],
   policy: ToolPolicyConfig = {},
 ): ResolvedToolPolicy {
-  const enabledToolsets = new Set(policy.enabledToolsets ?? []);
-  const disabledToolsets = new Set(policy.disabledToolsets ?? []);
+  const aliases = policy.toolsetAliases ?? {};
+  const expand = (selectors: readonly string[]): Set<string> => {
+    const out = new Set<string>();
+    for (const selector of selectors) {
+      out.add(selector);
+      for (const target of aliases[selector] ?? []) out.add(target);
+    }
+    return out;
+  };
+  const enabledToolsets = expand(policy.enabledToolsets ?? []);
+  const disabledToolsets = expand(policy.disabledToolsets ?? []);
   const enabledTools = new Set(policy.enabledTools ?? []);
   const disabledTools = new Set(policy.disabledTools ?? []);
   const offered: ToolDescriptor[] = [];

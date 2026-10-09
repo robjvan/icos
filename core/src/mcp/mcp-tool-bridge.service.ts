@@ -97,6 +97,23 @@ export class McpToolBridge implements ForeignToolSource, OnModuleInit {
   }
 
   /**
+   * Selector aliases for the generated toolsets (M19): the bare server name
+   * resolves to its `mcp-<server>` toolset, and `mcp` resolves to every
+   * generated toolset. Additive — a server named after a built-in toolset
+   * (browser, web) composes rather than shadows.
+   */
+  toolsetAliases(): Readonly<Record<string, readonly string[]>> {
+    const aliases: Record<string, string[]> = {};
+    const all = new Set<string>();
+    for (const descriptor of this.descriptors) {
+      all.add(descriptor.toolset);
+      aliases[descriptor.server] = [descriptor.toolset];
+    }
+    if (all.size > 0) aliases['mcp'] = [...all];
+    return aliases;
+  }
+
+  /**
    * Known-but-unusable servers for the planning frame (M13c):
    * every non-connected catalog entry, with its loud reason.
    * Connected servers are absent by definition — their tools are
