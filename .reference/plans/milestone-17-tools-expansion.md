@@ -5,8 +5,8 @@
 > M17c.1–4 (terminal, process tools, skill_manage, discord) — with evidence under
 > `.reference/plans/evidence/milestone-17/`. **Tier 1 complete** (image_generate
 > live test deferred — no credits/hardware); **Tier 2 complete** (docker
-> deferred — see M17c). **Tier 3 in progress:** M17d.1 cron, M17d.2 execute_code
-> done; browser pending. Captured
+> deferred — see M17c). **Tier 3:** M17d complete (cron, execute_code, browser;
+> computer_use deferred). Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
@@ -140,7 +140,9 @@ frame declaration of disabled tools. Unlocks M18 and M19.
 
 ### M17d — Tier 3 tools (sandbox/worker)
 - **Browser**: minimal Playwright set first (`navigate`, `snapshot`, `click`,
-  `type`, `scroll`, `screenshot`); CDP/vault/dialog/vision later
+  `type`, `scroll`, `screenshot`); CDP/vault/dialog/vision later — *done
+  (M17d.3; delivered as one consolidated `browser` tool, approval-free,
+  Chromium in the image)*
 - **Execute code**: `execute_code` — *done (M17d.2; workspace-jailed script +
   tool-RPC bridge, approval-gated; approval-free tools only via RPC)*
 - **Cron**: `cronjob_manage` — *done (M17d.1; durable `cron_jobs` table,
