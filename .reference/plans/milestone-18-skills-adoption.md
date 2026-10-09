@@ -1,7 +1,8 @@
 # M18 — Skills Adoption
 
 > Status: **in progress** (started 2026-10-09). **Done:** M18.0 (loader &
-> layout), M18.1 (seed + management commands). Objective: adopt the 98-skill
+> layout), M18.1 (seed + management commands), M18.2 (skills as a workspace
+> child). Objective: adopt the 98-skill
 > collection into the runtime so the operator can find and edit it, and so the
 > model can actually use it. Captured 2026-10-09. Related: **M7** (the skills
 > layer this extends), **M17a** (tool enablement), **M20** (web client).
@@ -40,9 +41,10 @@ and `templates/`.
   **without overwriting** user edits. Management commands: slash
   `/skills seed|create|delete` + API `POST /core/skills`, `DELETE
   /core/skills/:name`, `POST /core/skills/seed`.
-- **M18.2 — Supporting files.** Make a skill's `scripts/`/`references/`/
-  `templates/` reachable by the agent (the file tools are workspace-confined;
-  skills live outside). Design point.
+- **M18.2 — Supporting files.** *Done.* The catalog is a **child of the
+  workspace** (`<TOOLS_WORKSPACE_ROOT>/skills`), so the existing file/terminal
+  tools reach a skill's `scripts/`/`references/`/`templates/` directly — no
+  materialization, no boundary change. `SKILLS_DIR_PATH` still overrides.
 - **M18.3+ — Adapt by category** (one slice per group):
   - research + web + data-science
   - software-development + devops + mlops + dogfood
