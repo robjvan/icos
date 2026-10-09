@@ -357,6 +357,14 @@ Questions are particularly useful when they challenge an assumption behind the a
 
 ---
 
+## Credits
+
+The adapted `skill` files (the skills library under `core/skills/`) are ported
+from [Hermes Agent](https://github.com/NousResearch/hermes-agent), and the
+`tool` surface drew inspiration from it. Thank you to the Hermes project.
+
+---
+
 ## License
 
 ICOS is available **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](./LICENSE.md).
