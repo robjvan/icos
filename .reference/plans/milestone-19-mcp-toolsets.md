@@ -1,8 +1,8 @@
 # M19 — Dynamic MCP Server toolsets
 
-> Status: **planned** (2026-10-09). Client side only: ICOS **connects to**
-> configured MCP servers and **auto-generates a toolset from each server's
-> discovered tools** — ICOS is not itself exposed as an MCP server.
+> Status: **planned** (2026-10-09; decisions confirmed). Client side only: ICOS
+> **connects to** configured MCP servers and **auto-generates a toolset from each
+> server's discovered tools** — ICOS is not itself exposed as an MCP server.
 > Related: **M13** (the MCP client this extends), **M17a** (the toolset policy
 > layer this plugs into).
 
@@ -45,6 +45,9 @@ The MCP **client** subsystem is complete and wired end-to-end
 server-named `browser`/`web` from colliding with the built-in toolset.
 
 ## Decisions
+
+> Confirmed with the operator 2026-10-09 (aggregate `mcp` alias kept; MCP
+> offer stays opt-out).
 
 1. **Generated toolset name:** `mcp-<server>` (e.g. `mcp-github`). Dash, matching
    the Hermes convention and the existing catalog name charset.
