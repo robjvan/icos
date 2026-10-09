@@ -48,7 +48,7 @@ presents a stable web client — all on a hardened, provider-agnostic core. This
 is the first release we would call finished: the "put the agent into an
 environment" phase, complete.
 
-## PLANNED - v0.17.1 Agency Extended
+## PLANNED - v0.8.1 Agency Extended
 
 Beyond conversation, the agent acts. It executes autonomous actions under
 explicit trust and approval boundaries, tends a knowledge base as a living
@@ -60,7 +60,7 @@ without being prompted — with kill-switches and a full audit trail.
 - **M24:** External sensor support
 - **M25:** Reactionary events (ties to M24)
 
-## PLANNED - v0.17 Agency
+## PLANNED - v0.8 Agency
 
 The agent learns to delegate. Subagents inherit bounded context and capability,
 run in parallel, and return verified results — with their own budgets,
@@ -68,7 +68,7 @@ permissions, and provenance, so a parent agent can trust what comes back.
 
 - **M21:** Subagent support
 
-## PLANNED - v0.16 Web client bug rollup
+## PLANNED - v0.7 Web client bug rollup
 
 A stability pass. The web client catches up with the backend and the
 accumulated rough edges are smoothed — no new capabilities, just a surface that
@@ -76,7 +76,7 @@ matches what the core can already do, including Discord slash commands.
 
 - **M20:** Web/client surface catch-up
 
-## PLANNED - v0.15 Tools and Skills Expansion
+## PLANNED - v0.6 Tools and Skills Expansion
 
 The agent's hands grow. A broad native tool surface — files, web, memory,
 vision, image, terminal, processes, scheduling, code execution, and a headless
@@ -89,7 +89,7 @@ restart.
 - **M19:** Dynamic MCP server toolsets
 - **M17.1:** Tools removed from context
 
-## v0.14 Discord & Email Integration
+## v0.5 Discord & Email Integration
 
 > _Commit 614dcdbf23581a512ee5dd62cab8298a630f5a11_
 
@@ -100,7 +100,7 @@ internal URL fix.
 
 - **M16:** External Communications Integration
 
-## v0.13 Epistemic Grounding, Hardening, Roundup
+## v0.4 Epistemic Grounding, Hardening, Roundup
 
 > _Commit 69e4019b09b43083093bc881a1621e0fd7149156_
 
@@ -119,7 +119,7 @@ loopback-by-default — makes it safe to actually run.
   provider-agnostic verifier, explicit logged mitigations; blocking
   pre-send mitigation deferred)
 
-## v0.12 Phase 2: Memory Foundations
+## v0.3 Phase 2: Memory Foundations
 
 > _Commit fd2d745fd2b422c9c588874a8599971eb117e412_
 
@@ -132,7 +132,7 @@ retired — with a walkable history.
 - **M11:** Memory retrieval / application
 - **M12:** Memory dynamics
 
-## v0.11.1 Realtime Web Client
+## v0.2.1 Realtime Web Client
 
 > _Commit 928f10554fdc6deac8e3ee16d142659b2746246b_
 
@@ -140,7 +140,7 @@ A realtime layer. Token streaming over SSE, live session updates, and
 approvals/clarifications delivered as structured events — the client stops
 polling and starts listening.
 
-## v0.11 Web Client
+## v0.2 Web Client
 
 > _Commit 97ff9fb2c6dd08dd0b2916ab9a17da88efe64c1f_
 
@@ -148,7 +148,7 @@ ICOS gets a face. A same-origin web client for conversations, sessions, memory
 review, and the approval/clarification surfaces — the first real operator
 interface.
 
-## v0.10 Phase 1: Foundation
+## v0.1 Phase 1: Foundation
 
 > _Commit 224b3860d83be97b99cc8896ff6f7bbb2874896b_
 
