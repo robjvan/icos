@@ -167,6 +167,25 @@ resolveToolPolicy(this.registry.list(), {
   accept `mcp-<server>` and the bare server name, and that a server named after
   a built-in toolset composes rather than shadows.
 
+## Live verification target (M19.4)
+
+ByteStash MCP server at `http://192.168.2.10:5000/` (HTTP transport, API-key
+auth). It may not be registered yet — M19.4 registers it via
+`PUT /core/mcp/servers/bytestash` (or `~/.icos/mcp-servers.json`) + reload, then
+asserts the `mcp-bytestash` toolset appears and is selectable.
+
+Credentials follow the existing rule: the catalog holds **references only**:
+
+- `$VAR` → the process environment (`.env` / compose `environment:`) — the
+  testing path.
+- `secret:NAME` → the encrypted vault (`PUT /core/secrets/:name`) — the durable
+  operator path.
+
+A catalog value must be **exactly one reference** (no surrounding text), so a
+scheme prefix goes in the referenced value itself (e.g. `BYTESTASH_AUTH="Bearer
+<key>"` → `"Authorization": "$BYTESTASH_AUTH"`), or the server accepts a bare
+token header.
+
 ## Slices
 
 - **M19.1 — Descriptor toolset.** Extend the `ForeignToolSource` projection;
