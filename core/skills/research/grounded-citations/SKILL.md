@@ -48,15 +48,15 @@ Mention a URL only if the user would plausibly want the link.
 
 None beyond the standard toolset. `scripts/sources.py` is stdlib-only Python 3.
 Retrieval comes from whatever is configured: `web_search`, `web_extract`,
-`browser_navigate`, or `terminal` (curl, CLIs).
+the `browser` tool, or `terminal` (curl, CLIs).
 
-Ledger location: `$HERMES_HOME/cache/citations/ledger.json` (profile-aware).
-Override per task with `--ledger <path>` or `HERMES_CITATION_LEDGER`.
+Ledger location: `citations/ledger.json` (relative to the workspace).
+Override per task with `--ledger <path>` or `CITATION_LEDGER`.
 
 ## How to Run
 
 ```bash
-S=~/.hermes/skills/research/grounded-citations/scripts/sources.py
+S=skills/research/grounded-citations/scripts/sources.py
 
 python "$S" reset                                  # start a clean ledger
 python "$S" add https://example.com/a --title "A"  # prints: [1]
@@ -91,7 +91,7 @@ answer or document. Skip the reset when continuing work whose ids are already
 in a draft — reusing the ledger keeps the numbering stable.
 
 ② **Register every source at retrieval time.** After each `web_search` /
-`web_extract` / `browser_navigate` / fetch, pass the URLs to `sources.py add`
+`web_extract` / `browser` / fetch, pass the URLs to `sources.py add`
 (or pipe the raw JSON through `sources.py ingest`). Do this *before* writing
 prose. Registering later, from memory, is the failure mode this skill exists to
 prevent.
@@ -141,9 +141,8 @@ with every claim attributed to the platform it came from:
 | Code | `terminal` with `gh search repos` / `gh search issues` | implementations, open bugs |
 | X/Twitter | `xurl` (needs API access) | announcements, developer chatter |
 
-The `reddit-reading` and `rss-feeds` skills are optional. If absent, install with
-`hermes skills install official/social-media/reddit-reading` or
-`hermes skills install official/research/rss-feeds` before using them.
+The `reddit-reading` and `rss-feeds` skills ship with ICOS
+(`skills/social-media/reddit-reading`, `skills/research/rss-feeds`).
 
 Register every URL from every route in the ledger as it arrives (step ②). Keep
 opinion and measurement apart: a Reddit thread is evidence that users *report*

@@ -303,7 +303,7 @@ Round 3 (Targeted): Fill specific gaps
 
 **When to stop**: If a round returns >80% papers already in your collection, the search is saturated. Typically 2-3 rounds suffice. For survey papers, expect 4-5 rounds.
 
-**For agent-based workflows**: Delegate each round's queries in parallel via `delegate_task`. Collect results, deduplicate, then generate the next round's queries from the combined learnings.
+**For agent-based workflows**: Run each round's queries sequentially (or in parallel via `execute_code`). Collect results, deduplicate, then generate the next round's queries from the combined learnings. (Parallel subagent delegation, `delegate_task`, is not yet available in ICOS — M21.)
 
 ### Step 1.3: Verify Every Citation
 

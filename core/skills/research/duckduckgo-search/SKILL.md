@@ -16,7 +16,7 @@ metadata:
 
 Free web search using DuckDuckGo. **No API key required.**
 
-Preferred when `web_search` is unavailable or unsuitable (for example when `FIRECRAWL_API_KEY` is not set). Can also be used as a standalone search path when DuckDuckGo results are specifically desired.
+A standalone search path when DuckDuckGo results are specifically desired. ICOS' `web_search` uses SearXNG; use this skill for the DuckDuckGo HTML endpoint directly.
 
 ## Detection Flow
 

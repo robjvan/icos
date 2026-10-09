@@ -42,14 +42,16 @@ For each company include, where available:
 5. reputable trade and financial press
 6. job postings as weak supporting evidence
 
-Use `rss-feeds` (optional) or `blogwatcher` (optional, stateful) for feeds, `reddit-reading` for community discussion, and `web_search`/`web_extract` for pages. Write the watch contract (watchlist, categories, materiality threshold, last cutoff) to a state file under `~/.hermes/competitor-watches/<watch-slug>.json`, then create the job:
+Use `rss-feeds` (optional) or `blogwatcher` (optional, stateful) for feeds, `reddit-reading` for community discussion, and `web_search`/`web_extract` for pages. Write the watch contract (watchlist, categories, materiality threshold, last cutoff) to a state file under `competitor-watches/<watch-slug>.json` (relative to the workspace), then create the job:
 
 ```
-cronjob(action="create",
-        schedule="every monday 9am",
-        prompt="Load the competitor-news-monitor skill and run the tick for the watch contract at ~/.hermes/competitor-watches/<watch-slug>.json.",
-        deliver=<user's destination>)
+cronjob_manage({action: "create", name: "competitor-watch",
+                schedule: "0 9 * * 1",
+                prompt: "Load the competitor-news-monitor skill and run the tick for the watch contract at competitor-watches/<watch-slug>.json.",
+                deliver_channel: "discord", deliver_target: "user", deliver_id: "<user id>"})
 ```
+
+The schedule is a 5-field cron expression (minute hour day-of-month month day-of-week); delivery is optional (omit `deliver_*` to keep the reply in the job's session).
 
 Done when each requested event category has at least one intended primary source or a documented gap, and the job exists.
 
