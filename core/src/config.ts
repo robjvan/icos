@@ -766,7 +766,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.VECTOR_DB_PATH,
       '~/.icos/data/claims-vector.db',
     ),
-    skillsDirPath: resolvePath(env.SKILLS_DIR_PATH, '~/.icos/skills'),
+    skillsDirPath: resolvePath(
+      env.SKILLS_DIR_PATH,
+      join(
+        resolvePath(env.TOOLS_WORKSPACE_ROOT, '~/.icos/workspace'),
+        'skills',
+      ),
+    ),
     skillsEnabled: parseBoolean(env.SKILLS_ENABLED, true),
     skillsSeedEnabled: parseBoolean(env.SKILLS_SEED_ENABLED, true),
     skillsSeedRoot: (env.SKILLS_SEED_ROOT ?? '').trim() || undefined,

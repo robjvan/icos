@@ -163,9 +163,12 @@ describe('loadConfig', () => {
     expect(overridden.memoryProvider).toBe('ollama');
   });
 
-  it('defaults the skills catalog under the home directory', () => {
+  it('defaults the skills catalog under the workspace (M18.2)', () => {
     const config = loadConfig({ LLM_MODEL: 'm' });
-    expect(config.skillsDirPath).toBe(join(homedir(), '.icos/skills'));
+    expect(config.skillsDirPath).toBe(
+      join(homedir(), '.icos/workspace/skills'),
+    );
+    expect(config.skillsSeedEnabled).toBe(true);
     expect(config.skillsEnabled).toBe(true);
     expect(config.skillsMaxBodyChars).toBe(12000);
     expect(config.skillsMaxCatalogItems).toBe(50);
