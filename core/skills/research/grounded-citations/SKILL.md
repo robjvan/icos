@@ -129,26 +129,10 @@ writing to a file.
 ## Multi-Platform Sweeps
 
 "What are people saying about X" / "research X across the web" is not one
-`web_search`. Fan out across source types, collect in parallel, then synthesise
-with every claim attributed to the platform it came from:
-
-| Source type | Route | What it adds |
-|---|---|---|
-| Open web | `web_search` → `web_extract` | official docs, articles, announcements |
-| Community discussion | `reddit-reading` (`search`, `thread`) | real user experience, complaints, workarounds |
-| Blogs / releases / changelogs | `rss-feeds` (`read`, `discover`) | dated primary posts, version history |
-| Video | `youtube-content` | walkthroughs, demos, talks |
-| Code | `terminal` with `gh search repos` / `gh search issues` | implementations, open bugs |
-| X/Twitter | `xurl` (needs API access) | announcements, developer chatter |
-
-The `reddit-reading` and `rss-feeds` skills ship with ICOS
-(`skills/social-media/reddit-reading`, `skills/research/rss-feeds`).
-
-Register every URL from every route in the ledger as it arrives (step ②). Keep
-opinion and measurement apart: a Reddit thread is evidence that users *report*
-something, not that it is true; pair it with a primary source or label it as
-sentiment. Report per-platform coverage gaps ("Reddit search returned nothing
-newer than March") rather than silently narrowing to what worked.
+`web_search`. Fan out across source types (open web, community discussion,
+feeds, video, code, social) and attribute every claim to the platform it came
+from. See `references/source-routes.md` for the route table and the coverage
+guidance (register every URL, keep opinion and measurement apart, report gaps).
 
 ## Fact-Checking Mode
 
@@ -230,7 +214,7 @@ and read the `info: stats:` line to see the counts before picking a number.
 - **Citing the ledger in code/config artifacts.** Source comments belong in
   prose deliverables and doc headers, not inside generated code.
 - **Parallel subagents.** Each subagent has its own working directory; point
-  them all at one ledger with `--ledger` (or `HERMES_CITATION_LEDGER`) if their
+  them all at one ledger with `--ledger` (or `CITATION_LEDGER`) if their
   outputs get merged, otherwise their ids will collide.
 - **Quoting from a snippet instead of the page.** Evidence quotes must come
   from the extracted page text, not a search-result description — `web_extract`
