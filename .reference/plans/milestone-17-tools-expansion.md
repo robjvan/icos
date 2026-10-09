@@ -5,7 +5,7 @@
 > M17c.1–4 (terminal, process tools, skill_manage, discord) — with evidence under
 > `.reference/plans/evidence/milestone-17/`. **Tier 1 complete** (image_generate
 > live test deferred — no credits/hardware); **Tier 2 complete** (docker
-> deferred — see M17c). **Tier 3:** not started. Captured
+> deferred — see M17c). **Tier 3 in progress:** M17d.1 cron done. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
@@ -141,7 +141,8 @@ frame declaration of disabled tools. Unlocks M18 and M19.
 - **Browser**: minimal Playwright set first (`navigate`, `snapshot`, `click`,
   `type`, `scroll`, `screenshot`); CDP/vault/dialog/vision later
 - **Execute code**: worker + tool-RPC bridge
-- **Cron**: `cronjob_manage` (durable scheduler)
+- **Cron**: `cronjob_manage` — *done (M17d.1; durable `cron_jobs` table,
+  in-process scheduler, 5-field parser, optional delivery)*
 - **Computer use**: `computer_use` (external driver) — defer if needed
 
 ### M17e — Verification
