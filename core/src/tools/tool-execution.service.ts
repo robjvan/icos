@@ -31,6 +31,9 @@ import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import type { CronService } from '../cron/cron.service';
 import type { CronJob } from '../cron/cron-job.repository';
 import type { ToolRpcTokens } from './tool-rpc.tokens';
+import type { BrowserService } from '../browser/browser.service';
+import type { BrowserAction } from '../browser/browser.service';
+import { BrowserError } from '../browser/browser.service';
 import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
@@ -55,6 +58,7 @@ import type {
 import { ToolRegistry } from './tool-registry';
 import type {
   ChannelSendArgs,
+  BrowserArgs,
   CronJobManageArgs,
   DiscordAdminArgs,
   DiscordArgs,
@@ -177,6 +181,28 @@ function describeDiscordAdmin(args: DiscordAdminArgs): string {
 function describeExecuteCode(args: ExecuteCodeArgs): string {
   const language = args.language ?? 'python';
   return `Run ${language} code (${args.code.length} chars)`;
+}
+
+/** Map validated browser args to the browser service action. */
+function browserAction(args: BrowserArgs): BrowserAction {
+  switch (args.action) {
+    case 'navigate':
+      return { action: 'navigate', url: args.url ?? '' };
+    case 'snapshot':
+      return { action: 'snapshot' };
+    case 'click':
+      return { action: 'click', selector: args.selector ?? '' };
+    case 'type':
+      return {
+        action: 'type',
+        selector: args.selector ?? '',
+        text: args.text ?? '',
+      };
+    case 'scroll':
+      return { action: 'scroll', dy: args.dy ?? 0 };
+    case 'screenshot':
+      return { action: 'screenshot' };
+  }
 }
 
 /** Spawn a process, capture bounded output, and kill its group on timeout. */
@@ -387,6 +413,7 @@ export class ToolExecutionService {
     private readonly discordAdmin?: DiscordAdminPort,
     private readonly cron?: CronService,
     private readonly rpcTokens?: ToolRpcTokens,
+    private readonly browser?: BrowserService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -734,6 +761,8 @@ export class ToolExecutionService {
           args as unknown as ExecuteCodeArgs,
           sessionId,
         );
+      case 'browser':
+        return this.nativeBrowser(args as unknown as BrowserArgs, sessionId);
       default:
         return Promise.reject(new Error(`unknown_native_tool: ${name}`));
     }
@@ -1238,6 +1267,21 @@ export class ToolExecutionService {
       } catch {
         // Best-effort cleanup.
       }
+    }
+  }
+
+  /** Drive the headless browser for this session (M17d.3). */
+  private async nativeBrowser(
+    args: BrowserArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.browser) throw new Error('browser_unavailable');
+    try {
+      return await this.browser.run(sessionId, browserAction(args));
+    } catch (err) {
+      throw new Error(
+        err instanceof BrowserError ? err.code : 'browser_failed',
+      );
     }
   }
 

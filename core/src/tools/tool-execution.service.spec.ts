@@ -34,6 +34,7 @@ import { ProcessRegistry } from '../process/process-registry.service';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import type { CronService } from '../cron/cron.service';
 import { ToolRpcTokens } from './tool-rpc.tokens';
+import type { BrowserService } from '../browser/browser.service';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -114,6 +115,7 @@ describe('ToolExecutionService SQLite', () => {
     discordAdmin?: DiscordAdminPort,
     cron?: CronService,
     rpcTokens?: ToolRpcTokens,
+    browser?: BrowserService,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -175,6 +177,7 @@ describe('ToolExecutionService SQLite', () => {
       discordAdmin,
       cron,
       rpcTokens ?? new ToolRpcTokens(),
+      browser,
     );
     return {
       database,
@@ -1140,6 +1143,46 @@ describe('ToolExecutionService SQLite', () => {
       result: { stdout: string };
     };
     expect(outcome.result.stdout).toContain('hi from code');
+  });
+
+  it('drives the browser through the browser tool (M17d.3)', async () => {
+    const run = jest.fn<Promise<unknown>, [string, { action: string }]>(() =>
+      Promise.resolve({ ok: true }),
+    );
+    const browser = { run } as unknown as BrowserService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      browser,
+    );
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-browser', 'browser', {
+        action: 'navigate',
+        url: 'https://example.com/',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'browser',
+      result: { ok: true },
+    });
+    expect(run).toHaveBeenCalledWith('s1', {
+      action: 'navigate',
+      url: 'https://example.com/',
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

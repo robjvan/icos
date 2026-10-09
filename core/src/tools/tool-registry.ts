@@ -29,7 +29,8 @@ export type ToolName =
   | 'discord'
   | 'discord_admin'
   | 'cronjob_manage'
-  | 'execute_code';
+  | 'execute_code'
+  | 'browser';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -234,6 +235,15 @@ export interface ExecuteCodeArgs {
   readonly language?: 'python' | 'javascript';
 }
 
+export interface BrowserArgs {
+  readonly action:
+    'navigate' | 'snapshot' | 'click' | 'type' | 'scroll' | 'screenshot';
+  readonly url?: string;
+  readonly selector?: string;
+  readonly text?: string;
+  readonly dy?: number;
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -274,7 +284,8 @@ export type ValidatedToolArgs =
   | DiscordArgs
   | DiscordAdminArgs
   | CronJobManageArgs
-  | ExecuteCodeArgs;
+  | ExecuteCodeArgs
+  | BrowserArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -304,6 +315,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'discord_admin'; readonly args: DiscordAdminArgs }
   | { readonly name: 'cronjob_manage'; readonly args: CronJobManageArgs }
   | { readonly name: 'execute_code'; readonly args: ExecuteCodeArgs }
+  | { readonly name: 'browser'; readonly args: BrowserArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -411,6 +423,8 @@ const MAX_CRON_NAME_LENGTH = 120;
 const MAX_CRON_SCHEDULE_LENGTH = 120;
 const MAX_CRON_PROMPT_LENGTH = 4000;
 const MAX_CODE_LENGTH = 64 * 1024;
+const MAX_BROWSER_TEXT_LENGTH = 8000;
+const MAX_BROWSER_SCROLL = 100000;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -958,6 +972,41 @@ const EXECUTE_CODE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const BROWSER_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['navigate', 'snapshot', 'click', 'type', 'scroll', 'screenshot'],
+    },
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    selector: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    text: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BROWSER_TEXT_LENGTH,
+    },
+    dy: {
+      type: 'integer',
+      minimum: -MAX_BROWSER_SCROLL,
+      maximum: MAX_BROWSER_SCROLL,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -1197,6 +1246,16 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'required',
     toolset: 'code',
     argsSchema: EXECUTE_CODE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'browser',
+    version: 1,
+    description:
+      'Drive a headless browser: navigate, snapshot, click, type, scroll, or ' +
+      'screenshot a page.',
+    approval: 'none',
+    toolset: 'browser',
+    argsSchema: BROWSER_SCHEMA,
   }),
 ]);
 
@@ -2267,6 +2326,101 @@ function validateExecuteCodeArgs(
   };
 }
 
+function validateBrowserArgs(
+  args: Record<string, unknown>,
+): ParseResult<BrowserArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'url',
+    'selector',
+    'text',
+    'dy',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  const actions: readonly string[] = [
+    'navigate',
+    'snapshot',
+    'click',
+    'type',
+    'scroll',
+    'screenshot',
+  ];
+  if (typeof action !== 'string' || !actions.includes(action)) {
+    return {
+      ok: false,
+      message:
+        'action must be navigate, snapshot, click, type, scroll, or screenshot',
+    };
+  }
+  let url: string | undefined;
+  if (Object.hasOwn(args, 'url')) {
+    const parsed = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+    if (!parsed.ok) return parsed;
+    url = parsed.value;
+  }
+  let selector: string | undefined;
+  if (Object.hasOwn(args, 'selector')) {
+    const parsed = validText(
+      ownValue(args, 'selector'),
+      'selector',
+      MAX_QUERY_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    selector = parsed.value;
+  }
+  let text: string | undefined;
+  if (Object.hasOwn(args, 'text')) {
+    const parsed = validText(
+      ownValue(args, 'text'),
+      'text',
+      MAX_BROWSER_TEXT_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    text = parsed.value;
+  }
+  let dy: number | undefined;
+  if (Object.hasOwn(args, 'dy')) {
+    const value = ownValue(args, 'dy');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < -MAX_BROWSER_SCROLL ||
+      value > MAX_BROWSER_SCROLL
+    ) {
+      return {
+        ok: false,
+        message: `dy must be an integer within +/-${MAX_BROWSER_SCROLL}`,
+      };
+    }
+    dy = value;
+  }
+  if (action === 'navigate' && url === undefined) {
+    return { ok: false, message: 'navigate requires url' };
+  }
+  if ((action === 'click' || action === 'type') && selector === undefined) {
+    return { ok: false, message: `${action} requires selector` };
+  }
+  if (action === 'type' && text === undefined) {
+    return { ok: false, message: 'type requires text' };
+  }
+  if (action === 'scroll' && dy === undefined) {
+    return { ok: false, message: 'scroll requires dy' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action: action as BrowserArgs['action'],
+      ...(url !== undefined ? { url } : {}),
+      ...(selector !== undefined ? { selector } : {}),
+      ...(text !== undefined ? { text } : {}),
+      ...(dy !== undefined ? { dy } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -2695,6 +2849,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'execute_code',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'browser') {
+      const result = validateBrowserArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'browser',
           ...base,
           args: result.value,
         }),

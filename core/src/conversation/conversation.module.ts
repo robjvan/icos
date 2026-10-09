@@ -86,6 +86,7 @@ import { CronJobRepository } from '../cron/cron-job.repository';
 import { SqliteCronJobRepository } from '../cron/sqlite-cron-job.repository';
 import { CronService } from '../cron/cron.service';
 import { CronScheduler } from '../cron/cron-scheduler.service';
+import { BrowserService } from '../browser/browser.service';
 import { DISCORD_ADMIN } from '../channels/discord-admin.port';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import { LlmClient } from '../llm/llm.client';
@@ -134,6 +135,7 @@ const toolExecutionServiceProvider = {
     discordAdmin: DiscordAdminPort,
     cron: CronService,
     rpcTokens: ToolRpcTokens,
+    browser: BrowserService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -163,6 +165,7 @@ const toolExecutionServiceProvider = {
       discordAdmin,
       cron,
       rpcTokens,
+      browser,
     ),
   inject: [
     ToolExecutionRepository,
@@ -187,6 +190,7 @@ const toolExecutionServiceProvider = {
     DISCORD_ADMIN,
     CronService,
     ToolRpcTokens,
+    BrowserService,
   ],
 };
 
@@ -301,6 +305,7 @@ const toolExecutionServiceProvider = {
     CronService,
     ToolRpcTokens,
     ToolRpcService,
+    BrowserService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

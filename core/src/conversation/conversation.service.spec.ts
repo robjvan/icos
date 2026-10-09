@@ -386,6 +386,7 @@ describe('ConversationService', () => {
     const sent = chatWithTools.mock.calls[0][0];
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
+      'browser',
       'channel.send',
       'clarify',
       'cronjob_manage',
@@ -447,6 +448,7 @@ describe('ConversationService', () => {
       'discord_admin',
       'cronjob_manage',
       'execute_code',
+      'browser',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1092,6 +1094,7 @@ describe('ConversationService', () => {
 
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
+        'browser',
         'channel.send',
         'clarify',
         'cronjob_manage',
@@ -1149,6 +1152,7 @@ describe('ConversationService', () => {
         'discord_admin',
         'cronjob_manage',
         'execute_code',
+        'browser',
       ]);
     });
 

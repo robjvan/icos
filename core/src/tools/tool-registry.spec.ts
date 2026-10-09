@@ -34,6 +34,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'discord_admin',
   'cronjob_manage',
   'execute_code',
+  'browser',
 ];
 
 function contextWith(
@@ -100,6 +101,7 @@ describe('ToolRegistry', () => {
       'discord_admin',
       'cronjob_manage',
       'execute_code',
+      'browser',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -129,6 +131,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('discord_admin')?.approval).toBe('required');
     expect(registry.lookup('cronjob_manage')?.approval).toBe('none');
     expect(registry.lookup('execute_code')?.approval).toBe('required');
+    expect(registry.lookup('browser')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1544,6 +1547,74 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('browser tool (M17d.3)', () => {
+    it('validates actions and per-action requirements', () => {
+      const nav = expectOk(
+        registry.validate(
+          {
+            name: 'browser',
+            version: 1,
+            args: { action: 'navigate', url: 'https://example.com/' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(nav).toMatchObject({
+        name: 'browser',
+        args: { action: 'navigate', url: 'https://example.com/' },
+      });
+
+      const snap = expectOk(
+        registry.validate(
+          { name: 'browser', version: 1, args: { action: 'snapshot' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(snap).toMatchObject({
+        name: 'browser',
+        args: { action: 'snapshot' },
+      });
+
+      const typed = expectOk(
+        registry.validate(
+          {
+            name: 'browser',
+            version: 1,
+            args: { action: 'type', selector: '#q', text: 'hello' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(typed).toMatchObject({
+        name: 'browser',
+        args: { action: 'type', selector: '#q', text: 'hello' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'browser', version: 1, args: {} },
+        { name: 'browser', version: 1, args: { action: 'navigate' } },
+        { name: 'browser', version: 1, args: { action: 'click' } },
+        {
+          name: 'browser',
+          version: 1,
+          args: { action: 'type', selector: '#q' },
+        },
+        { name: 'browser', version: 1, args: { action: 'scroll' } },
+        { name: 'browser', version: 1, args: { action: 'nope' } },
+        {
+          name: 'browser',
+          version: 1,
+          args: { action: 'snapshot', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1601,6 +1672,7 @@ describe('ToolRegistry', () => {
         'discord_admin',
         'cronjob_manage',
         'execute_code',
+        'browser',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({
