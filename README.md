@@ -137,7 +137,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M15.5 are complete, and the security-hardening milestone (S1–S6) is complete.**
+**M1–M17 are complete, and the security-hardening milestone (S1–S6) is complete.**
 
 The current system provides:
 
@@ -183,6 +183,15 @@ The current system provides:
   bootstrap token, an encrypted secret vault, and an LLM provider
   registry selected at runtime with key references resolved through the
   vault) — managed from the web client (MCP servers, providers, secrets)
+- External channels (Discord + email): inbound turns, outbound sends,
+  attachments, approval cards, and status/presence
+- An expanded tool surface (25 native tools): files, web search/extract,
+  skills (view/list/manage), todo, memory (beliefs / ranked recall /
+  persona / candidates), clarify (park/resume), vision_analyze, image
+  generation, terminal, background processes, Discord info/moderation,
+  a durable cron scheduler, execute_code (with a tool-RPC bridge), and a
+  headless browser — plus attachment vision and a generic native
+  approval path
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 

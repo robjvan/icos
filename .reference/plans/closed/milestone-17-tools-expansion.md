@@ -1,12 +1,11 @@
 # M17 — Tools Expansion
 
-> Status: **in progress** (started 2026-10-07). **Done:** M17a (enablement
-> layer); M17b.1–9 (files, web, skills, todo, memory, clarify, vision, image);
-> M17c.1–4 (terminal, process tools, skill_manage, discord) — with evidence under
-> `.reference/plans/evidence/milestone-17/`. **Tier 1 complete** (image_generate
-> live test deferred — no credits/hardware); **Tier 2 complete** (docker
-> deferred — see M17c). **Tier 3:** M17d complete (cron, execute_code, browser;
-> computer_use deferred). Captured
+> Status: **complete** (2026-10-09). **Done:** M17a (enablement); M17b.1–9
+> (files, web, skills, todo, memory, clarify, vision, image); M17c.1–4 (terminal,
+> process tools, skill_manage, discord); M17d.1–3 (cron, execute_code, browser) —
+> with evidence under `.reference/plans/evidence/milestone-17/`. **Deferred:**
+> M17c.5 `docker` (host socket), M17d.4 `computer_use` (host↔container bridge).
+> 25 native tools. Captured
 > 2026-10-05. Source material:
 > `.reference/notes/tools-and-skills-list.md` (the desired tools) and
 > `.reference/legacy/tools/hermes-tools/` (the Hermes 0.20 reference).
@@ -147,7 +146,11 @@ frame declaration of disabled tools. Unlocks M18 and M19.
   tool-RPC bridge, approval-gated; approval-free tools only via RPC)*
 - **Cron**: `cronjob_manage` — *done (M17d.1; durable `cron_jobs` table,
   in-process scheduler, 5-field parser, optional delivery)*
-- **Computer use**: `computer_use` (external driver) — defer if needed
+- **Computer use**: `computer_use` — *deferred (M17d.4)*. cua-driver is a host
+  (macOS) binary exposing a stdio MCP server or a unix-socket daemon; the core
+  runs in a Linux container, which cannot reach the host socket and cannot run
+  the macOS binary. It needs a host↔container bridge (HTTP) or a host-run core.
+  The ICOS-side tool is the same regardless of transport.
 
 ### M17e — Verification
 Unit (schema/validation/approval/availability) + live runs per tier.
