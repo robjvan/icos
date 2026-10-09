@@ -33,6 +33,7 @@ import type { ImageGenService } from '../image/image-gen.service';
 import { ProcessRegistry } from '../process/process-registry.service';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import type { CronService } from '../cron/cron.service';
+import { ToolRpcTokens } from './tool-rpc.tokens';
 
 const noopClarifications = {
   create: () => Promise.reject(new Error('clarify unwired')),
@@ -112,6 +113,7 @@ describe('ToolExecutionService SQLite', () => {
     processes?: ProcessRegistry,
     discordAdmin?: DiscordAdminPort,
     cron?: CronService,
+    rpcTokens?: ToolRpcTokens,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -152,6 +154,7 @@ describe('ToolExecutionService SQLite', () => {
       {
         workspaceRoot: dir,
         ...(searxngBaseUrl !== undefined ? { searxngBaseUrl } : {}),
+        rpcBaseUrl: 'http://127.0.0.1:3000',
       },
       undefined,
       approvalService,
@@ -171,6 +174,7 @@ describe('ToolExecutionService SQLite', () => {
       processes ?? new ProcessRegistry(),
       discordAdmin,
       cron,
+      rpcTokens ?? new ToolRpcTokens(),
     );
     return {
       database,
@@ -1111,6 +1115,31 @@ describe('ToolExecutionService SQLite', () => {
       ok: true,
       result: { removed: true },
     });
+  });
+
+  it('runs an approved script through execute_code (M17d.2)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-code', 'execute_code', {
+        language: 'javascript',
+        code: 'console.log("hi from code")',
+      }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-code', 's1', { skipFinal: true });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'execute_code',
+      result: { language: 'javascript', exitCode: 0 },
+    });
+    const outcome = done.execution as unknown as {
+      result: { stdout: string };
+    };
+    expect(outcome.result.stdout).toContain('hi from code');
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {

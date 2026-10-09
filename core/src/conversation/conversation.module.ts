@@ -92,6 +92,9 @@ import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
+import { ToolRpcTokens } from '../tools/tool-rpc.tokens';
+import { ToolRpcService } from '../tools/tool-rpc.service';
+import { ToolRpcController } from '../tools/tool-rpc.controller';
 import { CandidatesController } from './candidates.controller';
 import { ClaimsController } from './claims.controller';
 import { MaintenanceController } from './maintenance.controller';
@@ -130,6 +133,7 @@ const toolExecutionServiceProvider = {
     processes: ProcessRegistry,
     discordAdmin: DiscordAdminPort,
     cron: CronService,
+    rpcTokens: ToolRpcTokens,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -140,6 +144,7 @@ const toolExecutionServiceProvider = {
       {
         workspaceRoot: config.toolsWorkspaceRoot,
         searxngBaseUrl: config.searxngBaseUrl,
+        rpcBaseUrl: `http://127.0.0.1:${String(config.port)}`,
       },
       llm,
       approvalService,
@@ -157,6 +162,7 @@ const toolExecutionServiceProvider = {
       processes,
       discordAdmin,
       cron,
+      rpcTokens,
     ),
   inject: [
     ToolExecutionRepository,
@@ -180,6 +186,7 @@ const toolExecutionServiceProvider = {
     ProcessRegistry,
     DISCORD_ADMIN,
     CronService,
+    ToolRpcTokens,
   ],
 };
 
@@ -202,6 +209,7 @@ const toolExecutionServiceProvider = {
     ApprovalsController,
     ClarificationsController,
     SkillsController,
+    ToolRpcController,
     HealthController,
     McpController,
     HallucinationController,
@@ -291,6 +299,8 @@ const toolExecutionServiceProvider = {
     { provide: CronJobRepository, useClass: SqliteCronJobRepository },
     CronScheduler,
     CronService,
+    ToolRpcTokens,
+    ToolRpcService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

@@ -73,6 +73,7 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   discord: 'discord',
   discord_admin: 'discord_admin',
   cronjob_manage: 'cronjob_manage',
+  execute_code: 'execute_code',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -6,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -28,6 +30,7 @@ import type { ProcessRegistry } from '../process/process-registry.service';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import type { CronService } from '../cron/cron.service';
 import type { CronJob } from '../cron/cron-job.repository';
+import type { ToolRpcTokens } from './tool-rpc.tokens';
 import { ClarificationService } from '../clarifications/clarification.service';
 import type { ClaimRepository } from '../memory/claim.repository';
 import type { Claim } from '../memory/claim';
@@ -55,6 +58,7 @@ import type {
   CronJobManageArgs,
   DiscordAdminArgs,
   DiscordArgs,
+  ExecuteCodeArgs,
   ForeignToolCall,
   ImageGenerateArgs,
   MemoryArgs,
@@ -103,8 +107,12 @@ export const PROCESS_START_ACTION = 'process.start';
 /** Approval action for Discord moderation (M17c.4). */
 export const DISCORD_ADMIN_ACTION = 'discord.admin';
 
+/** Approval action for execute_code (M17d.2). */
+export const CODE_EXECUTE_ACTION = 'code.execute';
+
 const DEFAULT_TERMINAL_TIMEOUT_MS = 30_000;
 const MAX_TERMINAL_OUTPUT_BYTES = 48 * 1024;
+const DEFAULT_CODE_TIMEOUT_MS = 30_000;
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
@@ -165,6 +173,86 @@ function describeDiscordAdmin(args: DiscordAdminArgs): string {
   return `Discord: kick user ${args.user_id}${reason}`;
 }
 
+/** Approval description for execute_code (M17d.2). */
+function describeExecuteCode(args: ExecuteCodeArgs): string {
+  const language = args.language ?? 'python';
+  return `Run ${language} code (${args.code.length} chars)`;
+}
+
+/** Spawn a process, capture bounded output, and kill its group on timeout. */
+function spawnCaptured(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<{
+  exitCode: number | null;
+  timedOut: boolean;
+  truncated: boolean;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let bytes = 0;
+    let truncated = false;
+    let timedOut = false;
+    let settled = false;
+    const append = (chunk: Buffer, which: 'stdout' | 'stderr'): void => {
+      if (bytes >= MAX_TERMINAL_OUTPUT_BYTES) {
+        truncated = true;
+        return;
+      }
+      let text = chunk.toString('utf8');
+      const remaining = MAX_TERMINAL_OUTPUT_BYTES - bytes;
+      if (Buffer.byteLength(text) > remaining) {
+        text = text.slice(0, remaining);
+        truncated = true;
+      }
+      bytes += Buffer.byteLength(text);
+      if (which === 'stdout') stdout += text;
+      else stderr += text;
+    };
+    child.stdout?.on('data', (chunk: Buffer) => append(chunk, 'stdout'));
+    child.stderr?.on('data', (chunk: Buffer) => append(chunk, 'stderr'));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // Kill the whole process group so a shell's children die too.
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
+      }
+    }, timeoutMs);
+    const finish = (exitCode: number | null, error?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        exitCode,
+        timedOut,
+        truncated,
+        ...(error !== undefined ? { error } : {}),
+        stdout,
+        stderr,
+      });
+    };
+    child.on('error', () => finish(null, 'spawn_failed'));
+    child.on('close', (code) => finish(code));
+  });
+}
+
 /** Compact, model-facing view of one cron job. */
 function cronJobView(job: CronJob): Record<string, unknown> {
   return {
@@ -190,6 +278,8 @@ function approvalActionFor(request: ValidatedToolRequest): string {
       return PROCESS_START_ACTION;
     case 'discord_admin':
       return DISCORD_ADMIN_ACTION;
+    case 'execute_code':
+      return CODE_EXECUTE_ACTION;
     case 'channel.send':
       return CHANNEL_SEND_ACTION;
     default:
@@ -212,6 +302,8 @@ function approvalDescriptionFor(request: ValidatedToolRequest): string {
       return describeProcessStart(request.args);
     case 'discord_admin':
       return describeDiscordAdmin(request.args);
+    case 'execute_code':
+      return describeExecuteCode(request.args);
     case 'channel.send':
       return describeChannelSend(request.args);
     default:
@@ -262,6 +354,7 @@ export class ToolExecutionService {
   private readonly searchTimeoutMs: number;
   private readonly workspaceRoot: string;
   private readonly searxngBaseUrl: string | undefined;
+  private readonly rpcBaseUrl: string | undefined;
   private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
@@ -274,6 +367,7 @@ export class ToolExecutionService {
       searchTimeoutMs?: number;
       workspaceRoot?: string;
       searxngBaseUrl?: string;
+      rpcBaseUrl?: string;
     } = {},
     private readonly streamer:
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
@@ -292,10 +386,12 @@ export class ToolExecutionService {
     private readonly processes?: ProcessRegistry,
     private readonly discordAdmin?: DiscordAdminPort,
     private readonly cron?: CronService,
+    private readonly rpcTokens?: ToolRpcTokens,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.searxngBaseUrl = options.searxngBaseUrl;
+    this.rpcBaseUrl = options.rpcBaseUrl;
     if (
       !Number.isInteger(this.searchTimeoutMs) ||
       this.searchTimeoutMs < 1 ||
@@ -631,6 +727,11 @@ export class ToolExecutionService {
       case 'cronjob_manage':
         return this.nativeCronJobManage(
           args as unknown as CronJobManageArgs,
+          sessionId,
+        );
+      case 'execute_code':
+        return this.nativeExecuteCode(
+          args as unknown as ExecuteCodeArgs,
           sessionId,
         );
       default:
@@ -1082,66 +1183,62 @@ export class ToolExecutionService {
   /** Run a shell command in the workspace jail (M17c). */
   private async nativeTerminal(args: TerminalArgs): Promise<unknown> {
     const cwd = this.resolveWithinWorkspace(args.cwd ?? '.');
-    const timeoutMs = args.timeoutMs ?? DEFAULT_TERMINAL_TIMEOUT_MS;
-    return await new Promise<unknown>((resolve) => {
-      const child = spawn('/bin/sh', ['-c', args.command], {
-        cwd,
-        env: terminalEnv(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-      });
-      let stdout = '';
-      let stderr = '';
-      let bytes = 0;
-      let truncated = false;
-      let timedOut = false;
-      let settled = false;
-      const append = (chunk: Buffer, which: 'stdout' | 'stderr'): void => {
-        if (bytes >= MAX_TERMINAL_OUTPUT_BYTES) {
-          truncated = true;
-          return;
-        }
-        let text = chunk.toString('utf8');
-        const remaining = MAX_TERMINAL_OUTPUT_BYTES - bytes;
-        if (Buffer.byteLength(text) > remaining) {
-          text = text.slice(0, remaining);
-          truncated = true;
-        }
-        bytes += Buffer.byteLength(text);
-        if (which === 'stdout') stdout += text;
-        else stderr += text;
-      };
-      child.stdout?.on('data', (chunk: Buffer) => append(chunk, 'stdout'));
-      child.stderr?.on('data', (chunk: Buffer) => append(chunk, 'stderr'));
-      const timer = setTimeout(() => {
-        timedOut = true;
-        // Kill the whole process group so a shell's children die too.
-        if (child.pid) {
-          try {
-            process.kill(-child.pid, 'SIGKILL');
-          } catch {
-            child.kill('SIGKILL');
-          }
-        }
-      }, timeoutMs);
-      const finish = (exitCode: number | null, error?: string): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve({
-          command: args.command,
-          ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
-          exitCode,
-          timedOut,
-          truncated,
-          ...(error !== undefined ? { error } : {}),
-          stdout,
-          stderr,
-        });
-      };
-      child.on('error', () => finish(null, 'spawn_failed'));
-      child.on('close', (code) => finish(code));
-    });
+    const result = await spawnCaptured(
+      '/bin/sh',
+      ['-c', args.command],
+      cwd,
+      terminalEnv(),
+      args.timeoutMs ?? DEFAULT_TERMINAL_TIMEOUT_MS,
+    );
+    return {
+      command: args.command,
+      ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+      ...result,
+    };
+  }
+
+  /**
+   * Run a Python/JavaScript script that can call approval-free ICOS tools
+   * through the RPC bridge (M17d.2). The script gets ICOS_RPC_URL and a
+   * short-lived ICOS_RPC_TOKEN; the token is revoked and the temp file
+   * removed when the run ends.
+   */
+  private async nativeExecuteCode(
+    args: ExecuteCodeArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.rpcTokens || !this.rpcBaseUrl) {
+      throw new Error('code_exec_unavailable');
+    }
+    const language = args.language ?? 'python';
+    const extension = language === 'python' ? 'py' : 'js';
+    const dir = join(this.workspaceRoot, '.icos-exec');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${randomUUID()}.${extension}`);
+    writeFileSync(file, args.code, { mode: 0o600 });
+    const token = this.rpcTokens.issue(sessionId);
+    const env: NodeJS.ProcessEnv = {
+      ...terminalEnv(),
+      ICOS_RPC_URL: `${this.rpcBaseUrl}/core/tools/rpc`,
+      ICOS_RPC_TOKEN: token,
+    };
+    try {
+      const result = await spawnCaptured(
+        language === 'python' ? 'python3' : 'node',
+        [file],
+        this.workspaceRoot,
+        env,
+        DEFAULT_CODE_TIMEOUT_MS,
+      );
+      return { language, ...result };
+    } finally {
+      this.rpcTokens.revoke(token);
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
   }
 
   /** Start a background process in the workspace jail (M17c.2). */

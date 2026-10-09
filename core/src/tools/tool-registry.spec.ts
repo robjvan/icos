@@ -33,6 +33,7 @@ const ALL_TOOLS: readonly ToolName[] = [
   'discord',
   'discord_admin',
   'cronjob_manage',
+  'execute_code',
 ];
 
 function contextWith(
@@ -98,6 +99,7 @@ describe('ToolRegistry', () => {
       'discord',
       'discord_admin',
       'cronjob_manage',
+      'execute_code',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -126,6 +128,7 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('discord')?.approval).toBe('none');
     expect(registry.lookup('discord_admin')?.approval).toBe('required');
     expect(registry.lookup('cronjob_manage')?.approval).toBe('none');
+    expect(registry.lookup('execute_code')?.approval).toBe('required');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -1495,6 +1498,52 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('execute_code tool (M17d.2)', () => {
+    it('validates code and language', () => {
+      const python = expectOk(
+        registry.validate(
+          { name: 'execute_code', version: 1, args: { code: 'print(1)' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(python).toMatchObject({
+        name: 'execute_code',
+        args: { code: 'print(1)' },
+      });
+
+      const js = expectOk(
+        registry.validate(
+          {
+            name: 'execute_code',
+            version: 1,
+            args: { code: 'console.log(1)', language: 'javascript' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(js).toMatchObject({
+        name: 'execute_code',
+        args: { code: 'console.log(1)', language: 'javascript' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'execute_code', version: 1, args: {} },
+        { name: 'execute_code', version: 1, args: { code: '   ' } },
+        {
+          name: 'execute_code',
+          version: 1,
+          args: { code: 'x', language: 'ruby' },
+        },
+        { name: 'execute_code', version: 1, args: { code: 'x', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -1551,6 +1600,7 @@ describe('ToolRegistry', () => {
         'discord',
         'discord_admin',
         'cronjob_manage',
+        'execute_code',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

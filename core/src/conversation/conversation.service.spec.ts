@@ -391,6 +391,7 @@ describe('ConversationService', () => {
       'cronjob_manage',
       'discord',
       'discord_admin',
+      'execute_code',
       'image_generate',
       'memory',
       'patch',
@@ -445,6 +446,7 @@ describe('ConversationService', () => {
       'discord',
       'discord_admin',
       'cronjob_manage',
+      'execute_code',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -1095,6 +1097,7 @@ describe('ConversationService', () => {
         'cronjob_manage',
         'discord',
         'discord_admin',
+        'execute_code',
         'image_generate',
         'memory',
         'patch',
@@ -1145,6 +1148,7 @@ describe('ConversationService', () => {
         'discord',
         'discord_admin',
         'cronjob_manage',
+        'execute_code',
       ]);
     });
 

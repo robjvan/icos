@@ -28,7 +28,8 @@ export type ToolName =
   | 'skill_manage'
   | 'discord'
   | 'discord_admin'
-  | 'cronjob_manage';
+  | 'cronjob_manage'
+  | 'execute_code';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -226,6 +227,13 @@ export type CronJobManageArgs =
   | { readonly action: 'remove'; readonly id: string }
   | { readonly action: 'run'; readonly id: string };
 
+export interface ExecuteCodeArgs {
+  /** The script source. */
+  readonly code: string;
+  /** Runtime; defaults to python. */
+  readonly language?: 'python' | 'javascript';
+}
+
 export type MemoryBeliefStatus =
   'candidate' | 'active' | 'contradicted' | 'retired';
 
@@ -265,7 +273,8 @@ export type ValidatedToolArgs =
   | SkillManageArgs
   | DiscordArgs
   | DiscordAdminArgs
-  | CronJobManageArgs;
+  | CronJobManageArgs
+  | ExecuteCodeArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -294,6 +303,7 @@ export type ValidatedToolRequest = {
   | { readonly name: 'discord'; readonly args: DiscordArgs }
   | { readonly name: 'discord_admin'; readonly args: DiscordAdminArgs }
   | { readonly name: 'cronjob_manage'; readonly args: CronJobManageArgs }
+  | { readonly name: 'execute_code'; readonly args: ExecuteCodeArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -400,6 +410,7 @@ const MAX_DISCORD_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const MAX_CRON_NAME_LENGTH = 120;
 const MAX_CRON_SCHEDULE_LENGTH = 120;
 const MAX_CRON_PROMPT_LENGTH = 4000;
+const MAX_CODE_LENGTH = 64 * 1024;
 const MAX_URL_LENGTH = 2000;
 const MAX_EXTRACT_BYTES = 256 * 1024;
 
@@ -932,6 +943,21 @@ const CRONJOB_MANAGE_SCHEMA = deepFreeze({
   },
 } as const);
 
+const EXECUTE_CODE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: {
+    code: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CODE_LENGTH,
+    },
+    language: { type: 'string', enum: ['python', 'javascript'] },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -1160,6 +1186,17 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'cron',
     argsSchema: CRONJOB_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'execute_code',
+    version: 1,
+    description:
+      'Run a Python or JavaScript script in the workspace. The script can ' +
+      'call approval-free ICOS tools via the ICOS_RPC_URL/ICOS_RPC_TOKEN env ' +
+      'vars. Requires approval.',
+    approval: 'required',
+    toolset: 'code',
+    argsSchema: EXECUTE_CODE_SCHEMA,
   }),
 ]);
 
@@ -2201,6 +2238,35 @@ function validateCronJobManageArgs(
   return { ok: true, value: Object.freeze({ action, id: id.value }) };
 }
 
+function validateExecuteCodeArgs(
+  args: Record<string, unknown>,
+): ParseResult<ExecuteCodeArgs> {
+  const unknownField = rejectUnknownFields(args, ['code', 'language']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const code = validText(ownValue(args, 'code'), 'code', MAX_CODE_LENGTH);
+  if (!code.ok) return code;
+  let language: 'python' | 'javascript' | undefined;
+  if (Object.hasOwn(args, 'language')) {
+    const value = ownValue(args, 'language');
+    if (value !== 'python' && value !== 'javascript') {
+      return {
+        ok: false,
+        message: 'language must be "python" or "javascript"',
+      };
+    }
+    language = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      code: code.value,
+      ...(language !== undefined ? { language } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -2615,6 +2681,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'cronjob_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'execute_code') {
+      const result = validateExecuteCodeArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'execute_code',
           ...base,
           args: result.value,
         }),
