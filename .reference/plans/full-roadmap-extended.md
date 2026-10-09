@@ -1,6 +1,6 @@
 # Full Roadmap
 
-> _Note: There is a really important conceptual jump around M22–M26._
+> _Note: There is a really important conceptual jump around M26 (self-observation)._
 
 **M1–M9: Can we make an agent?**
 
@@ -10,11 +10,13 @@
 
 - Epistemic memory, retrieval, revision, provenance, identity, drift, verification.
 
-**M16–M21: Can we put that agent into an environment?**
+**M16–M23: Can we put that agent into an environment?**
 
-- Communication, actions, sensors, events, subagents, KB stewardship.
+- Communication, tools, skills, MCP toolsets, a web surface, subagents, autonomous action, KB stewardship.
 
-**M22–M26: Can the agent observe and improve its own operation?**
+**M24–M29: Can the agent perceive, observe, and improve its own operation?**
+
+- Sensors and reactionary events, then self-observation → self-evaluation → self-maintenance → autopoiesis.
 
 - That's where things get genuinely research-y.
 
@@ -24,7 +26,7 @@
   observe → measure → hypothesize → experiment → evaluate → propose change → verify → deploy/rollback.
   ```
 
-**M27 onward starts asking the really interesting questions:**
+**M30 onward starts asking the really interesting questions:**
 
 - _Does cognition have to belong to one model?_
 - _Does an agent have to live on one machine?_
@@ -34,7 +36,7 @@
 - _Can knowledge gaps generate research?_
 - _What exactly constitutes continuity when the model, hardware, software, and even instance change?_
 
-**_M37 onward gets weird..._**
+**_M36 onward gets weird..._**
 
 ---
 
@@ -170,10 +172,10 @@
   - [x] ~~Finding reconciliation / de-duplication~~
   - [x] ~~Drift reporting surface~~
   - [x] ~~Evaluation~~
-  > _Detection + reconciliation + honest calibration delivered. Semantic
-  > drift is a measured **advisory** signal (embedding F1 0.78 on the M15e
-  > corpus); subtle propositional drift is deferred to M15.5. Further
-  > tuning: `.reference/plans/drift-tuning-backlog.md`._
+    > _Detection + reconciliation + honest calibration delivered. Semantic
+    > drift is a measured **advisory** signal (embedding F1 0.78 on the M15e
+    > corpus); subtle propositional drift is deferred to M15.5. Further
+    > tuning: `.reference/plans/drift-tuning-backlog.md`._
 
 - [x] ~~**M15.5: Hallucination Mitigation**~~
   - [x] ~~Define observable hallucination failure modes~~
@@ -182,15 +184,14 @@
   - [x] ~~Mitigation strategies (flag / re-ground / defer / refuse)~~
   - [x] ~~False-positive / false-negative analysis~~
   - [x] ~~Evaluation~~
-  > _Deterministic detection plus optional provider-agnostic verification and
-  > explicit, logged mitigations — verified live against the local Jev 2B
-  > decision model. Blocking pre-send mitigation, a Linux CUDA verifier
-  > service, and propositional drift tuning remain later slices._
+    > _Deterministic detection plus optional provider-agnostic verification and
+    > explicit, logged mitigations — verified live against the local Jev 2B
+    > decision model. Blocking pre-send mitigation, a Linux CUDA verifier
+    > service, and propositional drift tuning remain later slices._
 
 - [ ] **M16: External Communication Integrations**
   - [ ] Discord integration
   - [ ] Email integration
-  - [ ] SMS integration
   - [ ] Unified inbound / outbound message model
   - [ ] Identity and conversation mapping across channels
   - [ ] Channel-specific permissions and capabilities
@@ -199,35 +200,16 @@
   - [ ] Cross-channel context continuity
   - [ ] Integration verification
 
-- [ ] **M17: Autonomous Agency and Action Execution**
-  - [ ] Action registry
-  - [ ] Action capability discovery
-  - [ ] Action permissions and trust levels
-  - [ ] Human approval policies
-  - [ ] Goal → plan → action execution
-  - [ ] Long-running agent runs
-  - [ ] Action scheduling / deferred execution?
-  - [ ] Action preconditions and postconditions
-  - [ ] Action outcome verification
-  - [ ] Failure, retry, and unknown-outcome handling
-  - [ ] Action history and auditability
-  - [ ] Agency boundaries and kill-switches
+- [ ] **M17: Tools Expansion**
 
-- [ ] **M18: External Sensory Reintegration**
-  - [ ] Sensor abstraction layer
-  - [ ] Microphone / audio input
-  - [ ] Brio / camera input
-  - [ ] Sensor box / environmental telemetry
-  - [ ] Event-driven sensory observations
-  - [ ] Multimodal observation representation
-  - [ ] Sensor provenance and timestamps
-  - [ ] Perception → memory integration
-  - [ ] Perception → reactionary event integration
-  - [ ] Continuous vs sampled observation?
-  - [ ] Local preprocessing vs model inference?
-  - [ ] Sensory verification and failure handling
+- [ ] **M18: Skills Adoption**
 
-- [ ] **M19: Subagent Support**
+- [ ] **M19: Dynamic MCP Server toolsets**
+
+- [ ] **M20: Web/Client Surface Catch-Up**
+  - Discord EXP-2 (Discord slash commands)
+
+- [ ] **M21: Subagent Support**
   - [ ] Subagent lifecycle
   - [ ] Task delegation protocol
   - [ ] Subagent capability / tool boundaries
@@ -241,23 +223,21 @@
   - [ ] Subagent failure / cancellation / timeout
   - [ ] Result verification and provenance
 
-- [ ] **M20: Reactionary Events**
-  - [ ] Event ingestion and normalization
-  - [ ] Event registry / subscriptions
-  - [ ] Event → agent run triggering
-  - [ ] Event filtering and relevance evaluation
-  - [ ] Event priority / urgency
-  - [ ] Event deduplication and suppression
-  - [ ] Reaction policies and permissions
-  - [ ] Autonomous response without conversational initiation
-  - [ ] Event-triggered tool / action execution
-  - [ ] Event-triggered memory updates
-  - [ ] Reaction cooldowns / loop prevention
-  - [ ] Event provenance and audit history
-  - [ ] Persistent event processing across restart
-  - [ ] Continuous event streams vs discrete events?
+- [ ] **M22: Autonomous Agency and Action Execution**
+  - [ ] Action registry
+  - [ ] Action capability discovery
+  - [ ] Action permissions and trust levels
+  - [ ] Human approval policies
+  - [ ] Goal → plan → action execution
+  - [ ] Long-running agent runs
+  - [ ] Action scheduling / deferred execution?
+  - [ ] Action preconditions and postconditions
+  - [ ] Action outcome verification
+  - [ ] Failure, retry, and unknown-outcome handling
+  - [ ] Action history and auditability
+  - [ ] Agency boundaries and kill-switches
 
-- [ ] **M21: Knowledge-Base Stewardship**
+- [ ] **M23: Knowledge-Base Stewardship**
   - [ ] Knowledge-base topology model
   - [ ] File / folder metadata extraction
   - [ ] Topological metadata maintenance
@@ -283,7 +263,37 @@
   - [ ] Knowledge-health scoring?
   - [ ] Cross-project knowledge relationships?
 
-- [ ] **M22: Self-Observation and Introspection**
+- [ ] **M24: External Physical Sensor Reintegration**
+  - [ ] Sensor abstraction layer
+  - [ ] Microphone / audio input
+  - [ ] Brio / camera input
+  - [ ] Sensor box / environmental telemetry
+  - [ ] Event-driven sensory observations
+  - [ ] Multimodal observation representation
+  - [ ] Sensor provenance and timestamps
+  - [ ] Perception → memory integration
+  - [ ] Perception → reactionary event integration
+  - [ ] Continuous vs sampled observation?
+  - [ ] Local preprocessing vs model inference?
+  - [ ] Sensory verification and failure handling
+
+- [ ] **M25: Reactionary Events**
+  - [ ] Event ingestion and normalization
+  - [ ] Event registry / subscriptions
+  - [ ] Event → agent run triggering
+  - [ ] Event filtering and relevance evaluation
+  - [ ] Event priority / urgency
+  - [ ] Event deduplication and suppression
+  - [ ] Reaction policies and permissions
+  - [ ] Autonomous response without conversational initiation
+  - [ ] Event-triggered tool / action execution
+  - [ ] Event-triggered memory updates
+  - [ ] Reaction cooldowns / loop prevention
+  - [ ] Event provenance and audit history
+  - [ ] Persistent event processing across restart
+  - [ ] Continuous event streams vs discrete events?
+
+- [ ] **M26: Self-Observation and Introspection**
   - [ ] Runtime health observation
   - [ ] Agent behavior telemetry
   - [ ] Tool / action performance monitoring
@@ -294,7 +304,7 @@
   - [ ] Internal state inspection
   - [ ] Reliable introspection boundaries?
 
-- [ ] **M23: Self-Evaluation and Capability Assessment**
+- [ ] **M27: Self-Evaluation and Capability Assessment**
   - [ ] Capability registry
   - [ ] Capability → evidence mapping
   - [ ] Automated capability tests
@@ -307,7 +317,7 @@
   - [ ] Capability-gap detection
   - [ ] Observed capability vs assumed capability
 
-- [ ] **M24: Self-Maintenance**
+- [ ] **M28: Self-Maintenance**
   - [ ] Configuration integrity
   - [ ] Dependency / service health
   - [ ] Database maintenance
@@ -321,7 +331,7 @@
   - [ ] Repair vs modification boundaries
   - [ ] Deterministic maintenance safeguards
 
-- [ ] **M25: Autopoiesis**
+- [ ] **M29: Autopoiesis**
   - [ ] Self-inspection of the running codebase
   - [ ] Source / configuration / dependency inventory
   - [ ] Architecture and capability introspection
@@ -349,7 +359,7 @@
   - [ ] Self-modification safety invariants
   - [ ] Operational continuity across self-generated transformations
 
-- [ ] **M26: Experimental Learning**
+- [ ] **M30: Experimental Learning**
   - [ ] Hypothesis representation
   - [ ] Experiment planning
   - [ ] Controlled experiment execution
@@ -361,7 +371,7 @@
   - [ ] Autonomous experiment proposal?
   - [ ] Experiment → knowledge → capability improvement
 
-- [ ] **M27: Multi-Model Cognition**
+- [ ] **M31: Multi-Model Cognition**
   - [ ] Model capability registry
   - [ ] Task → model selection
   - [ ] Specialist model roles
@@ -372,19 +382,7 @@
   - [ ] Model replacement without state loss
   - [ ] Cognitive ensemble vs single-primary architecture?
 
-- [ ] **M28: Distributed ICOS**
-  - [ ] Remote / redundant instances
-  - [ ] Shared epistemic state
-  - [ ] Instance identity
-  - [ ] State synchronization
-  - [ ] Distributed task delegation
-  - [ ] Instance health / availability
-  - [ ] Local autonomy during disconnection
-  - [ ] Generation-aware state replication
-  - [ ] Failover between instances
-  - [ ] Federation vs centralized coordination?
-
-- [ ] **M29: Long-Horizon Agency**
+- [ ] **M32: Long-Horizon Agency**
   - [ ] Persistent goals
   - [ ] Goal decomposition
   - [ ] Goal prioritization
@@ -396,7 +394,19 @@
   - [ ] Competing-goal resolution
   - [ ] Long-horizon memory integration
 
-- [ ] **M30: Embodied Autonomy**
+- [ ] **M33: Distributed ICOS**
+  - [ ] Remote / redundant instances
+  - [ ] Shared epistemic state
+  - [ ] Instance identity
+  - [ ] State synchronization
+  - [ ] Distributed task delegation
+  - [ ] Instance health / availability
+  - [ ] Local autonomy during disconnection
+  - [ ] Generation-aware state replication
+  - [ ] Failover between instances
+  - [ ] Federation vs centralized coordination?
+
+- [ ] **M34: Embodied Autonomy**
   - [ ] Physical action registry
   - [ ] Robot / actuator interfaces
   - [ ] Spatial state representation
@@ -408,7 +418,7 @@
   - [ ] Physical-world recovery
   - [ ] Simulated embodiment before physical deployment?
 
-- [ ] **M31: Situated Learning**
+- [ ] **M35: Situated Learning**
   - [ ] Persistent environment models
   - [ ] Spatial memory
   - [ ] Sensor → event → memory pipeline
@@ -418,7 +428,7 @@
   - [ ] Physical affordance learning?
   - [ ] Environment-specific knowledge formation
 
-- [ ] **M32: Open-Ended Knowledge Acquisition**
+- [ ] **M36: Open-Ended Knowledge Acquisition**
   - [ ] Source discovery
   - [ ] Source evaluation
   - [ ] Automated research tasks
@@ -431,7 +441,7 @@
   - [ ] Autonomous research campaigns?
   - [ ] Explicit epistemic limits
 
-- [ ] **M33: Self-Directed Research**
+- [ ] **M37: Self-Directed Research**
   - [ ] Detect unanswered questions
   - [ ] Generate research hypotheses
   - [ ] Select research methods
@@ -444,7 +454,7 @@
   - [ ] Human review boundaries
   - [ ] Identify questions worth investigating autonomously?
 
-- [ ] **M34: Cognitive Continuity**
+- [ ] **M38: Continuity**
   - [ ] Runtime-independent identity state
   - [ ] Model-independent memory
   - [ ] Model replacement
@@ -455,7 +465,7 @@
   - [ ] Capability changes across generations
   - [ ] Define continuity across self-modification
 
-- [ ] **M35: ICOS Ecosystem**
+- [ ] **M39: ICOS Ecosystem**
   - [ ] External agents
   - [ ] External knowledge systems
   - [ ] Shared tool registries
@@ -466,7 +476,7 @@
   - [ ] Inter-agent negotiation?
   - [ ] Multi-agent research / engineering?
 
-- [ ] **M36: Open-Ended Research**
+- [ ] **M40: Open-Ended Research**
   - [ ] Re-evaluate architectural assumptions
   - [ ] Identify unexplained system behavior
   - [ ] Generate new research questions
@@ -476,7 +486,7 @@
   - [ ] Maintain an explicit research frontier
   - [ ] Define the next generation of ICOS
 
-- [ ] **M37: Advanced Perception**
+- [ ] **M41: Advanced Perception**
   - [ ] Persistent visual perception
   - [ ] Person / object recognition
   - [ ] Spatial relationship understanding
@@ -489,7 +499,7 @@
   - [ ] Persistent perceptual memory
   - [ ] Vision → epistemic memory integration
 
-- [ ] **M38: Building-Scale Environment Control**
+- [ ] **M42: Building-Scale Environment Control**
   - [ ] Building device registry
   - [ ] HVAC / climate control
   - [ ] Lighting
@@ -507,7 +517,7 @@
   - [ ] Local operation during network failure
   - [ ] Building-scale autonomous management?
 
-- [ ] **M39: Mobile Embodiment**
+- [ ] **M43: Mobile Embodiment**
   - [ ] Mobile platform integration
   - [ ] Autonomous navigation
   - [ ] Dynamic obstacle avoidance
@@ -522,14 +532,13 @@
   - [ ] Human / robot interaction
   - [ ] Autonomous operation boundaries
 
-- [ ] **M40: Vehicle Embodiment**
+- [ ] **M44: Vehicle Embodiment**
   - [ ] Vehicle platform integration?
   - [ ] Drive-by-wire interface?
   - [ ] Vehicle sensor integration
   - [ ] Autonomous vehicle state model
   - [ ] Mobile compute / edge inference
   - [ ] Vehicle ↔ building ↔ ICOS coordination
-  - [ ] Transformable mechanical platform?
   - [ ] Physical configuration state
   - [ ] Transformation planning and verification
   - [ ] Mechanical safety interlocks

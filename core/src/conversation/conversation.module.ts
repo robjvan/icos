@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
-import { coreConfigProvider } from '../config';
+import { CORE_CONFIG, coreConfigProvider } from '../config';
+import type { CoreConfig } from '../config';
 import { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import { ApprovalsController } from '../approvals/approvals.controller';
 import { PersonaModule } from '../persona/persona.module';
+import { PersonaRepository } from '../persona/persona.repository';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
+import { AttachmentImageResolver } from './attachment-images';
 import { ClarificationRepository } from '../clarifications/clarification.repository';
 import { ClarificationService } from '../clarifications/clarification.service';
 import { ClarificationsController } from '../clarifications/clarifications.controller';
@@ -16,6 +20,7 @@ import { HostHealthProvider } from '../commands/host-health';
 import {
   conversationLlmClientProvider,
   memoryLlmClientProvider,
+  visionLlmClientProvider,
 } from '../llm/llm-client.providers';
 import { LlmMemoryCandidateExtractor } from '../memory/llm-memory-candidate-extractor';
 import { MemoryCandidateExtractor } from '../memory/memory-candidate-extractor';
@@ -70,12 +75,27 @@ import type { LlmEndpointConfig } from '../llm/llm.client';
 import { SessionDatabaseService } from '../session/session-database.service';
 import { SessionRepository } from '../session/session.repository';
 import { SqliteSessionRepository } from '../session/sqlite-session.repository';
+import { TodoRepository } from '../session/todo.repository';
+import { SqliteTodoRepository } from '../session/sqlite-todo.repository';
 import { SkillService } from '../skills/skill.service';
 import { SkillsController } from '../skills/skills.controller';
+import { VisionService } from '../vision/vision.service';
+import { ImageGenService } from '../image/image-gen.service';
+import { ProcessRegistry } from '../process/process-registry.service';
+import { CronJobRepository } from '../cron/cron-job.repository';
+import { SqliteCronJobRepository } from '../cron/sqlite-cron-job.repository';
+import { CronService } from '../cron/cron.service';
+import { CronScheduler } from '../cron/cron-scheduler.service';
+import { BrowserService } from '../browser/browser.service';
+import { DISCORD_ADMIN } from '../channels/discord-admin.port';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import { LlmClient } from '../llm/llm.client';
 import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
+import { ToolRpcTokens } from '../tools/tool-rpc.tokens';
+import { ToolRpcService } from '../tools/tool-rpc.service';
+import { ToolRpcController } from '../tools/tool-rpc.controller';
 import { CandidatesController } from './candidates.controller';
 import { ClaimsController } from './claims.controller';
 import { MaintenanceController } from './maintenance.controller';
@@ -100,7 +120,22 @@ const toolExecutionServiceProvider = {
     approvals: ApprovalRepository,
     approvalService: ApprovalService,
     mcp: McpConnectionService,
+    clarifications: ClarificationService,
     channels: ChannelSendPort,
+    config: CoreConfig,
+    skills: SkillService,
+    todos: TodoRepository,
+    claims: ClaimRepository,
+    recall: RecallService,
+    candidates: MemoryCandidateRepository,
+    persona: PersonaRepository,
+    vision: VisionService,
+    imageGen: ImageGenService,
+    processes: ProcessRegistry,
+    discordAdmin: DiscordAdminPort,
+    cron: CronService,
+    rpcTokens: ToolRpcTokens,
+    browser: BrowserService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -108,11 +143,29 @@ const toolExecutionServiceProvider = {
       registry,
       llm,
       approvals,
-      {},
+      {
+        workspaceRoot: config.toolsWorkspaceRoot,
+        searxngBaseUrl: config.searxngBaseUrl,
+        rpcBaseUrl: `http://127.0.0.1:${String(config.port)}`,
+      },
       llm,
       approvalService,
       mcp,
+      clarifications,
       channels,
+      skills,
+      todos,
+      claims,
+      recall,
+      candidates,
+      persona,
+      vision,
+      imageGen,
+      processes,
+      discordAdmin,
+      cron,
+      rpcTokens,
+      browser,
     ),
   inject: [
     ToolExecutionRepository,
@@ -122,12 +175,32 @@ const toolExecutionServiceProvider = {
     ApprovalRepository,
     ApprovalService,
     McpConnectionService,
+    ClarificationService,
     CHANNEL_SEND,
+    CORE_CONFIG,
+    SkillService,
+    TodoRepository,
+    ClaimRepository,
+    RecallService,
+    MemoryCandidateRepository,
+    PersonaRepository,
+    VisionService,
+    ImageGenService,
+    ProcessRegistry,
+    DISCORD_ADMIN,
+    CronService,
+    ToolRpcTokens,
+    BrowserService,
   ],
 };
 
 @Module({
-  imports: [RealtimeModule, PersonaModule, ChannelsCoreModule],
+  imports: [
+    RealtimeModule,
+    PersonaModule,
+    ChannelsCoreModule,
+    AttachmentsModule,
+  ],
   controllers: [
     ConversationController,
     SessionsController,
@@ -140,6 +213,7 @@ const toolExecutionServiceProvider = {
     ApprovalsController,
     ClarificationsController,
     SkillsController,
+    ToolRpcController,
     HealthController,
     McpController,
     HallucinationController,
@@ -151,6 +225,10 @@ const toolExecutionServiceProvider = {
     {
       provide: SessionRepository,
       useClass: SqliteSessionRepository,
+    },
+    {
+      provide: TodoRepository,
+      useClass: SqliteTodoRepository,
     },
     {
       provide: MemoryCandidateRepository,
@@ -217,6 +295,17 @@ const toolExecutionServiceProvider = {
     ClarificationService,
     memoryLlmClientProvider,
     conversationLlmClientProvider,
+    visionLlmClientProvider,
+    VisionService,
+    ImageGenService,
+    AttachmentImageResolver,
+    ProcessRegistry,
+    { provide: CronJobRepository, useClass: SqliteCronJobRepository },
+    CronScheduler,
+    CronService,
+    ToolRpcTokens,
+    ToolRpcService,
+    BrowserService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

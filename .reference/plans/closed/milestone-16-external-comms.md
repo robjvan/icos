@@ -5,11 +5,10 @@
 > discord-bot under `.reference/legacy/discord-bot/`, adapted to the v3
 > single-process core.
 >
-> **Status:** Discord (M16a–h, M16m) **complete 2026-10-04** — evidence at
-> `.reference/plans/evidence/milestone-16/milestone-16h-evidence-verification.md`.
-> **Open follow-on slices:** **M16.1 Email (Brevo)** (adapter not built; Brevo
-> keys already in the local env) and **M16.2 Attachments** (recorded but not
-> usable; web upload endpoint absent).
+> **Status:** **M16 complete 2026-10-04** — Discord (M16a–h, M16m), Email
+> (M16.1), and Attachments (M16.2) are all done. Evidence under
+> `.reference/plans/evidence/milestone-16/`. Remaining items are explicit
+> follow-ons (attachment download/vision, inbound email), not open slices.
 
 ## Objective
 
@@ -134,49 +133,42 @@ gate, and the JSON identity file (replaced by config + the existing vault).
 - [x] **Live:** with a real bot token, a message from Discord produces a real
       reply, and an assistant-initiated send is delivered — evidence committed.
 
-# [ ] M16.1 — Email (Brevo) *(separate slice)*
+# [x] M16.1 — Email (Brevo) *(complete 2026-10-04)*
 
-- [ ] A second `ChannelAdapter` (Brevo transactional API): outbound send with a
+- [x] A second `ChannelAdapter` (Brevo transactional API): outbound send with a
       verified sender; inbound later or absent. Same message model, delivery
       ledger, secret handling. Kept separate because Discord alone is already a
       full milestone.
+- [x] `email:<address>` target; `channel.send` email/operator (first
+      allowlisted recipient) and email/user (allowlisted, case-insensitive);
+      `email/channel` rejected. Admin HTTP path stays trusted.
+- [x] Secret-resolved `BREVO_API_KEY`; `BREVO_SENDER_EMAIL`/`_NAME`,
+      `EMAIL_ALLOWED_RECIPIENTS`, `EMAIL_DEFAULT_SUBJECT`, `BREVO_API_BASE_URL`.
+- [x] Live-verified: message delivered to the operator inbox (see evidence).
+- [ ] *(follow-on, not this slice)* Inbound email; HTML; attachments; per-send
+      subject.
 
-# [ ] M16.2 — Attachments (inbound + web upload) *(added 2026-10-04)*
+# [x] M16.2 — Attachments (inbound + web upload) *(complete 2026-10-04)*
 
-Attachments are **recorded but not usable**, and the web composer is a
-frontend-only placeholder. Two live symptoms:
+Attachments were **recorded but not usable**, and the web composer was a
+frontend-only placeholder. Both are now wired end to end:
 
-- **Discord:** `normalizeDiscordMessage` records an attachment's metadata
-  (`name` / `contentType` / `size` / `url`) into
-  `channel_messages.attachments_json`, but the ingress runs the turn with
-  `message.content` only (`discord-ingress.service.ts` → `converse(content,…)`).
-  The model sees the text and never the attachment — hence "it only saw the
-  message".
-- **Web:** `web-client/.../composer` lists selected files locally and badges
-  them "local-only · server unimplemented"; it never sends them. There is **no
-  upload endpoint** in `core` (no `FileInterceptor`/multipart anywhere), so a
-  file has nowhere to go.
+- [x] A shared turn attachment model (`TurnAttachment`) and a bounded
+      `<attachments>` band (metadata only; capped; `null` when none), rendered
+      after the source band.
+- [x] **Inbound (Discord):** attachment metadata reaches the turn (the agent
+      knows a file arrived, and that it has not read it).
+- [x] **Web:** `POST /core/attachments` (bounded size, MIME allow-list,
+      owner-only storage under the `~/.icos` data root) + `GET
+      /core/attachments/:id`; the composer uploads and sends refs with the turn.
+- [x] Tests: band builder/ordering; ingress carries attachments; store +
+      controller (size/mime/traversal); e2e upload→fetch→turn; web-client
+      composer/service/store/stream.
+- [ ] **Follow-on (not this slice):** download + provider-agnostic
+      vision/OCR; retention/cleanup; dedupe; outbound attachment links; whether
+      the model should receive extracted text.
 
-- [ ] Define a shared attachment model for a turn (reuse `ChannelAttachment`:
-      name, mime, size, url/path, source) so a turn can carry attachments from
-      any origin, not just Discord.
-- [ ] **Inbound (Discord):** surface attachment metadata into the turn (at
-      minimum a bounded `<attachments>` note so the agent knows what arrived,
-      without dumping bytes into the prompt).
-- [ ] **Web:** add a server upload endpoint (bounded size, mime allow-list,
-      stored under the `~/.icos` data root, never world-readable) and make the
-      composer include attachment refs in the conversation request.
-- [ ] **Processing policy:** metadata/links first; optional download +
-      provider-agnostic vision/OCR as a follow-on. No unbounded fetch; egress
-      is explicit and auditable.
-- [ ] **Outbound:** consider rendering attachment links to Discord (today the
-      send body is text only).
-- [ ] Tests: adapter/ingress carry attachments into the turn; upload endpoint
-      enforces size/mime and fails safely; composer sends refs.
-
-Open questions: storage layout/retention (per-session dir under `~/.icos`?),
-what the model receives (a URL, an extracted-text summary, or image content for
-a vision tier), and whether the shared model also covers M16.1 email.
+Evidence: `.reference/plans/evidence/milestone-16/milestone-16.2-evidence-attachments.md`.
 
 # [x] M16m — Presence messages (boot / shutdown) *(queued last)* (complete 2026-10-04)
 
@@ -207,7 +199,8 @@ operator watching a channel sees the runtime's lifecycle.
 
 ## Scope boundary
 
-- **SMS:** dropped (no viable free tier).
+- **SMS:** dropped for M16 (no viable free tier). Note: Brevo offers
+  transactional SMS, so it could be revisited later — not in scope now.
 - **Email:** deferred to M16.1.
 - **No separate service / no broker:** channels live inside `core`.
 - **No proactive/unprompted sends:** the agent sends as part of a turn or an

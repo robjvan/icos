@@ -137,7 +137,7 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M15.5 are complete, and the security-hardening milestone (S1–S6) is complete.**
+**M1–M17 are complete, and the security-hardening milestone (S1–S6) is complete.**
 
 The current system provides:
 
@@ -183,40 +183,52 @@ The current system provides:
   bootstrap token, an encrypted secret vault, and an LLM provider
   registry selected at runtime with key references resolved through the
   vault) — managed from the web client (MCP servers, providers, secrets)
+- External channels (Discord + email): inbound turns, outbound sends,
+  attachments, approval cards, and status/presence
+- An expanded tool surface (25 native tools): files, web search/extract,
+  skills (view/list/manage), todo, memory (beliefs / ranked recall /
+  persona / candidates), clarify (park/resume), vision_analyze, image
+  generation, terminal, background processes, Discord info/moderation,
+  a durable cron scheduler, execute_code (with a tool-RPC bridge), and a
+  headless browser — plus attachment vision and a generic native
+  approval path
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
 ---
 
-## Milestones
+## Milestone Goals
 
 ICOS is being developed as a sequence of increasingly capable experiments.
+Each milestone states a **goal** — a capability to reach, not a claim to defend.
 
-|  Milestone   | Question                                                                      |
+|  Milestone   | Goal                                                                          |
 | :----------: | :---------------------------------------------------------------------------- |
-|    **M1**    | _Can it talk?_                                                                |
-|    **M2**    | _Can it stream?_                                                              |
-|    **M3**    | _Can it remember what happened?_                                              |
-|    **M4**    | _Can it notice potentially meaningful things?_                                |
-|    **M5**    | _Can I change its brain without changing its body?_                           |
-|    **M6**    | _Can a human interact with it properly?_                                      |
-|    **M7**    | _Can it acquire capabilities?_                                                |
-|    **M8**    | _Can it actually use those capabilities?_                                     |
-|    **M9**    | _Can it autonomously complete a task?_                                        |
-|   **M10**    | _Can it form knowledge?_                                                      |
-|   **M11**    | _Can it retrieve and use that knowledge?_                                     |
-|   **M12**    | _Can that knowledge evolve?_                                                  |
-|   **M13**    | _Can it use capabilities provided by other systems?_                          |
-|   **M14**    | _Can it maintain a persistent persona?_                                       |
-|   **M15**    | _Can it detect and correct its own drift?_                                    |
-|   **M16**    | _Can it communicate through external channels?_                               |
-|   **M17**    | _Can it autonomously select and execute actions?_                             |
-|   **M18**    | _Can it perceive the world beyond conversation?_                              |
-|   **M19**    | _Can it delegate work to other agents?_                                       |
-|   **M20**    | _Can it react to external events without requiring a conversational turn?_    |
-|   **M21**    | _Can it steward its own knowledge base?_                                      |
-| **Deferred** | **_Episodic consolidation:_** _Can experiences be abstracted into knowledge?_ |
-| **Deferred** | **_Source synchronization:_** _Can knowledge stay aligned with the world?_    |
+|    **M1**    | Establish the core conversation loop.                                         |
+|    **M2**    | Stream responses token by token.                                              |
+|    **M3**    | Persist and search conversation history.                                      |
+|    **M4**    | Extract candidate memories from turns.                                        |
+|    **M5**    | Swap LLM providers without touching core.                                     |
+|    **M6**    | Structured human interaction: commands, approvals, clarifications.            |
+|    **M7**    | Acquire skills from a filesystem catalog.                                     |
+|    **M8**    | Execute tools reliably, durably, and with approval.                           |
+|    **M9**    | Complete tasks autonomously via an agent loop.                                |
+|   **M10**    | Form durable, provenance-tracked knowledge.                                   |
+|   **M11**    | Retrieve and apply knowledge in context.                                      |
+|   **M12**    | Let knowledge evolve: consolidation, decay, revision.                         |
+|   **M13**    | Use capabilities provided by external systems (MCP).                          |
+|   **M14**    | Maintain a persistent, reviewable persona.                                    |
+|   **M15**    | Detect and report identity drift.                                             |
+|   **M16**    | Communicate through external channels.                                        |
+|   **M17**    | Expand the tool surface.                                                      |
+|   **M18**    | Adopt a broader skill library.                                                |
+|   **M19**    | Dynamic MCP server toolsets.                                                  |
+|   **M20**    | Catch the web client up, including Discord slash commands.                    |
+|   **M21**    | Delegate work to subagents.                                                   |
+|   **M22**    | Execute autonomous actions.                                                   |
+|   **M23**    | Steward the knowledge base.                                                   |
+| **Deferred** | **_Episodic consolidation:_** abstracting experience into knowledge.          |
+| **Deferred** | **_Source synchronization:_** keeping knowledge aligned with the world.       |
 
 Each milestone is tracked in `.reference/plans/` (plans and evidence), with
 completed plans under `.reference/plans/closed/` and their verification under

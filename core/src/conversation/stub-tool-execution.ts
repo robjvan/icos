@@ -63,6 +63,27 @@ export function renameProposal(
   };
 }
 
+export function clarifyProposal(
+  question = 'Which one?',
+  options: string[] = ['a', 'b'],
+): Extract<LlmResult, { kind: 'tool_calls' }> {
+  const args = { question, options };
+  return {
+    kind: 'tool_calls',
+    content: null,
+    model: 'm',
+    toolCalls: [
+      {
+        id: 'model-call-1',
+        name: 'clarify',
+        version: 1,
+        rawArguments: JSON.stringify(args),
+        args,
+      },
+    ],
+  };
+}
+
 /** Closed text record mirroring the proposal, as the ledger would. */
 export function closedTextRecord(
   input: ToolExecutionInput,
@@ -76,6 +97,7 @@ export function closedTextRecord(
     input,
     invocationId: null,
     approvalId: null,
+    clarificationId: null,
     state: 'closed',
     validation: { ok: true, textOnly: true },
     execution: null,
@@ -95,6 +117,7 @@ export function searchRecord(
     input,
     invocationId: 'inv-search-1',
     approvalId: null,
+    clarificationId: null,
     state: 'succeeded',
     validation: {
       ok: true,
@@ -124,6 +147,7 @@ export function pendingRenameRecord(
     input,
     invocationId: 'inv-rename-1',
     approvalId: 'appr-1',
+    clarificationId: null,
     state: 'awaiting_approval',
     validation: {
       ok: true,
@@ -138,6 +162,49 @@ export function pendingRenameRecord(
     final: { state: 'not_required' },
     executionToken: null,
     ownership: 'none',
+  };
+}
+
+export function pendingClarifyRecord(
+  input: ToolExecutionInput,
+): ToolExecutionRecord {
+  return {
+    requestId: input.requestId,
+    sessionId: input.sessionId,
+    input,
+    invocationId: 'inv-clarify-1',
+    approvalId: null,
+    clarificationId: 'clar-1',
+    state: 'awaiting_clarification',
+    validation: {
+      ok: true,
+      request: {
+        name: 'clarify',
+        version: 1,
+        sessionId: input.sessionId,
+        args: { question: 'Which one?', options: ['a', 'b'] },
+      },
+    },
+    execution: null,
+    final: { state: 'not_required' },
+    executionToken: null,
+    ownership: 'none',
+  };
+}
+
+export function answeredClarifyRecord(
+  input: ToolExecutionInput,
+  answer = 'a',
+): ToolExecutionRecord {
+  return {
+    ...pendingClarifyRecord(input),
+    state: 'succeeded',
+    execution: {
+      ok: true,
+      tool: 'clarify',
+      result: { question: 'Which one?', answer, options: ['a', 'b'] },
+    },
+    final: { state: 'pending' },
   };
 }
 
@@ -176,6 +243,7 @@ export function pendingForeignRecord(
     input,
     invocationId: 'inv-foreign-1',
     approvalId: 'appr-foreign-1',
+    clarificationId: null,
     state: 'awaiting_approval',
     validation: {
       ok: true,
@@ -228,6 +296,7 @@ export function invalidRecord(
     input,
     invocationId: 'inv-bad-1',
     approvalId: null,
+    clarificationId: null,
     state: 'invalid',
     validation: { ok: false, failure: { code } },
     execution: null,
@@ -294,6 +363,7 @@ export function stubAgentRuns() {
       toolCallCount: 0,
       limits: input.limits,
       approvalId: null,
+      clarificationId: null,
       termination: null,
       createdAt: 't',
       updatedAt: 't',
@@ -301,6 +371,7 @@ export function stubAgentRuns() {
   );
   const recordStep = jest.fn(() => undefined);
   const markParked = jest.fn(() => undefined);
+  const markParkedForInteraction = jest.fn(() => undefined);
   const markTerminal = jest.fn(() => undefined);
   const transitionRun = jest.fn<void, [string, string]>(() => undefined);
   const findByRequest = jest.fn<AgentRun | undefined, [string, string]>(
@@ -312,6 +383,7 @@ export function stubAgentRuns() {
     createRun,
     recordStep,
     markParked,
+    markParkedForInteraction,
     markTerminal,
     transitionRun,
     findByRequest,
@@ -323,6 +395,7 @@ export function stubAgentRuns() {
     createRun,
     recordStep,
     markParked,
+    markParkedForInteraction,
     markTerminal,
     transitionRun,
     findByRequest,

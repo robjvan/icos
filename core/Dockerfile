@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
+# M17d browser tool: Chromium + its system libraries for Playwright.
+RUN npx playwright install --with-deps chromium
 COPY . .
 RUN npm run build
 

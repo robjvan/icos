@@ -10,7 +10,32 @@ import { ToolRegistry } from './tool-registry';
 
 const SESSION_ID = 'session-1';
 
-const ALL_TOOLS: readonly ToolName[] = ['session.search', 'session.rename'];
+const ALL_TOOLS: readonly ToolName[] = [
+  'session.search',
+  'session.rename',
+  'read_file',
+  'search_files',
+  'write_file',
+  'patch',
+  'web_search',
+  'web_extract',
+  'skills_list',
+  'skill_view',
+  'todo',
+  'memory',
+  'clarify',
+  'vision_analyze',
+  'image_generate',
+  'terminal',
+  'process_start',
+  'process_manage',
+  'skill_manage',
+  'discord',
+  'discord_admin',
+  'cronjob_manage',
+  'execute_code',
+  'browser',
+];
 
 function contextWith(
   allowedTools: readonly string[] = ALL_TOOLS,
@@ -55,6 +80,28 @@ describe('ToolRegistry', () => {
       'session.search',
       'session.rename',
       'channel.send',
+      'read_file',
+      'search_files',
+      'write_file',
+      'patch',
+      'web_search',
+      'web_extract',
+      'skills_list',
+      'skill_view',
+      'todo',
+      'memory',
+      'clarify',
+      'vision_analyze',
+      'image_generate',
+      'terminal',
+      'process_start',
+      'process_manage',
+      'skill_manage',
+      'discord',
+      'discord_admin',
+      'cronjob_manage',
+      'execute_code',
+      'browser',
     ]);
     for (const descriptor of registry.list()) {
       expect(descriptor.version).toBe(1);
@@ -63,6 +110,28 @@ describe('ToolRegistry', () => {
     expect(registry.lookup('session.search')?.approval).toBe('none');
     expect(registry.lookup('session.rename')?.approval).toBe('none');
     expect(registry.lookup('channel.send')?.approval).toBe('required');
+    expect(registry.lookup('read_file')?.approval).toBe('none');
+    expect(registry.lookup('search_files')?.approval).toBe('none');
+    expect(registry.lookup('write_file')?.approval).toBe('none');
+    expect(registry.lookup('patch')?.approval).toBe('none');
+    expect(registry.lookup('web_search')?.approval).toBe('none');
+    expect(registry.lookup('web_extract')?.approval).toBe('none');
+    expect(registry.lookup('skills_list')?.approval).toBe('none');
+    expect(registry.lookup('skill_view')?.approval).toBe('none');
+    expect(registry.lookup('todo')?.approval).toBe('none');
+    expect(registry.lookup('memory')?.approval).toBe('none');
+    expect(registry.lookup('clarify')?.approval).toBe('none');
+    expect(registry.lookup('vision_analyze')?.approval).toBe('none');
+    expect(registry.lookup('image_generate')?.approval).toBe('none');
+    expect(registry.lookup('terminal')?.approval).toBe('required');
+    expect(registry.lookup('process_start')?.approval).toBe('required');
+    expect(registry.lookup('process_manage')?.approval).toBe('none');
+    expect(registry.lookup('skill_manage')?.approval).toBe('none');
+    expect(registry.lookup('discord')?.approval).toBe('none');
+    expect(registry.lookup('discord_admin')?.approval).toBe('required');
+    expect(registry.lookup('cronjob_manage')?.approval).toBe('none');
+    expect(registry.lookup('execute_code')?.approval).toBe('required');
+    expect(registry.lookup('browser')?.approval).toBe('none');
   });
 
   it('freezes descriptor metadata against mutation', () => {
@@ -577,6 +646,975 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('file tools (M17b)', () => {
+    it('accepts read_file and search_files with bounded args', () => {
+      const read = expectOk(
+        registry.validate(
+          {
+            name: 'read_file',
+            version: 1,
+            args: { path: 'notes/a.md', maxBytes: 100 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(read).toMatchObject({
+        name: 'read_file',
+        args: { path: 'notes/a.md', maxBytes: 100 },
+      });
+
+      const search = expectOk(
+        registry.validate(
+          {
+            name: 'search_files',
+            version: 1,
+            args: { query: 'TODO', path: 'src', maxResults: 5 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(search).toMatchObject({
+        name: 'search_files',
+        args: { query: 'TODO', path: 'src', maxResults: 5 },
+      });
+    });
+
+    it('rejects blank paths, unknown fields, and out-of-range bounds', () => {
+      const cases: unknown[] = [
+        { name: 'read_file', version: 1, args: { path: '   ' } },
+        {
+          name: 'read_file',
+          version: 1,
+          args: { path: 'a', maxBytes: 99_999_999 },
+        },
+        { name: 'read_file', version: 1, args: { path: 'a', extra: 1 } },
+        {
+          name: 'search_files',
+          version: 1,
+          args: { query: 'x', maxResults: 999 },
+        },
+        { name: 'search_files', version: 1, args: { query: '' } },
+      ];
+      for (const call of cases) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+
+    it('accepts write_file and patch, and rejects bad shapes', () => {
+      const write = expectOk(
+        registry.validate(
+          {
+            name: 'write_file',
+            version: 1,
+            args: { path: 'a.txt', content: 'hi' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(write).toMatchObject({
+        name: 'write_file',
+        args: { path: 'a.txt', content: 'hi' },
+      });
+
+      const patch = expectOk(
+        registry.validate(
+          {
+            name: 'patch',
+            version: 1,
+            args: {
+              path: 'a.txt',
+              oldString: 'hi',
+              newString: 'bye',
+              replaceAll: true,
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(patch).toMatchObject({
+        name: 'patch',
+        args: { oldString: 'hi', newString: 'bye', replaceAll: true },
+      });
+
+      const bad: unknown[] = [
+        { name: 'write_file', version: 1, args: { path: 'a', content: 1 } },
+        { name: 'write_file', version: 1, args: { path: '  ', content: 'x' } },
+        {
+          name: 'patch',
+          version: 1,
+          args: { path: 'a', oldString: '', newString: 'x' },
+        },
+        {
+          name: 'patch',
+          version: 1,
+          args: {
+            path: 'a',
+            oldString: 'x',
+            newString: 'y',
+            replaceAll: 'yes',
+          },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('web tools (M17b)', () => {
+    it('accepts web_search and web_extract, and rejects bad shapes', () => {
+      const search = expectOk(
+        registry.validate(
+          {
+            name: 'web_search',
+            version: 1,
+            args: { query: 'searxng', maxResults: 3 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(search).toMatchObject({
+        name: 'web_search',
+        args: { query: 'searxng', maxResults: 3 },
+      });
+
+      const extract = expectOk(
+        registry.validate(
+          {
+            name: 'web_extract',
+            version: 1,
+            args: { url: 'https://example.com' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(extract).toMatchObject({
+        name: 'web_extract',
+        args: { url: 'https://example.com' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'web_search', version: 1, args: { query: '' } },
+        {
+          name: 'web_search',
+          version: 1,
+          args: { query: 'x', maxResults: 999 },
+        },
+        { name: 'web_extract', version: 1, args: { url: '   ' } },
+        { name: 'web_extract', version: 1, args: { url: 'x', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('skill tools (M17b)', () => {
+    it('accepts skills_list and skill_view, and rejects bad shapes', () => {
+      const list = expectOk(
+        registry.validate(
+          { name: 'skills_list', version: 1, args: {} },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({ name: 'skills_list' });
+
+      const view = expectOk(
+        registry.validate(
+          {
+            name: 'skill_view',
+            version: 1,
+            args: { name: 'icos-v3-stack' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(view).toMatchObject({
+        name: 'skill_view',
+        args: { name: 'icos-v3-stack' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'skills_list', version: 1, args: { extra: 1 } },
+        { name: 'skill_view', version: 1, args: { name: '   ' } },
+        { name: 'skill_view', version: 1, args: {} },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('todo tool (M17b)', () => {
+    it('accepts each action and rejects bad shapes', () => {
+      const list = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({ name: 'todo', args: { action: 'list' } });
+
+      const add = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'add', text: 'do it' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(add).toMatchObject({
+        name: 'todo',
+        args: { action: 'add', text: 'do it' },
+      });
+
+      const complete = expectOk(
+        registry.validate(
+          { name: 'todo', version: 1, args: { action: 'complete', id: 't1' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(complete).toMatchObject({
+        name: 'todo',
+        args: { action: 'complete', id: 't1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'todo', version: 1, args: { action: 'add' } },
+        { name: 'todo', version: 1, args: { action: 'add', text: '   ' } },
+        { name: 'todo', version: 1, args: { action: 'complete' } },
+        { name: 'todo', version: 1, args: { action: 'nope' } },
+        { name: 'todo', version: 1, args: { action: 'list', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('memory tool (M17b)', () => {
+    it('accepts each layer and rejects bad shapes', () => {
+      const beliefs = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'beliefs', status: 'active' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(beliefs).toMatchObject({
+        name: 'memory',
+        args: { layer: 'beliefs', status: 'active' },
+      });
+
+      const recall = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'recall', query: 'sweaters' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(recall).toMatchObject({
+        name: 'memory',
+        args: { layer: 'recall', query: 'sweaters' },
+      });
+
+      const persona = expectOk(
+        registry.validate(
+          { name: 'memory', version: 1, args: { layer: 'persona' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(persona).toMatchObject({
+        name: 'memory',
+        args: { layer: 'persona' },
+      });
+
+      const candidates = expectOk(
+        registry.validate(
+          {
+            name: 'memory',
+            version: 1,
+            args: { layer: 'candidates', limit: 5 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(candidates).toMatchObject({
+        name: 'memory',
+        args: { layer: 'candidates', limit: 5 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'memory', version: 1, args: {} },
+        { name: 'memory', version: 1, args: { layer: 'nope' } },
+        { name: 'memory', version: 1, args: { layer: 'recall' } },
+        {
+          name: 'memory',
+          version: 1,
+          args: { layer: 'persona', status: 'active' },
+        },
+        {
+          name: 'memory',
+          version: 1,
+          args: { layer: 'beliefs', status: 'nope' },
+        },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', limit: 0 } },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', limit: 999 } },
+        { name: 'memory', version: 1, args: { layer: 'beliefs', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('clarify tool (M17b)', () => {
+    it('accepts a question with options and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          { name: 'clarify', version: 1, args: { question: 'Which one?' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'clarify',
+        args: { question: 'Which one?' },
+      });
+
+      const withOptions = expectOk(
+        registry.validate(
+          {
+            name: 'clarify',
+            version: 1,
+            args: { question: 'Which one?', options: ['a', 'b'], ttlMs: 60000 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(withOptions).toMatchObject({
+        name: 'clarify',
+        args: { question: 'Which one?', options: ['a', 'b'], ttlMs: 60000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'clarify', version: 1, args: {} },
+        { name: 'clarify', version: 1, args: { question: '   ' } },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a'] },
+        },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a', ''] },
+        },
+        {
+          name: 'clarify',
+          version: 1,
+          args: { question: 'q', options: ['a', 'b', 'c', 'd', 'e'] },
+        },
+        { name: 'clarify', version: 1, args: { question: 'q', ttlMs: 0 } },
+        { name: 'clarify', version: 1, args: { question: 'q', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('vision_analyze tool (M17b.8)', () => {
+    it('accepts a path or url and rejects bad shapes', () => {
+      const byPath = expectOk(
+        registry.validate(
+          { name: 'vision_analyze', version: 1, args: { path: 'pic.png' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(byPath).toMatchObject({
+        name: 'vision_analyze',
+        args: { path: 'pic.png' },
+      });
+
+      const byUrl = expectOk(
+        registry.validate(
+          {
+            name: 'vision_analyze',
+            version: 1,
+            args: { url: 'https://x/y.png', prompt: 'What is this?' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(byUrl).toMatchObject({
+        name: 'vision_analyze',
+        args: { url: 'https://x/y.png', prompt: 'What is this?' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'vision_analyze', version: 1, args: {} },
+        {
+          name: 'vision_analyze',
+          version: 1,
+          args: { path: 'a.png', url: 'https://x/y.png' },
+        },
+        { name: 'vision_analyze', version: 1, args: { path: '   ' } },
+        {
+          name: 'vision_analyze',
+          version: 1,
+          args: { url: 'https://x/y.png', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('image_generate tool (M17b.9)', () => {
+    it('accepts a prompt with an optional size and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          {
+            name: 'image_generate',
+            version: 1,
+            args: { prompt: 'a teal square' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'image_generate',
+        args: { prompt: 'a teal square' },
+      });
+
+      const sized = expectOk(
+        registry.validate(
+          {
+            name: 'image_generate',
+            version: 1,
+            args: { prompt: 'a teal square', size: '512x512' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(sized).toMatchObject({
+        name: 'image_generate',
+        args: { prompt: 'a teal square', size: '512x512' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'image_generate', version: 1, args: {} },
+        { name: 'image_generate', version: 1, args: { prompt: '   ' } },
+        {
+          name: 'image_generate',
+          version: 1,
+          args: { prompt: 'x', size: 'big' },
+        },
+        {
+          name: 'image_generate',
+          version: 1,
+          args: { prompt: 'x', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('terminal tool (M17c)', () => {
+    it('accepts a command with optional cwd/timeout and rejects bad shapes', () => {
+      const plain = expectOk(
+        registry.validate(
+          { name: 'terminal', version: 1, args: { command: 'ls -la' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(plain).toMatchObject({
+        name: 'terminal',
+        args: { command: 'ls -la' },
+      });
+
+      const full = expectOk(
+        registry.validate(
+          {
+            name: 'terminal',
+            version: 1,
+            args: { command: 'ls', cwd: 'notes', timeoutMs: 5000 },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(full).toMatchObject({
+        name: 'terminal',
+        args: { command: 'ls', cwd: 'notes', timeoutMs: 5000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'terminal', version: 1, args: {} },
+        { name: 'terminal', version: 1, args: { command: '   ' } },
+        { name: 'terminal', version: 1, args: { command: 'ls', timeoutMs: 0 } },
+        { name: 'terminal', version: 1, args: { command: 'ls', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('process tools (M17c.2)', () => {
+    it('validates process_start and process_manage', () => {
+      const start = expectOk(
+        registry.validate(
+          {
+            name: 'process_start',
+            version: 1,
+            args: { command: 'sleep 1', cwd: 'notes' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(start).toMatchObject({
+        name: 'process_start',
+        args: { command: 'sleep 1', cwd: 'notes' },
+      });
+
+      const list = expectOk(
+        registry.validate(
+          { name: 'process_manage', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({
+        name: 'process_manage',
+        args: { action: 'list' },
+      });
+
+      const output = expectOk(
+        registry.validate(
+          {
+            name: 'process_manage',
+            version: 1,
+            args: { action: 'output', id: 'p1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(output).toMatchObject({
+        name: 'process_manage',
+        args: { action: 'output', id: 'p1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'process_start', version: 1, args: {} },
+        { name: 'process_start', version: 1, args: { command: '   ' } },
+        { name: 'process_manage', version: 1, args: {} },
+        { name: 'process_manage', version: 1, args: { action: 'output' } },
+        { name: 'process_manage', version: 1, args: { action: 'nope' } },
+        {
+          name: 'process_manage',
+          version: 1,
+          args: { action: 'list', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('skill_manage tool (M17c.3)', () => {
+    it('validates create/update/delete', () => {
+      const create = expectOk(
+        registry.validate(
+          {
+            name: 'skill_manage',
+            version: 1,
+            args: {
+              action: 'create',
+              name: 'demo',
+              description: 'Demo.',
+              body: 'Step.',
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(create).toMatchObject({
+        name: 'skill_manage',
+        args: {
+          action: 'create',
+          name: 'demo',
+          description: 'Demo.',
+          body: 'Step.',
+        },
+      });
+
+      const del = expectOk(
+        registry.validate(
+          {
+            name: 'skill_manage',
+            version: 1,
+            args: { action: 'delete', name: 'demo' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(del).toMatchObject({
+        name: 'skill_manage',
+        args: { action: 'delete', name: 'demo' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'skill_manage', version: 1, args: {} },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: {
+            action: 'create',
+            name: 'Bad Name',
+            description: 'x',
+            body: 'y',
+          },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'create', name: 'demo', body: 'y' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'create', name: 'demo', description: 'x' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'delete', name: 'demo', body: 'y' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'nope', name: 'demo' },
+        },
+        {
+          name: 'skill_manage',
+          version: 1,
+          args: { action: 'delete', name: 'demo', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('discord tools (M17c.4)', () => {
+    it('validates discord and discord_admin', () => {
+      const info = expectOk(
+        registry.validate(
+          { name: 'discord', version: 1, args: { action: 'server_info' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(info).toMatchObject({
+        name: 'discord',
+        args: { action: 'server_info' },
+      });
+
+      const member = expectOk(
+        registry.validate(
+          {
+            name: 'discord',
+            version: 1,
+            args: { action: 'member_info', user_id: 'u1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(member).toMatchObject({
+        name: 'discord',
+        args: { action: 'member_info', user_id: 'u1' },
+      });
+
+      const timeout = expectOk(
+        registry.validate(
+          {
+            name: 'discord_admin',
+            version: 1,
+            args: {
+              action: 'timeout_member',
+              user_id: 'u1',
+              duration_ms: 60000,
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(timeout).toMatchObject({
+        name: 'discord_admin',
+        args: { action: 'timeout_member', user_id: 'u1', duration_ms: 60000 },
+      });
+
+      const bad: unknown[] = [
+        { name: 'discord', version: 1, args: {} },
+        { name: 'discord', version: 1, args: { action: 'member_info' } },
+        { name: 'discord', version: 1, args: { action: 'nope' } },
+        {
+          name: 'discord',
+          version: 1,
+          args: { action: 'server_info', extra: 1 },
+        },
+        {
+          name: 'discord_admin',
+          version: 1,
+          args: { action: 'timeout_member', user_id: 'u1' },
+        },
+        { name: 'discord_admin', version: 1, args: { action: 'kick_member' } },
+        {
+          name: 'discord_admin',
+          version: 1,
+          args: { action: 'timeout_member', user_id: 'u1', duration_ms: 0 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('cronjob_manage tool (M17d)', () => {
+    it('validates create and management actions', () => {
+      const create = expectOk(
+        registry.validate(
+          {
+            name: 'cronjob_manage',
+            version: 1,
+            args: {
+              action: 'create',
+              name: 'morning',
+              schedule: '0 9 * * *',
+              prompt: 'summarize',
+            },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(create).toMatchObject({
+        name: 'cronjob_manage',
+        args: {
+          action: 'create',
+          name: 'morning',
+          schedule: '0 9 * * *',
+          prompt: 'summarize',
+        },
+      });
+
+      const list = expectOk(
+        registry.validate(
+          { name: 'cronjob_manage', version: 1, args: { action: 'list' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(list).toMatchObject({
+        name: 'cronjob_manage',
+        args: { action: 'list' },
+      });
+
+      const run = expectOk(
+        registry.validate(
+          {
+            name: 'cronjob_manage',
+            version: 1,
+            args: { action: 'run', id: 'j1' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(run).toMatchObject({
+        name: 'cronjob_manage',
+        args: { action: 'run', id: 'j1' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'cronjob_manage', version: 1, args: {} },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: { action: 'create', name: 'x', schedule: '0 9 * * *' },
+        },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: {
+            action: 'create',
+            name: 'x',
+            schedule: '0 9 * * *',
+            prompt: 'p',
+            deliver_channel: 'discord',
+          },
+        },
+        { name: 'cronjob_manage', version: 1, args: { action: 'run' } },
+        { name: 'cronjob_manage', version: 1, args: { action: 'nope' } },
+        {
+          name: 'cronjob_manage',
+          version: 1,
+          args: { action: 'list', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('execute_code tool (M17d.2)', () => {
+    it('validates code and language', () => {
+      const python = expectOk(
+        registry.validate(
+          { name: 'execute_code', version: 1, args: { code: 'print(1)' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(python).toMatchObject({
+        name: 'execute_code',
+        args: { code: 'print(1)' },
+      });
+
+      const js = expectOk(
+        registry.validate(
+          {
+            name: 'execute_code',
+            version: 1,
+            args: { code: 'console.log(1)', language: 'javascript' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(js).toMatchObject({
+        name: 'execute_code',
+        args: { code: 'console.log(1)', language: 'javascript' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'execute_code', version: 1, args: {} },
+        { name: 'execute_code', version: 1, args: { code: '   ' } },
+        {
+          name: 'execute_code',
+          version: 1,
+          args: { code: 'x', language: 'ruby' },
+        },
+        { name: 'execute_code', version: 1, args: { code: 'x', extra: 1 } },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
+  describe('browser tool (M17d.3)', () => {
+    it('validates actions and per-action requirements', () => {
+      const nav = expectOk(
+        registry.validate(
+          {
+            name: 'browser',
+            version: 1,
+            args: { action: 'navigate', url: 'https://example.com/' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(nav).toMatchObject({
+        name: 'browser',
+        args: { action: 'navigate', url: 'https://example.com/' },
+      });
+
+      const snap = expectOk(
+        registry.validate(
+          { name: 'browser', version: 1, args: { action: 'snapshot' } },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(snap).toMatchObject({
+        name: 'browser',
+        args: { action: 'snapshot' },
+      });
+
+      const typed = expectOk(
+        registry.validate(
+          {
+            name: 'browser',
+            version: 1,
+            args: { action: 'type', selector: '#q', text: 'hello' },
+          },
+          contextWith(ALL_TOOLS),
+        ),
+      );
+      expect(typed).toMatchObject({
+        name: 'browser',
+        args: { action: 'type', selector: '#q', text: 'hello' },
+      });
+
+      const bad: unknown[] = [
+        { name: 'browser', version: 1, args: {} },
+        { name: 'browser', version: 1, args: { action: 'navigate' } },
+        { name: 'browser', version: 1, args: { action: 'click' } },
+        {
+          name: 'browser',
+          version: 1,
+          args: { action: 'type', selector: '#q' },
+        },
+        { name: 'browser', version: 1, args: { action: 'scroll' } },
+        { name: 'browser', version: 1, args: { action: 'nope' } },
+        {
+          name: 'browser',
+          version: 1,
+          args: { action: 'snapshot', extra: 1 },
+        },
+      ];
+      for (const call of bad) {
+        expect(
+          expectFailure(registry.validate(call, contextWith(ALL_TOOLS))).code,
+        ).toBe('invalid_args');
+      }
+    });
+  });
+
   describe('foreign delegation (M13b)', () => {
     const foreignDescriptor = {
       name: 'mcp_files_read',
@@ -613,6 +1651,28 @@ describe('ToolRegistry', () => {
         'session.search',
         'session.rename',
         'channel.send',
+        'read_file',
+        'search_files',
+        'write_file',
+        'patch',
+        'web_search',
+        'web_extract',
+        'skills_list',
+        'skill_view',
+        'todo',
+        'memory',
+        'clarify',
+        'vision_analyze',
+        'image_generate',
+        'terminal',
+        'process_start',
+        'process_manage',
+        'skill_manage',
+        'discord',
+        'discord_admin',
+        'cronjob_manage',
+        'execute_code',
+        'browser',
         'mcp_files_read',
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({

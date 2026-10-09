@@ -23,6 +23,24 @@ export interface ChatMessage {
 }
 
 /**
+ * One multimodal content part (OpenAI-compatible). The vision role
+ * sends text + `image_url` parts; the conversation path stays text
+ * until M16.2d wires attachments through.
+ */
+export type LlmContentPart =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image_url';
+      readonly image_url: { readonly url: string };
+    };
+
+/** A user message carrying multimodal parts (vision role only). */
+export interface MultimodalUserMessage {
+  role: 'user';
+  content: readonly LlmContentPart[];
+}
+
+/**
  * Narrow endpoint config. The client never sees roles, prompts, or
  * Core-wide settings — any model role (conversation, extraction,
  * sentinel) gets its own instance with its own values.

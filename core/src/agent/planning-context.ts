@@ -30,6 +30,11 @@ export function buildPlanningBlock(input: {
    * Absent by default — the native loop never declares it.
    */
   unavailable?: readonly string[];
+  /**
+   * Tools known but not offered this turn (M17a enablement). Declared so
+   * absence reads as deliberate, never silent.
+   */
+  disabled?: readonly string[];
 }): string {
   const lines = input.tools.map((tool) =>
     tool.approval === 'none'
@@ -50,6 +55,14 @@ export function buildPlanningBlock(input: {
     parts.push(
       'Unavailable (do not propose):',
       ...input.unavailable.map((line) => `- ${line}`),
+    );
+  }
+  // M17a: tools disabled by policy are absent from the list above; declared
+  // so the model does not try to propose them.
+  if (input.disabled && input.disabled.length > 0) {
+    parts.push(
+      'Disabled this turn (do not propose):',
+      ...input.disabled.map((name) => `- ${name}`),
     );
   }
   // M9k: per-step progress restated every round so the model always

@@ -1,4 +1,18 @@
 import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import type { Dirent } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import type { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
@@ -11,12 +25,62 @@ import type {
   LlmToolRequest,
 } from '../llm/llm.protocol';
 import { McpConnectionService } from '../mcp/mcp-connection.service';
+import { terminalEnv } from '../process/terminal-env';
+import type { ProcessRegistry } from '../process/process-registry.service';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
+import type { CronService } from '../cron/cron.service';
+import type { CronJob } from '../cron/cron-job.repository';
+import type { ToolRpcTokens } from './tool-rpc.tokens';
+import type { BrowserService } from '../browser/browser.service';
+import type { BrowserAction } from '../browser/browser.service';
+import { BrowserError } from '../browser/browser.service';
+import { ClarificationService } from '../clarifications/clarification.service';
+import type { ClaimRepository } from '../memory/claim.repository';
+import type { Claim } from '../memory/claim';
+import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import type {
+  RecallResult,
+  RecallService,
+  SurfaceResult,
+} from '../memory/recall.service';
+import type { PersonaRepository } from '../persona/persona.repository';
+import { DEFAULT_PERSONA_USER_ID } from '../persona/persona.types';
+import type { SkillService } from '../skills/skill.service';
+import type { SkillDescriptor } from '../skills/skill.types';
+import type { TodoRepository } from '../session/todo.repository';
+import type { VisionService } from '../vision/vision.service';
+import { ImageGenError } from '../image/image-gen.service';
+import type { ImageGenService } from '../image/image-gen.service';
 import type {
   ChannelSendPort,
   ChannelSendRequest,
 } from '../channels/channel-send.port';
 import { ToolRegistry } from './tool-registry';
-import type { ChannelSendArgs, ForeignToolCall } from './tool-registry';
+import type {
+  ChannelSendArgs,
+  BrowserArgs,
+  CronJobManageArgs,
+  DiscordAdminArgs,
+  DiscordArgs,
+  ExecuteCodeArgs,
+  ForeignToolCall,
+  ImageGenerateArgs,
+  MemoryArgs,
+  PatchArgs,
+  ProcessManageArgs,
+  ProcessStartArgs,
+  ReadFileArgs,
+  SearchFilesArgs,
+  SkillManageArgs,
+  SkillViewArgs,
+  TerminalArgs,
+  TodoArgs,
+  ValidatedToolRequest,
+  VisionAnalyzeArgs,
+  WebExtractArgs,
+  WebSearchArgs,
+  WriteFileArgs,
+} from './tool-registry';
 import { ToolExecutionRepository } from './tool-execution.repository';
 import type {
   ExecutionOutcome,
@@ -24,6 +88,7 @@ import type {
   FinalOutcome,
   McpOutcome,
   MirrorOutcomeState,
+  NativeToolOutcome,
   ToolExecutionInput,
   ToolExecutionRecord,
   ValidationOutcome,
@@ -37,7 +102,41 @@ export const MCP_EXECUTE_ACTION = 'mcp.execute';
 /** Approval action for a native channel.send. */
 export const CHANNEL_SEND_ACTION = 'channel.send';
 
+/** Approval action for a native terminal command (M17c). */
+export const TERMINAL_EXECUTE_ACTION = 'terminal.execute';
+
+/** Approval action for starting a background process (M17c.2). */
+export const PROCESS_START_ACTION = 'process.start';
+
+/** Approval action for Discord moderation (M17c.4). */
+export const DISCORD_ADMIN_ACTION = 'discord.admin';
+
+/** Approval action for execute_code (M17d.2). */
+export const CODE_EXECUTE_ACTION = 'code.execute';
+
+const DEFAULT_TERMINAL_TIMEOUT_MS = 30_000;
+const MAX_TERMINAL_OUTPUT_BYTES = 48 * 1024;
+const DEFAULT_CODE_TIMEOUT_MS = 30_000;
+
 const MAX_RESULT_BYTES = 64 * 1024;
+const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
+const MAX_SEARCH_LINE_CHARS = 200;
+const WEB_TIMEOUT_MS = 15_000;
+const MAX_EXTRACT_CHARS = 32 * 1024;
+const MEMORY_DEFAULT_LIMIT = 20;
+const MEMORY_FILTER_SCAN_LIMIT = 200;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const VISION_FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_VISION_PROMPT =
+  'Describe this image in detail, including any text, objects, people, and context.';
+const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+const ALLOWED_IMAGE_MIMES = new Set(Object.values(IMAGE_MIME_BY_EXT));
 
 /** Human-readable approval description for a channel.send proposal. */
 function describeChannelSend(args: ChannelSendArgs): string {
@@ -48,9 +147,240 @@ function describeChannelSend(args: ChannelSendArgs): string {
   return `Send a ${args.channel} message to ${to}: ${args.body.slice(0, 300)}`;
 }
 
+/** Approval description for a terminal command (M17c). */
+function describeTerminal(args: TerminalArgs): string {
+  const cwd = args.cwd ? ` (cwd: ${args.cwd})` : '';
+  return `Run a shell command${cwd}: ${args.command.slice(0, 400)}`;
+}
+
+/** Approval description for a background process (M17c.2). */
+function describeProcessStart(args: ProcessStartArgs): string {
+  const cwd = args.cwd ? ` (cwd: ${args.cwd})` : '';
+  return `Start a background process${cwd}: ${args.command.slice(0, 400)}`;
+}
+
+/** Compact, model-facing view of one skill descriptor. */
+function skillView(skill: SkillDescriptor): Record<string, unknown> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+  };
+}
+
+/** Approval description for Discord moderation (M17c.4). */
+function describeDiscordAdmin(args: DiscordAdminArgs): string {
+  const reason = args.reason ? ` (reason: ${args.reason.slice(0, 200)})` : '';
+  if (args.action === 'timeout_member') {
+    return `Discord: time out user ${args.user_id} for ${String(args.duration_ms ?? 0)}ms${reason}`;
+  }
+  return `Discord: kick user ${args.user_id}${reason}`;
+}
+
+/** Approval description for execute_code (M17d.2). */
+function describeExecuteCode(args: ExecuteCodeArgs): string {
+  const language = args.language ?? 'python';
+  return `Run ${language} code (${args.code.length} chars)`;
+}
+
+/** Map validated browser args to the browser service action. */
+function browserAction(args: BrowserArgs): BrowserAction {
+  switch (args.action) {
+    case 'navigate':
+      return { action: 'navigate', url: args.url ?? '' };
+    case 'snapshot':
+      return { action: 'snapshot' };
+    case 'click':
+      return { action: 'click', selector: args.selector ?? '' };
+    case 'type':
+      return {
+        action: 'type',
+        selector: args.selector ?? '',
+        text: args.text ?? '',
+      };
+    case 'scroll':
+      return { action: 'scroll', dy: args.dy ?? 0 };
+    case 'screenshot':
+      return { action: 'screenshot' };
+  }
+}
+
+/** Spawn a process, capture bounded output, and kill its group on timeout. */
+function spawnCaptured(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<{
+  exitCode: number | null;
+  timedOut: boolean;
+  truncated: boolean;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let bytes = 0;
+    let truncated = false;
+    let timedOut = false;
+    let settled = false;
+    const append = (chunk: Buffer, which: 'stdout' | 'stderr'): void => {
+      if (bytes >= MAX_TERMINAL_OUTPUT_BYTES) {
+        truncated = true;
+        return;
+      }
+      let text = chunk.toString('utf8');
+      const remaining = MAX_TERMINAL_OUTPUT_BYTES - bytes;
+      if (Buffer.byteLength(text) > remaining) {
+        text = text.slice(0, remaining);
+        truncated = true;
+      }
+      bytes += Buffer.byteLength(text);
+      if (which === 'stdout') stdout += text;
+      else stderr += text;
+    };
+    child.stdout?.on('data', (chunk: Buffer) => append(chunk, 'stdout'));
+    child.stderr?.on('data', (chunk: Buffer) => append(chunk, 'stderr'));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // Kill the whole process group so a shell's children die too.
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
+      }
+    }, timeoutMs);
+    const finish = (exitCode: number | null, error?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        exitCode,
+        timedOut,
+        truncated,
+        ...(error !== undefined ? { error } : {}),
+        stdout,
+        stderr,
+      });
+    };
+    child.on('error', () => finish(null, 'spawn_failed'));
+    child.on('close', (code) => finish(code));
+  });
+}
+
+/** Compact, model-facing view of one cron job. */
+function cronJobView(job: CronJob): Record<string, unknown> {
+  return {
+    id: job.id,
+    name: job.name,
+    schedule: job.schedule,
+    prompt: job.prompt,
+    sessionId: job.sessionId,
+    deliver: job.deliver,
+    enabled: job.enabled,
+    lastRunAt: job.lastRunAt,
+    nextRunAt: job.nextRunAt,
+  };
+}
+
+/** Approval action label for a parked native/foreign call. */
+function approvalActionFor(request: ValidatedToolRequest): string {
+  if ('foreign' in request) return MCP_EXECUTE_ACTION;
+  switch (request.name) {
+    case 'terminal':
+      return TERMINAL_EXECUTE_ACTION;
+    case 'process_start':
+      return PROCESS_START_ACTION;
+    case 'discord_admin':
+      return DISCORD_ADMIN_ACTION;
+    case 'execute_code':
+      return CODE_EXECUTE_ACTION;
+    case 'channel.send':
+      return CHANNEL_SEND_ACTION;
+    default:
+      return CHANNEL_SEND_ACTION;
+  }
+}
+
+/** Human-facing approval description for a parked native/foreign call. */
+function approvalDescriptionFor(request: ValidatedToolRequest): string {
+  if ('foreign' in request) {
+    return (
+      `Execute foreign tool ${request.foreign.server}/${request.foreign.tool} ` +
+      `(${request.name}) with args ${JSON.stringify(request.args).slice(0, 500)}`
+    );
+  }
+  switch (request.name) {
+    case 'terminal':
+      return describeTerminal(request.args);
+    case 'process_start':
+      return describeProcessStart(request.args);
+    case 'discord_admin':
+      return describeDiscordAdmin(request.args);
+    case 'execute_code':
+      return describeExecuteCode(request.args);
+    case 'channel.send':
+      return describeChannelSend(request.args);
+    default:
+      return `${request.name} with args ${JSON.stringify(request.args).slice(0, 500)}`;
+  }
+}
+
+/** Compact, model-facing view of one belief. */
+function claimView(claim: Claim): Record<string, unknown> {
+  return {
+    id: claim.id,
+    subject: claim.subject,
+    predicate: claim.predicate,
+    object: claim.object,
+    status: claim.status,
+    category: claim.category,
+    origin: claim.origin,
+    confidence: claim.confidence,
+    negated: claim.negated,
+  };
+}
+
+/** Case-insensitive substring match across a belief's triple and entities. */
+function claimMatches(claim: Claim, query: string): boolean {
+  const needle = query.toLowerCase();
+  return [claim.subject, claim.predicate, claim.object, ...claim.entities].some(
+    (value) => value.toLowerCase().includes(needle),
+  );
+}
+
+/** Surface availability summary for a recall result. */
+function surfaceView(surface: SurfaceResult): Record<string, unknown> {
+  return {
+    available: surface.available,
+    ...(surface.reason !== undefined ? { reason: surface.reason } : {}),
+    hits: surface.hits.length,
+  };
+}
+
+/** MIME for a supported image path, by extension; undefined otherwise. */
+function imageMimeForPath(file: string): string | undefined {
+  const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
+  return IMAGE_MIME_BY_EXT[ext];
+}
+
 @Injectable()
 export class ToolExecutionService {
   private readonly searchTimeoutMs: number;
+  private readonly workspaceRoot: string;
+  private readonly searxngBaseUrl: string | undefined;
+  private readonly rpcBaseUrl: string | undefined;
   private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
@@ -59,14 +389,36 @@ export class ToolExecutionService {
     private readonly registry: ToolRegistry,
     private readonly llm: Pick<LlmClient, 'chatWithTools'>,
     private readonly approvals: Pick<ApprovalRepository, 'getApproval'>,
-    options: { searchTimeoutMs?: number } = {},
+    options: {
+      searchTimeoutMs?: number;
+      workspaceRoot?: string;
+      searxngBaseUrl?: string;
+      rpcBaseUrl?: string;
+    } = {},
     private readonly streamer:
       Pick<LlmClient, 'chatStreamWithTools'> | undefined,
     private readonly approvalService: ApprovalService,
     private readonly mcp: McpConnectionService,
+    private readonly clarifications: ClarificationService,
     private readonly channels?: ChannelSendPort,
+    private readonly skills?: SkillService,
+    private readonly todos?: TodoRepository,
+    private readonly claims?: ClaimRepository,
+    private readonly recall?: RecallService,
+    private readonly candidates?: MemoryCandidateRepository,
+    private readonly persona?: PersonaRepository,
+    private readonly vision?: VisionService,
+    private readonly imageGen?: ImageGenService,
+    private readonly processes?: ProcessRegistry,
+    private readonly discordAdmin?: DiscordAdminPort,
+    private readonly cron?: CronService,
+    private readonly rpcTokens?: ToolRpcTokens,
+    private readonly browser?: BrowserService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
+    this.workspaceRoot = options.workspaceRoot ?? process.cwd();
+    this.searxngBaseUrl = options.searxngBaseUrl;
+    this.rpcBaseUrl = options.rpcBaseUrl;
     if (
       !Number.isInteger(this.searchTimeoutMs) ||
       this.searchTimeoutMs < 1 ||
@@ -105,30 +457,48 @@ export class ToolExecutionService {
     // rows converge through register's idempotency — no second
     // approval is ever minted for a replay.
     let parkedApprovalId: string | null = null;
+    let parkedClarificationId: string | null = null;
     if (!this.ledger.get(input.requestId)) {
       const preview = this.validate(input);
       if (preview.ok && 'request' in preview) {
         const descriptor = this.registry.lookup(preview.request.name);
         if (descriptor && descriptor.approval !== 'none') {
           const request = preview.request;
-          const foreign = 'foreign' in request;
           const approval = await this.approvalService.create({
             sessionId: input.sessionId,
-            action: foreign ? MCP_EXECUTE_ACTION : CHANNEL_SEND_ACTION,
-            description: foreign
-              ? `Execute foreign tool ${request.foreign.server}/` +
-                `${request.foreign.tool} (${request.name}) ` +
-                `with args ${JSON.stringify(request.args).slice(0, 500)}`
-              : describeChannelSend(request.args as ChannelSendArgs),
+            action: approvalActionFor(request),
+            description: approvalDescriptionFor(request),
           });
           parkedApprovalId = approval.id;
+        } else if (
+          preview.request.name === 'clarify' &&
+          !('foreign' in preview.request)
+        ) {
+          // M17b: clarify parks on a clarification. The question is
+          // created before the ledger row so the binding rides the
+          // INSERT (immutability forbids binding afterwards).
+          const clarification = await this.clarifications.create({
+            sessionId: input.sessionId,
+            question: preview.request.args.question,
+            ...(preview.request.args.options !== undefined
+              ? { options: preview.request.args.options }
+              : {}),
+            ...(preview.request.args.ttlMs !== undefined
+              ? { ttlMs: preview.request.args.ttlMs }
+              : {}),
+          });
+          parkedClarificationId = clarification.id;
         }
       }
     }
     let record = this.ledger.register(
       snapshot,
       (saved) => this.validate(saved),
-      parkedApprovalId ? { approvalId: parkedApprovalId } : undefined,
+      parkedApprovalId
+        ? { approvalId: parkedApprovalId }
+        : parkedClarificationId
+          ? { clarificationId: parkedClarificationId }
+          : undefined,
     );
     if (record.state === 'executing' && record.ownership === 'released') {
       this.ledger.resolveReleasedToUnknown(record.requestId);
@@ -141,6 +511,16 @@ export class ToolExecutionService {
           : null;
       if (request && 'foreign' in request) {
         return this.consumeForeign(record, request, options);
+      }
+      // M17b: native approval-free tools other than the bespoke
+      // search/rename/channel.send arms take the generic native path.
+      if (
+        request &&
+        request.name !== 'session.search' &&
+        request.name !== 'session.rename' &&
+        request.name !== 'channel.send'
+      ) {
+        return this.consumeNative(record, request, options);
       }
       if (request?.name === 'session.rename') {
         record = this.renameInline(record);
@@ -188,7 +568,10 @@ export class ToolExecutionService {
         record = this.required(record.requestId);
       }
     }
-    if (record.state === 'awaiting_approval') {
+    if (
+      record.state === 'awaiting_approval' ||
+      record.state === 'awaiting_clarification'
+    ) {
       return this.resume(record.requestId, record.sessionId, options);
     }
     // Multi-step turns skip the tools-disabled final call on intermediate
@@ -231,6 +614,834 @@ export class ToolExecutionService {
       return this.required(record.requestId);
     }
     return this.maybeFinal(record.requestId, options);
+  }
+
+  /**
+   * Native (approval-free) inline path (M17b). Claim, execute through the
+   * native dispatcher, then finish with a generic outcome — the same shape
+   * contract as the foreign path.
+   */
+  private async consumeNative(
+    record: ToolExecutionRecord,
+    request: ValidatedToolRequest,
+    options: {
+      sink?: StreamSink;
+      signal?: AbortSignal;
+      skipFinal?: boolean;
+    },
+  ): Promise<ToolExecutionRecord> {
+    const descriptor = this.registry.lookup(request.name);
+    if (
+      !descriptor ||
+      descriptor.approval !== 'none' ||
+      request.name === 'clarify'
+    ) {
+      throw new Error('native_parking_bypassed');
+    }
+    const token = this.ledger.claimNativeTool(record.requestId, (saved) =>
+      this.validate(saved),
+    );
+    if (token) {
+      await this.executeNativeTool(record.requestId, token);
+    }
+    if (options.skipFinal) {
+      return this.required(record.requestId);
+    }
+    return this.maybeFinal(record.requestId, options);
+  }
+
+  /** Execute one claimed native call through the native dispatcher. */
+  private async executeNativeTool(
+    requestId: string,
+    token: string,
+  ): Promise<void> {
+    const claimed = this.required(requestId);
+    const validation = claimed.validation;
+    if (
+      !validation.ok ||
+      !('request' in validation) ||
+      'foreign' in validation.request
+    ) {
+      throw new Error('invalid_execution_state');
+    }
+    const name = validation.request.name;
+    let outcome: NativeToolOutcome;
+    try {
+      const result = await this.dispatchNative(
+        name,
+        validation.request.args as unknown as Record<string, unknown>,
+        claimed.sessionId,
+      );
+      const serialized = JSON.stringify(result);
+      if (Buffer.byteLength(serialized) > MAX_RESULT_BYTES) {
+        outcome = { ok: false, failure: { code: 'result_too_large' } };
+      } else {
+        outcome = {
+          ok: true,
+          tool: name,
+          result: JSON.parse(serialized) as unknown,
+        };
+      }
+    } catch (error) {
+      outcome = {
+        ok: false,
+        failure: {
+          code:
+            error instanceof Error && error.message === 'result_too_large'
+              ? 'result_too_large'
+              : error instanceof Error && error.message.endsWith('_unavailable')
+                ? 'unavailable'
+                : 'tool_failed',
+        },
+      };
+    }
+    this.ledger.finishTool(requestId, token, outcome);
+  }
+
+  /** Dispatch a native tool by name (M17b). */
+  private dispatchNative(
+    name: string,
+    args: Record<string, unknown>,
+    sessionId: string,
+  ): Promise<unknown> {
+    switch (name) {
+      case 'read_file':
+        return Promise.resolve(
+          this.nativeReadFile(args as unknown as ReadFileArgs),
+        );
+      case 'search_files':
+        return Promise.resolve(
+          this.nativeSearchFiles(args as unknown as SearchFilesArgs),
+        );
+      case 'write_file':
+        return Promise.resolve(
+          this.nativeWriteFile(args as unknown as WriteFileArgs),
+        );
+      case 'patch':
+        return Promise.resolve(this.nativePatch(args as unknown as PatchArgs));
+      case 'web_search':
+        return this.nativeWebSearch(args as unknown as WebSearchArgs);
+      case 'web_extract':
+        return this.nativeWebExtract(args as unknown as WebExtractArgs);
+      case 'skills_list':
+        return Promise.resolve(this.nativeSkillsList());
+      case 'skill_view':
+        return this.nativeSkillView(args as unknown as SkillViewArgs);
+      case 'todo':
+        return this.nativeTodo(args as unknown as TodoArgs, sessionId);
+      case 'memory':
+        return this.nativeMemory(args as unknown as MemoryArgs);
+      case 'vision_analyze':
+        return this.nativeVisionAnalyze(args);
+      case 'image_generate':
+        return this.nativeImageGenerate(args as unknown as ImageGenerateArgs);
+      case 'terminal':
+        return this.nativeTerminal(args as unknown as TerminalArgs);
+      case 'process_start':
+        return Promise.resolve(
+          this.nativeProcessStart(args as unknown as ProcessStartArgs),
+        );
+      case 'process_manage':
+        return Promise.resolve(
+          this.nativeProcessManage(args as unknown as ProcessManageArgs),
+        );
+      case 'skill_manage':
+        return this.nativeSkillManage(args as unknown as SkillManageArgs);
+      case 'discord':
+        return this.nativeDiscord(args as unknown as DiscordArgs);
+      case 'discord_admin':
+        return this.nativeDiscordAdmin(args as unknown as DiscordAdminArgs);
+      case 'cronjob_manage':
+        return this.nativeCronJobManage(
+          args as unknown as CronJobManageArgs,
+          sessionId,
+        );
+      case 'execute_code':
+        return this.nativeExecuteCode(
+          args as unknown as ExecuteCodeArgs,
+          sessionId,
+        );
+      case 'browser':
+        return this.nativeBrowser(args as unknown as BrowserArgs, sessionId);
+      default:
+        return Promise.reject(new Error(`unknown_native_tool: ${name}`));
+    }
+  }
+
+  /** Read a bounded UTF-8 file, confined to the workspace root. */
+  private nativeReadFile(args: ReadFileArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    const stat = statSync(file);
+    if (!stat.isFile()) throw new Error('not_a_file');
+    const maxBytes = args.maxBytes ?? MAX_RESULT_BYTES;
+    const content = readFileSync(file, 'utf8');
+    const truncated = Buffer.byteLength(content) > maxBytes;
+    return {
+      path: args.path,
+      bytes: stat.size,
+      truncated,
+      content: truncated ? content.slice(0, maxBytes) : content,
+    };
+  }
+
+  /** Search file contents under the workspace, bounded. */
+  private nativeSearchFiles(args: SearchFilesArgs): unknown {
+    const root = this.resolveWithinWorkspace(args.path ?? '.');
+    const maxResults = args.maxResults ?? 20;
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(args.query, 'i');
+    } catch {
+      pattern = new RegExp(
+        args.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        'i',
+      );
+    }
+    const matches: { path: string; line: number; text: string }[] = [];
+    const walk = (dir: string): void => {
+      if (matches.length >= maxResults) return;
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (matches.length >= maxResults) return;
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === '.git') continue;
+          walk(join(dir, entry.name));
+        } else if (entry.isFile()) {
+          this.searchOneFile(
+            join(dir, entry.name),
+            root,
+            pattern,
+            matches,
+            maxResults,
+          );
+        }
+      }
+    };
+    walk(root);
+    return { query: args.query, matches };
+  }
+
+  private searchOneFile(
+    full: string,
+    root: string,
+    pattern: RegExp,
+    matches: { path: string; line: number; text: string }[],
+    maxResults: number,
+  ): void {
+    let content: string;
+    try {
+      if (statSync(full).size > MAX_SEARCH_FILE_BYTES) return;
+      content = readFileSync(full, 'utf8');
+    } catch {
+      return;
+    }
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length && matches.length < maxResults; i++) {
+      const line = lines[i];
+      if (line !== undefined && pattern.test(line)) {
+        matches.push({
+          path: relative(root, full),
+          line: i + 1,
+          text: line.slice(0, MAX_SEARCH_LINE_CHARS),
+        });
+      }
+    }
+  }
+
+  /** Write (or overwrite) a workspace file, creating parent directories. */
+  private nativeWriteFile(args: WriteFileArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, args.content, 'utf8');
+    return { path: args.path, bytes: Buffer.byteLength(args.content) };
+  }
+
+  /** Replace an exact string in a workspace file (unique unless replaceAll). */
+  private nativePatch(args: PatchArgs): unknown {
+    const file = this.resolveWithinWorkspace(args.path);
+    let content: string;
+    try {
+      content = readFileSync(file, 'utf8');
+    } catch {
+      throw new Error('not_a_file');
+    }
+    const count = content.split(args.oldString).length - 1;
+    if (count === 0) throw new Error('old_string_not_found');
+    if (count > 1 && args.replaceAll !== true) {
+      throw new Error('old_string_not_unique');
+    }
+    const next =
+      args.replaceAll === true
+        ? content.split(args.oldString).join(args.newString)
+        : content.replace(args.oldString, args.newString);
+    writeFileSync(file, next, 'utf8');
+    return {
+      path: args.path,
+      replacements: args.replaceAll === true ? count : 1,
+    };
+  }
+
+  /** Search the web through the configured SearXNG instance. */
+  private async nativeWebSearch(args: WebSearchArgs): Promise<unknown> {
+    const base = this.searxngBaseUrl;
+    if (!base) throw new Error('web_search_unavailable');
+    const limit = args.maxResults ?? 5;
+    const url = new URL('search', base.endsWith('/') ? base : `${base}/`);
+    url.searchParams.set('q', args.query);
+    url.searchParams.set('format', 'json');
+    const response = await fetchWithTimeout(url.toString(), WEB_TIMEOUT_MS);
+    if (!response.ok) throw new Error('web_search_failed');
+    const data = (await response.json()) as {
+      results?: { title?: unknown; url?: unknown; content?: unknown }[];
+    };
+    const results = (Array.isArray(data.results) ? data.results : [])
+      .slice(0, limit)
+      .map((r) => ({
+        title: typeof r.title === 'string' ? r.title.slice(0, 300) : '',
+        url: typeof r.url === 'string' ? r.url : '',
+        snippet: typeof r.content === 'string' ? r.content.slice(0, 500) : '',
+      }))
+      .filter((r) => r.url !== '');
+    return { query: args.query, results };
+  }
+
+  /** Fetch a web page and return its readable text (bounded). */
+  private async nativeWebExtract(args: WebExtractArgs): Promise<unknown> {
+    const target = new URL(args.url);
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      throw new Error('invalid_url');
+    }
+    const maxBytes = args.maxBytes ?? MAX_EXTRACT_CHARS;
+    const response = await fetchWithTimeout(args.url, WEB_TIMEOUT_MS);
+    if (!response.ok) throw new Error('web_extract_failed');
+    const html = (await response.text()).slice(0, maxBytes);
+    const text = htmlToText(html);
+    const truncated = text.length > MAX_EXTRACT_CHARS;
+    return {
+      url: args.url,
+      text: truncated ? text.slice(0, MAX_EXTRACT_CHARS) : text,
+      truncated,
+    };
+  }
+
+  /** List the available skills (name, description, version). */
+  private nativeSkillsList(): unknown {
+    if (!this.skills) throw new Error('skills_unavailable');
+    return {
+      skills: this.skills.listDescriptors().map(skillView),
+    };
+  }
+
+  /** Read a skill's full instructions by name. */
+  private async nativeSkillView(args: SkillViewArgs): Promise<unknown> {
+    if (!this.skills) throw new Error('skills_unavailable');
+    const skill = await this.skills.loadBody(args.name);
+    return {
+      name: skill.name,
+      description: skill.description,
+      version: skill.version,
+      body: skill.body,
+    };
+  }
+
+  /** Per-session todo list (M17b). */
+  private async nativeTodo(
+    args: TodoArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.todos) throw new Error('todos_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { todos: await this.todos.list(sessionId) };
+      case 'add':
+        return { todo: await this.todos.add(sessionId, args.text) };
+      case 'complete': {
+        const todo = await this.todos.complete(sessionId, args.id);
+        if (!todo) throw new Error('todo_not_found');
+        return { todo };
+      }
+      case 'remove': {
+        const removed = await this.todos.remove(sessionId, args.id);
+        if (!removed) throw new Error('todo_not_found');
+        return { removed: true };
+      }
+      case 'clear':
+        return { cleared: await this.todos.clear(sessionId) };
+    }
+  }
+
+  /** Inspect the memory layers manually (M17b). */
+  private async nativeMemory(args: MemoryArgs): Promise<unknown> {
+    const limit = args.limit ?? MEMORY_DEFAULT_LIMIT;
+    const query = args.query;
+    switch (args.layer) {
+      case 'recall': {
+        if (!query) throw new Error('query_required');
+        if (!this.recall) throw new Error('memory_unavailable');
+        const result = await this.recall.recall(query, limit);
+        return {
+          query: result.query.text,
+          beliefs: await this.hydrateRecall(result, limit),
+          surfaces: {
+            lexical: surfaceView(result.lexical),
+            semantic: surfaceView(result.semantic),
+            associative: surfaceView(result.associative),
+            kb: { available: result.kb.available, hits: result.kb.hits.length },
+          },
+        };
+      }
+      case 'beliefs': {
+        if (!this.claims) throw new Error('memory_unavailable');
+        const claims = await this.claims.listClaims({
+          limit: query ? MEMORY_FILTER_SCAN_LIMIT : limit,
+          ...(args.status ? { status: args.status } : {}),
+        });
+        const filtered = query
+          ? claims.filter((claim) => claimMatches(claim, query))
+          : claims;
+        return { beliefs: filtered.slice(0, limit).map(claimView) };
+      }
+      case 'persona': {
+        if (!this.persona) throw new Error('memory_unavailable');
+        const userId = DEFAULT_PERSONA_USER_ID;
+        const [records, userFacts, relationship, core] = await Promise.all([
+          this.persona.listRecords(userId, limit),
+          this.persona.listUserFacts(userId, limit),
+          this.persona.getRelationship(userId),
+          this.persona.getCoreState(),
+        ]);
+        return {
+          core: core
+            ? {
+                loaded: core.loaded,
+                entryCount: core.entryCount,
+                path: core.path,
+                reason: core.reason,
+              }
+            : null,
+          records: records.map((record) => ({
+            id: record.recordId,
+            category: record.category,
+            content: record.content,
+            confidence: record.confidence,
+            sensitivity: record.sensitivity,
+            protected: record.protected,
+          })),
+          userFacts: userFacts.map((fact) => ({
+            id: fact.memoryId,
+            content: fact.content,
+            confidence: fact.confidence,
+          })),
+          relationship: relationship
+            ? {
+                trustLevel: relationship.trustLevel,
+                emotionalTemperature: relationship.emotionalTemperature,
+                activeNicknames: relationship.activeNicknames,
+                recentDevelopments: relationship.recentDevelopments,
+              }
+            : null,
+        };
+      }
+      case 'candidates': {
+        if (!this.candidates) throw new Error('memory_unavailable');
+        const list = await this.candidates.listCandidates(undefined, {
+          limit,
+        });
+        return {
+          candidates: list.map((candidate) => ({
+            id: candidate.id,
+            kind: candidate.kind,
+            subject: candidate.subject,
+            predicate: candidate.predicate,
+            object: candidate.object,
+            confidence: candidate.confidence,
+            importance: candidate.importance,
+            sourceRole: candidate.sourceRole,
+            negated: candidate.negated,
+            extractedAt: candidate.extractedAt,
+            sessionId: candidate.source.sessionId,
+          })),
+        };
+      }
+    }
+  }
+
+  /**
+   * Ranked recall hits hydrated into belief views: unique claim ids across
+   * the three surfaces, sorted by best raw score, loaded from the claim
+   * store. Ids that no longer resolve degrade to a bare id + score.
+   */
+  private async hydrateRecall(
+    result: RecallResult,
+    limit: number,
+  ): Promise<unknown[]> {
+    const scores = new Map<string, number>();
+    for (const surface of [
+      result.lexical,
+      result.semantic,
+      result.associative,
+    ]) {
+      for (const hit of surface.hits) {
+        const previous = scores.get(hit.claimId);
+        if (previous === undefined || hit.score > previous) {
+          scores.set(hit.claimId, hit.score);
+        }
+      }
+    }
+    const ordered = [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+    const claims = this.claims;
+    if (!claims) {
+      return ordered.map(([id, score]) => ({ id, score }));
+    }
+    return Promise.all(
+      ordered.map(async ([id, score]) => {
+        const claim = await claims.getClaim(id);
+        return claim ? { ...claimView(claim), score } : { id, score };
+      }),
+    );
+  }
+
+  /** Analyze an image with the vision role (M17b.8). */
+  private async nativeVisionAnalyze(args: VisionAnalyzeArgs): Promise<unknown> {
+    if (!this.vision) throw new Error('vision_unavailable');
+    const prompt = args.prompt ?? DEFAULT_VISION_PROMPT;
+    const image =
+      args.path !== undefined
+        ? this.readWorkspaceImage(args.path)
+        : args.url !== undefined
+          ? await this.fetchImage(args.url)
+          : undefined;
+    if (!image) throw new Error('invalid_args');
+    const analysis = await this.vision.analyze({
+      dataUrl: `data:${image.mime};base64,${image.bytes.toString('base64')}`,
+      prompt,
+    });
+    return {
+      ...(args.path !== undefined ? { path: args.path } : { url: args.url }),
+      mime: image.mime,
+      model: analysis.model,
+      text: analysis.text,
+    };
+  }
+
+  /** Generate an image via the configured backend (M17b.9). */
+  private async nativeImageGenerate(args: ImageGenerateArgs): Promise<unknown> {
+    if (!this.imageGen) throw new Error('image_gen_unavailable');
+    try {
+      const image = await this.imageGen.generate({
+        prompt: args.prompt,
+        ...(args.size !== undefined ? { size: args.size } : {}),
+      });
+      return {
+        path: image.path,
+        provider: image.provider,
+        model: image.model,
+        bytes: image.bytes,
+      };
+    } catch (err) {
+      throw new Error(
+        err instanceof ImageGenError ? err.code : 'image_gen_failed',
+      );
+    }
+  }
+
+  /** Read a bounded workspace image, inferring MIME from its extension. */
+  private readWorkspaceImage(input: string): { mime: string; bytes: Buffer } {
+    const file = this.resolveWithinWorkspace(input);
+    const stat = statSync(file);
+    if (!stat.isFile()) throw new Error('not_a_file');
+    if (stat.size > MAX_IMAGE_BYTES) throw new Error('image_too_large');
+    const mime = imageMimeForPath(file);
+    if (!mime) throw new Error('unsupported_image_type');
+    return { mime, bytes: readFileSync(file) };
+  }
+
+  /** Fetch a bounded http(s) image, honoring the MIME allow-list. */
+  private async fetchImage(
+    input: string,
+  ): Promise<{ mime: string; bytes: Buffer }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(input);
+    } catch {
+      throw new Error('invalid_url');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('invalid_url');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(parsed, {
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+      if (!res.ok) throw new Error('image_fetch_failed');
+      const mime = (res.headers.get('content-type') ?? '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new Error('unsupported_image_type');
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.byteLength > MAX_IMAGE_BYTES)
+        throw new Error('image_too_large');
+      return { mime, bytes };
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message === 'unsupported_image_type' ||
+          err.message === 'image_too_large')
+      ) {
+        throw err;
+      }
+      throw new Error('image_fetch_failed');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Run a shell command in the workspace jail (M17c). */
+  private async nativeTerminal(args: TerminalArgs): Promise<unknown> {
+    const cwd = this.resolveWithinWorkspace(args.cwd ?? '.');
+    const result = await spawnCaptured(
+      '/bin/sh',
+      ['-c', args.command],
+      cwd,
+      terminalEnv(),
+      args.timeoutMs ?? DEFAULT_TERMINAL_TIMEOUT_MS,
+    );
+    return {
+      command: args.command,
+      ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+      ...result,
+    };
+  }
+
+  /**
+   * Run a Python/JavaScript script that can call approval-free ICOS tools
+   * through the RPC bridge (M17d.2). The script gets ICOS_RPC_URL and a
+   * short-lived ICOS_RPC_TOKEN; the token is revoked and the temp file
+   * removed when the run ends.
+   */
+  private async nativeExecuteCode(
+    args: ExecuteCodeArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.rpcTokens || !this.rpcBaseUrl) {
+      throw new Error('code_exec_unavailable');
+    }
+    const language = args.language ?? 'python';
+    const extension = language === 'python' ? 'py' : 'js';
+    const dir = join(this.workspaceRoot, '.icos-exec');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${randomUUID()}.${extension}`);
+    writeFileSync(file, args.code, { mode: 0o600 });
+    const token = this.rpcTokens.issue(sessionId);
+    const env: NodeJS.ProcessEnv = {
+      ...terminalEnv(),
+      ICOS_RPC_URL: `${this.rpcBaseUrl}/core/tools/rpc`,
+      ICOS_RPC_TOKEN: token,
+    };
+    try {
+      const result = await spawnCaptured(
+        language === 'python' ? 'python3' : 'node',
+        [file],
+        this.workspaceRoot,
+        env,
+        DEFAULT_CODE_TIMEOUT_MS,
+      );
+      return { language, ...result };
+    } finally {
+      this.rpcTokens.revoke(token);
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  /** Drive the headless browser for this session (M17d.3). */
+  private async nativeBrowser(
+    args: BrowserArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.browser) throw new Error('browser_unavailable');
+    try {
+      return await this.browser.run(sessionId, browserAction(args));
+    } catch (err) {
+      throw new Error(
+        err instanceof BrowserError ? err.code : 'browser_failed',
+      );
+    }
+  }
+
+  /** Start a background process in the workspace jail (M17c.2). */
+  private nativeProcessStart(args: ProcessStartArgs): unknown {
+    if (!this.processes) throw new Error('process_unavailable');
+    const cwd = this.resolveWithinWorkspace(args.cwd ?? '.');
+    return this.processes.start({ command: args.command, cwd });
+  }
+
+  /** List / read / kill tracked background processes (M17c.2). */
+  private nativeProcessManage(args: ProcessManageArgs): unknown {
+    if (!this.processes) throw new Error('process_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { processes: this.processes.list() };
+      case 'output': {
+        if (!args.id) throw new Error('process_not_found');
+        const process = this.processes.output(args.id);
+        if (!process) throw new Error('process_not_found');
+        return { process };
+      }
+      case 'kill': {
+        if (!args.id) throw new Error('process_not_found');
+        const killed = this.processes.kill(args.id);
+        if (!killed) throw new Error('process_not_found');
+        return { killed: true };
+      }
+    }
+  }
+
+  /** Create / update / delete a skill (M17c.3). */
+  private async nativeSkillManage(args: SkillManageArgs): Promise<unknown> {
+    if (!this.skills) throw new Error('skills_unavailable');
+    switch (args.action) {
+      case 'create': {
+        const skill = await this.skills.createSkill({
+          name: args.name,
+          description: args.description ?? '',
+          body: args.body ?? '',
+        });
+        return { action: 'create', skill: skillView(skill) };
+      }
+      case 'update': {
+        const skill = await this.skills.updateSkill({
+          name: args.name,
+          description: args.description ?? '',
+          body: args.body ?? '',
+        });
+        return { action: 'update', skill: skillView(skill) };
+      }
+      case 'delete': {
+        await this.skills.deleteSkill(args.name);
+        return { action: 'delete', deleted: true, name: args.name };
+      }
+    }
+  }
+
+  /** Read Discord server information (M17c.4). */
+  private async nativeDiscord(args: DiscordArgs): Promise<unknown> {
+    if (!this.discordAdmin) throw new Error('discord_unavailable');
+    if (args.action === 'member_info') {
+      if (!args.user_id) throw new Error('invalid_args');
+      return this.discordAdmin.run({
+        action: 'member_info',
+        userId: args.user_id,
+      });
+    }
+    return this.discordAdmin.run({ action: args.action });
+  }
+
+  /** Discord moderation (M17c.4); approval-gated. */
+  private async nativeDiscordAdmin(args: DiscordAdminArgs): Promise<unknown> {
+    if (!this.discordAdmin) throw new Error('discord_unavailable');
+    if (args.action === 'timeout_member') {
+      return this.discordAdmin.run({
+        action: 'timeout_member',
+        userId: args.user_id,
+        durationMs: args.duration_ms ?? 0,
+        ...(args.reason !== undefined ? { reason: args.reason } : {}),
+      });
+    }
+    return this.discordAdmin.run({
+      action: 'kick_member',
+      userId: args.user_id,
+      ...(args.reason !== undefined ? { reason: args.reason } : {}),
+    });
+  }
+
+  /** Manage scheduled cron jobs (M17d). */
+  private async nativeCronJobManage(
+    args: CronJobManageArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.cron) throw new Error('cron_unavailable');
+    switch (args.action) {
+      case 'list':
+        return { jobs: (await this.cron.list()).map(cronJobView) };
+      case 'create': {
+        const job = await this.cron.create({
+          name: args.name,
+          schedule: args.schedule,
+          prompt: args.prompt,
+          sessionId,
+          ...(args.deliver_channel !== undefined &&
+          args.deliver_target !== undefined
+            ? {
+                deliver: {
+                  channel: args.deliver_channel,
+                  target: args.deliver_target,
+                  ...(args.deliver_id !== undefined
+                    ? { id: args.deliver_id }
+                    : {}),
+                },
+              }
+            : {}),
+        });
+        return { action: 'create', job: cronJobView(job) };
+      }
+      case 'pause':
+        return {
+          action: 'pause',
+          job: cronJobView(await this.cron.pause(args.id)),
+        };
+      case 'resume':
+        return {
+          action: 'resume',
+          job: cronJobView(await this.cron.resume(args.id)),
+        };
+      case 'remove':
+        await this.cron.remove(args.id);
+        return { action: 'remove', removed: true };
+      case 'run': {
+        const result = await this.cron.runNow(args.id);
+        return { action: 'run', ...result };
+      }
+    }
+  }
+
+  /**
+   * Resolve a tool path against the workspace root and refuse anything that
+   * escapes it (M17b). For a not-yet-existing path (a write target), the
+   * deepest existing ancestor is resolved, so a symlinked parent cannot point
+   * out; the remaining segments cannot be symlinks yet.
+   */
+  private resolveWithinWorkspace(input: string): string {
+    const root = realpathSync(this.workspaceRoot);
+    const candidate = resolve(root, input);
+    let probe = candidate;
+    while (!existsSync(probe)) {
+      const parent = dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+    const realAncestor = existsSync(probe) ? realpathSync(probe) : root;
+    const rel = relative(root, realAncestor);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error('path_outside_workspace');
+    }
+    return candidate;
   }
 
   /** Execute one claimed foreign call through its MCP server. */
@@ -389,7 +1600,11 @@ export class ToolExecutionService {
             if (token) {
               await this.executeChannelSend(requestId, token);
             }
-          } else {
+          } else if (
+            validated.ok &&
+            'request' in validated &&
+            validated.request.name === 'session.rename'
+          ) {
             const token = this.ledger.claimRename(requestId, (saved) =>
               this.validate(saved),
             );
@@ -407,12 +1622,62 @@ export class ToolExecutionService {
                 title: claimed.validation.request.args.title,
               });
             }
+          } else {
+            const token = this.ledger.claimApprovedNativeTool(
+              requestId,
+              (saved) => this.validate(saved),
+            );
+            if (token) {
+              await this.executeNativeTool(requestId, token);
+            }
           }
         } else if (approval.status !== 'pending') {
           const outcome: MirrorOutcomeState = approval.status;
           this.ledger.mirrorOutcome(requestId, outcome);
         }
       }
+    }
+    if (record.state === 'awaiting_clarification' && record.clarificationId) {
+      const clarification = await this.clarifications.get(
+        record.clarificationId,
+      );
+      if (clarification.status === 'answered') {
+        const token = this.ledger.claimClarify(requestId, (saved) =>
+          this.validate(saved),
+        );
+        if (token) {
+          const claimed = this.required(requestId);
+          const validation = claimed.validation;
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            validation.request.name !== 'clarify' ||
+            'foreign' in validation.request
+          ) {
+            throw new Error('invalid_execution_state');
+          }
+          const args = validation.request.args;
+          this.ledger.finishTool(requestId, token, {
+            ok: true,
+            tool: 'clarify',
+            result: {
+              question: args.question,
+              answer: clarification.answer ?? '',
+              ...(args.options !== undefined ? { options: args.options } : {}),
+            },
+          });
+        }
+      } else if (
+        clarification.status === 'cancelled' ||
+        clarification.status === 'expired'
+      ) {
+        this.ledger.mirrorOutcome(
+          requestId,
+          clarification.status,
+          'awaiting_clarification',
+        );
+      }
+      // 'pending': stay parked; the caller renders the waiting outcome.
     }
     // Post-approval continuation defers the tools-disabled final call;
     // the driver finalizes the last step through this same path.
@@ -487,20 +1752,9 @@ export class ToolExecutionService {
     );
     if (!validation.ok)
       return { ok: false, failure: { code: validation.failure.code } };
-    const descriptor = this.registry.lookup(validation.request.name);
-    // Native tools are approval-free except channel.send (approval-required,
-    // parked in consume). Anything else native requiring approval fails
-    // closed here. Foreign required-approval tools pass through —
-    // consumeForeign parks them with a minted approval.
-    const nativeApprovalTool =
-      !('foreign' in validation.request) &&
-      validation.request.name === 'channel.send';
-    if (
-      descriptor?.approval !== 'none' &&
-      !('foreign' in validation.request) &&
-      !nativeApprovalTool
-    )
-      return { ok: false, failure: { code: 'unpermitted_tool' } };
+    // Approval-required tools park (the approval is minted in consume):
+    // native ones execute through the generic native approval path
+    // (channel.send has its own arm), foreign ones through consumeForeign.
     try {
       if (
         typeof call.rawArguments !== 'string' ||
@@ -560,6 +1814,10 @@ export class ToolExecutionService {
           role: 'assistant',
           content: proposal.content,
           toolCalls: [{ ...proposal.toolCalls[0], id: record.invocationId }],
+          ...(typeof proposal.reasoningContent === 'string' &&
+          proposal.reasoningContent.length > 0
+            ? { reasoningContent: proposal.reasoningContent }
+            : {}),
         },
         {
           role: 'tool',
@@ -608,4 +1866,39 @@ export class ToolExecutionService {
     if (!record) throw new Error('request_not_found');
     return record;
   }
+}
+
+/** fetch with a hard timeout; throws on abort or transport error. */
+async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: { accept: 'text/html,application/json;q=0.9,*/*;q=0.8' },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Crude HTML → text (M17b): drop script/style/comments, strip tags, decode a
+ * few common entities, collapse whitespace. Bounded by the caller.
+ */
+function htmlToText(html: string): string {
+  const without = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+  return without
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }

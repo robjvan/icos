@@ -49,6 +49,9 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
+import type { ToolDescriptor } from '../tools/tool-registry';
+import { resolveToolPolicy } from '../tools/tool-policy';
+import type { ToolPolicyConfig } from '../tools/tool-policy';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -66,10 +69,15 @@ import type {
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
 import type { ContextMemory } from './context.builder';
+import { buildAttachmentBand } from './attachments';
+import type { TurnAttachment } from './attachments';
+import { AttachmentImageResolver } from './attachment-images';
+import type { ResolvedTurnImages } from './attachment-images';
 import { SessionStore } from './session.store';
 import type { HistoryMessage } from './session.store';
 
-export type TurnStatus = 'ok' | 'approval_required' | 'processing';
+export type TurnStatus =
+  'ok' | 'approval_required' | 'clarification_required' | 'processing';
 
 export interface ToolSummary {
   invocationId: string;
@@ -83,6 +91,12 @@ export interface ApprovalSummary {
   args: Record<string, unknown>;
 }
 
+export interface ClarificationSummary {
+  clarificationId: string;
+  question: string;
+  options?: string[];
+}
+
 export interface TurnOutcome {
   status: TurnStatus;
   sessionId: string;
@@ -92,6 +106,7 @@ export interface TurnOutcome {
   command?: CommandPayload;
   tool?: ToolSummary;
   approval?: ApprovalSummary;
+  clarification?: ClarificationSummary;
   outcome?: 'rejected' | 'cancelled' | 'expired';
   /**
    * Durable execution payload, present only when the tool ran but the
@@ -107,6 +122,11 @@ export type ConversationStreamEvent =
   | { type: 'tool'; invocationId: string; name: string; state: string }
   | { type: 'approval'; approval: ApprovalSummary; requestId: string }
   | {
+      type: 'clarification';
+      clarification: ClarificationSummary;
+      requestId: string;
+    }
+  | {
       type: 'done';
       reply: string;
       model: string;
@@ -115,6 +135,7 @@ export type ConversationStreamEvent =
       command?: CommandPayload;
       tool?: ToolSummary;
       approval?: ApprovalSummary;
+      clarification?: ClarificationSummary;
       outcome?: 'rejected' | 'cancelled' | 'expired';
       result?: unknown;
     }
@@ -224,12 +245,13 @@ export class ConversationService {
     private readonly personaStager: PersonaCandidateStager,
     private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
+    private readonly attachmentImages: AttachmentImageResolver,
   ) {}
 
   async converse(
     message: string,
     sessionId?: string,
-    options?: { sourceBand?: string },
+    options?: { sourceBand?: string; attachments?: readonly TurnAttachment[] },
   ): Promise<TurnOutcome> {
     // Slash commands short-circuit before conversation: no LLM, no
     // transcript writes, no memory extraction.
@@ -245,7 +267,12 @@ export class ConversationService {
       };
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(id, message, options?.sourceBand);
+    const turn = await this.prepareTurn(
+      id,
+      message,
+      options?.sourceBand,
+      options?.attachments,
+    );
     // Bounded multi-step loop: each step proposes at most one call.
     // Approval-free searches chain (pair appended, propose again);
     // parks, text, and invalid proposals end the turn as before.
@@ -384,6 +411,11 @@ export class ConversationService {
       }
       if (outcome.status === 'approval_required' && outcome.approval) {
         this.parkRun(runId, outcome.approval.approvalId);
+      } else if (
+        outcome.status === 'clarification_required' &&
+        outcome.clarification
+      ) {
+        this.parkRunClarification(runId, outcome.clarification.clarificationId);
       } else {
         // Forced answers (step bound, deadline) and denials terminate
         // truthfully rather than as clean completions. `processing`
@@ -402,7 +434,10 @@ export class ConversationService {
       }
       // Sidebar refresh across tabs: the session list/preview changed.
       // Parked turns park the run instead — the resume emits on completion.
-      if (outcome.status !== 'approval_required') {
+      if (
+        outcome.status !== 'approval_required' &&
+        outcome.status !== 'clarification_required'
+      ) {
         this.realtime.publish(realtimeEvent('session.updated', {}, id));
       }
       return outcome;
@@ -437,6 +472,25 @@ export class ConversationService {
     const userText = lastUserText(record);
     const history = await this.sessions.getContextMessages(record.sessionId);
     const entry = this.resumeObservationPair(record);
+    // Still waiting on a clarification answer: render the parked outcome
+    // and keep the run parked — a poll is not a completion.
+    if (record.state === 'awaiting_clarification') {
+      try {
+        return await this.renderTurn({
+          sessionId: record.sessionId,
+          requestId,
+          userText,
+          history,
+          record,
+        });
+      } catch (err) {
+        this.finishRun(storedId, 'failed', {
+          reason: 'turn_error',
+          toolSteps: 0,
+        });
+        throw err;
+      }
+    }
     // Only a parked run continues planning; anything else (no run,
     // terminal run, nothing executable to continue from) takes the
     // legacy single-shot path below.
@@ -485,8 +539,7 @@ export class ConversationService {
     }
     // M9h continuation: the resolved observation re-enters bounded
     // planning against the run's remaining budget.
-    const descriptors = this.registry.list().slice();
-    const allowedTools = descriptors.map((descriptor) => descriptor.name);
+    const { descriptors, allowedTools } = this.resolveTools();
     const limits = stored.limits;
     const startedAt = Date.now();
     // M9k: split the frozen turn context so the system head rebuilds
@@ -642,6 +695,14 @@ export class ConversationService {
       }
       if (outcome.status === 'approval_required' && outcome.approval) {
         this.parkRun(storedId, outcome.approval.approvalId);
+      } else if (
+        outcome.status === 'clarification_required' &&
+        outcome.clarification
+      ) {
+        this.parkRunClarification(
+          storedId,
+          outcome.clarification.clarificationId,
+        );
       } else {
         const terminal = terminalRun({
           boundHit,
@@ -654,7 +715,10 @@ export class ConversationService {
       if (outcome.status === 'ok' && !outcome.tool && lastTool) {
         outcome.tool = lastTool;
       }
-      if (outcome.status !== 'approval_required') {
+      if (
+        outcome.status !== 'approval_required' &&
+        outcome.status !== 'clarification_required'
+      ) {
         this.realtime.publish(
           realtimeEvent('session.updated', {}, record.sessionId),
         );
@@ -707,6 +771,7 @@ export class ConversationService {
     sessionId: string | undefined,
     emit: (event: ConversationStreamEvent) => void,
     clientSignal?: AbortSignal,
+    attachments: readonly TurnAttachment[] = [],
   ): Promise<void> {
     // console.error(`🚀🚀🚀 FIRING CONVERSATION`);
     // Commands ride the stream as `meta` → `done` with no `token`
@@ -741,7 +806,7 @@ export class ConversationService {
       return;
     }
     const { id } = await this.sessions.resolve(sessionId);
-    const turn = await this.prepareTurn(id, message);
+    const turn = await this.prepareTurn(id, message, undefined, attachments);
     const requestId = randomUUID();
     const sink: StreamSink = {
       onToken: (content) => emit({ type: 'token', content }),
@@ -923,6 +988,14 @@ export class ConversationService {
           }
           if (outcome.status === 'approval_required' && outcome.approval) {
             this.parkRun(runId, outcome.approval.approvalId);
+          } else if (
+            outcome.status === 'clarification_required' &&
+            outcome.clarification
+          ) {
+            this.parkRunClarification(
+              runId,
+              outcome.clarification.clarificationId,
+            );
           } else {
             const terminal = terminalRun({
               boundHit,
@@ -936,7 +1009,10 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
-          if (outcome.status !== 'approval_required') {
+          if (
+            outcome.status !== 'approval_required' &&
+            outcome.status !== 'clarification_required'
+          ) {
             this.realtime.publish(
               realtimeEvent('session.updated', {}, record.sessionId),
             );
@@ -1066,8 +1142,7 @@ export class ConversationService {
         // M9h continuation: bounded planning over remaining budget.
         // Exactly one terminal done follows; intermediate searches emit
         // progress only.
-        const descriptors = this.registry.list().slice();
-        const allowedTools = descriptors.map((descriptor) => descriptor.name);
+        const { descriptors, allowedTools } = this.resolveTools();
         const limits = stored.limits;
         const startedAt = Date.now();
         const sink: StreamSink = {
@@ -1245,6 +1320,14 @@ export class ConversationService {
           }
           if (outcome.status === 'approval_required' && outcome.approval) {
             this.parkRun(storedId, outcome.approval.approvalId);
+          } else if (
+            outcome.status === 'clarification_required' &&
+            outcome.clarification
+          ) {
+            this.parkRunClarification(
+              storedId,
+              outcome.clarification.clarificationId,
+            );
           } else {
             const terminal = terminalRun({
               boundHit,
@@ -1258,7 +1341,10 @@ export class ConversationService {
             outcome.tool = lastTool;
           }
           this.emitTurn(emit, outcome);
-          if (outcome.status !== 'approval_required') {
+          if (
+            outcome.status !== 'approval_required' &&
+            outcome.status !== 'clarification_required'
+          ) {
             this.realtime.publish(
               realtimeEvent('session.updated', {}, record.sessionId),
             );
@@ -1301,6 +1387,13 @@ export class ConversationService {
         requestId: outcome.requestId,
       });
     }
+    if (outcome.clarification) {
+      emit({
+        type: 'clarification',
+        clarification: outcome.clarification,
+        requestId: outcome.requestId,
+      });
+    }
     emit({
       type: 'done',
       reply: outcome.reply,
@@ -1310,6 +1403,9 @@ export class ConversationService {
       ...(outcome.command ? { command: outcome.command } : {}),
       ...(outcome.tool ? { tool: outcome.tool } : {}),
       ...(outcome.approval ? { approval: outcome.approval } : {}),
+      ...(outcome.clarification
+        ? { clarification: outcome.clarification }
+        : {}),
       ...(outcome.outcome ? { outcome: outcome.outcome } : {}),
       ...(outcome.result !== undefined ? { result: outcome.result } : {}),
     });
@@ -1376,6 +1472,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: [{ ...call }],
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tool: {
         role: 'tool',
@@ -1412,6 +1511,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: [{ ...proposal.toolCalls[0], id: observation.invocationId }],
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tool: {
         role: 'tool',
@@ -1444,6 +1546,9 @@ export class ConversationService {
         role: 'assistant',
         content: proposal.content,
         toolCalls: proposal.toolCalls.map((call) => ({ ...call })),
+        ...(proposal.reasoningContent
+          ? { reasoningContent: proposal.reasoningContent }
+          : {}),
       },
       tools: proposal.toolCalls.map((call): LlmMessage => ({
         role: 'tool',
@@ -1477,6 +1582,9 @@ export class ConversationService {
       role: 'assistant',
       content: proposal.content,
       toolCalls: [{ ...proposal.toolCalls[0], id: record.invocationId }],
+      ...(proposal.reasoningContent
+        ? { reasoningContent: proposal.reasoningContent }
+        : {}),
     };
     const toolSummary: ToolSummary = {
       invocationId: record.invocationId,
@@ -1533,6 +1641,7 @@ export class ConversationService {
       maxIterations: this.config.agentMaxIterations,
       progress,
       unavailable: this.describeUnavailableForeign(),
+      disabled: this.disabledToolNames(),
     });
     return assembleTurnMessages({
       baseSystem: turn.baseSystem,
@@ -1556,10 +1665,74 @@ export class ConversationService {
     });
   }
 
+  /** Tools offered this turn, after enablement policy (M17a). */
+  private resolveTools(): {
+    descriptors: ToolDescriptor[];
+    allowedTools: string[];
+  } {
+    const { offered } = resolveToolPolicy(
+      this.registry.list(),
+      this.toolPolicy(),
+    );
+    return {
+      descriptors: [...offered],
+      allowedTools: offered.map((descriptor) => descriptor.name),
+    };
+  }
+
+  /** Tools known but disabled by policy; declared in the planning frame. */
+  private disabledToolNames(): string[] {
+    const { disabled } = resolveToolPolicy(
+      this.registry.list(),
+      this.toolPolicy(),
+    );
+    return disabled.map((descriptor) => descriptor.name);
+  }
+
+  private toolPolicy(): ToolPolicyConfig {
+    return {
+      enabledToolsets: this.config.toolsEnabledToolsets,
+      disabledToolsets: this.config.toolsDisabledToolsets,
+      enabledTools: this.config.toolsEnabled,
+      disabledTools: this.config.toolsDisabled,
+    };
+  }
+
+  /**
+   * M16.2d: attach inline image parts (vision-capable conversation model)
+   * or append the vision role's descriptions (text-only fallback) to the
+   * final user message. Returns the message unchanged when there is
+   * nothing to attach.
+   */
+  private withTurnImages(
+    message: LlmMessage,
+    images: ResolvedTurnImages,
+  ): LlmMessage {
+    if (message.role !== 'user' || typeof message.content !== 'string') {
+      return message;
+    }
+    if (images.parts.length > 0) {
+      return {
+        role: 'user',
+        content: [{ type: 'text', text: message.content }, ...images.parts],
+      };
+    }
+    if (images.description) {
+      return {
+        role: 'user',
+        content:
+          `${message.content}\n\n<image-descriptions>\n` +
+          `${images.description}\n</image-descriptions>`,
+      };
+    }
+    return message;
+  }
+
   private async prepareTurn(
     sessionId: string,
     message: string,
     sourceBand?: string,
+    attachments?: readonly TurnAttachment[],
   ): Promise<{
     history: ChatMessage[];
     skills: ResolvedTurnSkills;
@@ -1577,21 +1750,29 @@ export class ConversationService {
     const personaBand = await this.personaGrounding.band(
       DEFAULT_PERSONA_USER_ID,
     );
+    const images = await this.attachmentImages.resolve(attachments);
+    const attachmentBand = buildAttachmentBand(
+      attachments,
+      images.parts.length > 0,
+    );
     const textMessages = this.prepareMessages(history, message, skills, {
       ...recalled.bands,
       personaBand,
       sourceBand: sourceBand ?? null,
+      attachmentBand,
     });
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
-    const userMessage = textMessages[textMessages.length - 1];
+    const userMessage = this.withTurnImages(
+      textMessages[textMessages.length - 1],
+      images,
+    );
     const toolMessages: LlmMessage[] = [
       ...textMessages.slice(0, -1),
       ...toPairMessages(pairs),
       userMessage,
     ];
-    const descriptors = this.registry.list().slice();
-    const allowedTools = descriptors.map((descriptor) => descriptor.name);
+    const { descriptors, allowedTools } = this.resolveTools();
     // Split the static system head (prompt plus catalog) from the rest
     // so M9k rebuilds the planning frame every proposal round instead
     // of letting step counts go stale.
@@ -1656,6 +1837,19 @@ export class ConversationService {
         model: record.input.proposal.model,
         tool: { invocationId: record.invocationId ?? '', name: approval.tool },
         approval,
+      };
+    }
+    if (record.state === 'awaiting_clarification' && record.clarificationId) {
+      const clarification = clarificationSummary(record);
+      if (!clarification) throw new InternalServerErrorException();
+      return {
+        status: 'clarification_required',
+        sessionId,
+        requestId,
+        reply: `Waiting for your answer: ${clarification.question}`,
+        model: record.input.proposal.model,
+        tool: { invocationId: record.invocationId ?? '', name: 'clarify' },
+        clarification,
       };
     }
     if (
@@ -2069,6 +2263,18 @@ export class ConversationService {
     }
   }
 
+  private parkRunClarification(
+    runId: string | undefined,
+    clarificationId: string,
+  ): void {
+    if (!runId) return;
+    try {
+      this.agentRuns.markParkedForInteraction(runId, clarificationId);
+    } catch (err) {
+      this.trackingFailed(err);
+    }
+  }
+
   private transitionRun(
     runId: string | undefined,
     state: AgentTransientState,
@@ -2335,7 +2541,40 @@ function approvalSummary(
   };
 }
 
+function clarificationSummary(
+  record: ToolExecutionRecord,
+): ClarificationSummary | undefined {
+  if (!record.clarificationId) return undefined;
+  const validation = record.validation;
+  if (!validation.ok || !('request' in validation)) return undefined;
+  if (
+    validation.request.name !== 'clarify' ||
+    'foreign' in validation.request
+  ) {
+    return undefined;
+  }
+  const args = validation.request.args;
+  return {
+    clarificationId: record.clarificationId,
+    question: args.question,
+    ...(args.options !== undefined ? { options: args.options } : {}),
+  };
+}
+
 function mirrorNotice(record: ToolExecutionRecord): string {
+  const name =
+    record.validation.ok && 'request' in record.validation
+      ? record.validation.request.name
+      : undefined;
+  if (name === 'clarify') {
+    if (record.state === 'cancelled') {
+      return 'The clarifying question was cancelled.';
+    }
+    if (record.state === 'expired') {
+      return 'The clarifying question expired without an answer.';
+    }
+    return 'The clarifying question was not answered.';
+  }
   if (record.state === 'rejected') {
     return 'The session was not renamed: the request was rejected.';
   }

@@ -133,6 +133,28 @@ export interface CoreConfig {
   discordPresenceOnline?: string;
   discordPresenceOffline?: string;
   /**
+   * M16.1 email (Brevo transactional API). Outbound-only. The API key
+   * resolves through the secret resolver (`$VAR` / `secret:NAME`), so it can
+   * be set — never viewed — from the vault. A missing key or sender leaves the
+   * channel disabled, never fatal.
+   */
+  brevoApiKey?: string;
+  brevoSenderEmail?: string;
+  brevoSenderName?: string;
+  brevoApiBaseUrl?: string;
+  /** Recipients the agent tool may email; empty disables agent-initiated email. */
+  emailAllowedRecipients?: string[];
+  /** Default subject for a channel send (email has no natural subject). */
+  emailDefaultSubject?: string;
+  /**
+   * M16.2 web attachments. Uploaded files live under the data root
+   * (host-absolute), are written owner-only, and are bounded by size and an
+   * accepted MIME allow-list.
+   */
+  attachmentsDirPath?: string;
+  attachmentsMaxBytes?: number;
+  attachmentsAllowedMimeTypes?: string[];
+  /**
    * M14b immutable core persona: a human-authored, read-only Markdown
    * file. ICOS has no write path to it. Optional on the type for the
    * same reason as `personaDbPath`; `loadConfig` always populates it.
@@ -197,6 +219,39 @@ export interface CoreConfig {
   memoryLlmHeaders?: Record<string, string>;
   memoryUserAgent?: string;
   memoryLlmTimeoutMs: number;
+  /**
+   * M17b.8 vision role: an auxiliary image-capable model that answers
+   * `vision_analyze` on behalf of a text-only chat model. Optional in the
+   * type (test literals omit it); the loader always populates it, and the
+   * endpoint falls back VISION_* → MEMORY_* → LLM_*.
+   */
+  visionProvider?: string;
+  visionLlmBaseUrl?: string;
+  visionLlmModel?: string;
+  visionLlmApiKey?: string;
+  visionLlmHeaders?: Record<string, string>;
+  visionUserAgent?: string;
+  visionLlmTimeoutMs?: number;
+  /**
+   * M16.2d: whether the conversation model accepts image input. True
+   * (default) inlines image attachments into the turn; false routes them
+   * through the auxiliary vision role as a text description instead.
+   */
+  llmVisionEnabled?: boolean;
+  /**
+   * M17b.9 image generation. Provider-agnostic: `IMAGE_GEN_PROVIDER` selects
+   * a backend (`openai` for now; `comfyui` later), `IMAGE_GEN_BASE_URL` the
+   * endpoint, `IMAGE_GEN_API_KEY` a literal or a `$VAR`/`secret:NAME`
+   * reference resolved at call time. Unconfigured = the tool reports
+   * unavailable (never a fake success).
+   */
+  imageGenProvider?: string;
+  imageGenBaseUrl?: string;
+  imageGenModel?: string;
+  imageGenApiKey?: string;
+  imageGenTimeoutMs?: number;
+  /** Where generated images are written; defaults to the tools workspace. */
+  imageGenOutputDir?: string;
   /**
    * M10c promotion authority. false (default) = every promotion needs
    * a human approval; true admits NEW claims of the configured kinds
@@ -281,6 +336,25 @@ export interface CoreConfig {
   agentMaxToolSteps: number;
   /** Backstop turn duration in ms (M9g execution budget). */
   agentMaxTurnDurationMs: number;
+  /**
+   * Tool enablement (M17a). `enabledToolsets` is opt-in when non-empty;
+   * `disabledToolsets` always wins; `enabledTools` re-enables a single tool
+   * inside a disabled toolset. Empty everywhere = every tool offered.
+   */
+  toolsEnabledToolsets?: string[];
+  toolsDisabledToolsets?: string[];
+  toolsEnabled?: string[];
+  toolsDisabled?: string[];
+  /**
+   * Filesystem root the file tools may read/search/write (M17b). A path that
+   * resolves outside this root is refused. Default `~/.icos/workspace`.
+   */
+  toolsWorkspaceRoot?: string;
+  /**
+   * SearXNG base URL for `web_search` (M17b). No API key; the instance must
+   * expose the JSON format. Unset leaves web_search unavailable.
+   */
+  searxngBaseUrl?: string;
   /**
    * Realtime transport kill-switch. true (default) = attach `/core/events`
    * and deliver notifications; false = noop publisher, no socket, clients
@@ -453,6 +527,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       (env.DISCORD_PRESENCE_ONLINE ?? '').trim() || undefined,
     discordPresenceOffline:
       (env.DISCORD_PRESENCE_OFFLINE ?? '').trim() || undefined,
+    brevoApiKey: (env.BREVO_API_KEY ?? '').trim() || undefined,
+    brevoSenderEmail: (env.BREVO_SENDER_EMAIL ?? '').trim() || undefined,
+    brevoSenderName: (env.BREVO_SENDER_NAME ?? '').trim() || undefined,
+    brevoApiBaseUrl:
+      (env.BREVO_API_BASE_URL ?? '').trim() || 'https://api.brevo.com/v3',
+    emailAllowedRecipients: parseCsv(env.EMAIL_ALLOWED_RECIPIENTS),
+    emailDefaultSubject: (env.EMAIL_DEFAULT_SUBJECT ?? '').trim() || 'ICOS',
+    attachmentsDirPath: resolvePath(
+      env.ATTACHMENTS_DIR_PATH,
+      '~/.icos/data/attachments',
+    ),
+    attachmentsMaxBytes: parsePositiveInt(
+      env.ATTACHMENTS_MAX_BYTES,
+      10 * 1024 * 1024,
+      'ATTACHMENTS_MAX_BYTES',
+    ),
+    attachmentsAllowedMimeTypes: ((): string[] => {
+      const configured = parseCsv(env.ATTACHMENTS_ALLOWED_MIME_TYPES);
+      return configured.length > 0 ? configured : DEFAULT_ATTACHMENT_MIME_TYPES;
+    })(),
     personaCorePath: resolvePath(
       env.PERSONA_CORE_PATH,
       '~/.icos/persona/core.md',
@@ -559,6 +653,62 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       60000,
       'MEMORY_LLM_TIMEOUT_MS',
     ),
+    // M17b.8 vision role: own client, own values; each falls back to its
+    // memory counterpart, which falls back to the conversation endpoint.
+    visionProvider:
+      (
+        env.VISION_PROVIDER ??
+        env.MEMORY_PROVIDER ??
+        env.LLM_PROVIDER ??
+        'ollama'
+      )
+        .trim()
+        .toLowerCase() || 'ollama',
+    visionLlmBaseUrl: (
+      env.VISION_LLM_BASE_URL ??
+      env.MEMORY_LLM_BASE_URL ??
+      llmBaseUrl
+    )
+      .trim()
+      .replace(/\/+$/, ''),
+    visionLlmModel:
+      (env.VISION_LLM_MODEL ?? env.MEMORY_LLM_MODEL ?? '').trim() || llmModel,
+    visionLlmApiKey:
+      (
+        env.VISION_LLM_API_KEY ??
+        env.MEMORY_LLM_API_KEY ??
+        env.LLM_API_KEY ??
+        ''
+      ).trim() || undefined,
+    visionLlmHeaders: parseHeaders(
+      env.VISION_LLM_HEADERS ?? env.MEMORY_LLM_HEADERS ?? env.LLM_HEADERS,
+      'VISION_LLM_HEADERS',
+    ),
+    visionUserAgent:
+      (
+        env.VISION_USER_AGENT ??
+        env.MEMORY_USER_AGENT ??
+        env.LLM_USER_AGENT ??
+        ''
+      ).trim() || undefined,
+    visionLlmTimeoutMs: parsePositiveInt(
+      env.VISION_LLM_TIMEOUT_MS,
+      60000,
+      'VISION_LLM_TIMEOUT_MS',
+    ),
+    llmVisionEnabled: parseBoolean(env.LLM_VISION_ENABLED, true),
+    imageGenProvider:
+      (env.IMAGE_GEN_PROVIDER ?? '').trim().toLowerCase() || undefined,
+    imageGenBaseUrl:
+      (env.IMAGE_GEN_BASE_URL ?? '').trim().replace(/\/+$/, '') || undefined,
+    imageGenModel: (env.IMAGE_GEN_MODEL ?? '').trim() || undefined,
+    imageGenApiKey: (env.IMAGE_GEN_API_KEY ?? '').trim() || undefined,
+    imageGenTimeoutMs: parsePositiveInt(
+      env.IMAGE_GEN_TIMEOUT_MS,
+      120000,
+      'IMAGE_GEN_TIMEOUT_MS',
+    ),
+    imageGenOutputDir: (env.IMAGE_GEN_OUTPUT_DIR ?? '').trim() || undefined,
     memoryPromotionAuto: parseBoolean(env.MEMORY_PROMOTION_AUTO, false),
     memoryPromotionAutoKinds: parseKindList(env.MEMORY_PROMOTION_AUTO_KINDS),
     memoryProspectiveConfidenceThreshold: parseScore(
@@ -652,6 +802,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       15 * 60 * 1000,
       'AGENT_MAX_TURN_DURATION_MS',
     ),
+    toolsEnabledToolsets: parseCsv(env.TOOLS_ENABLED_TOOLSETS),
+    toolsDisabledToolsets: parseCsv(env.TOOLS_DISABLED_TOOLSETS),
+    toolsEnabled: parseCsv(env.TOOLS_ENABLED),
+    toolsDisabled: parseCsv(env.TOOLS_DISABLED),
+    toolsWorkspaceRoot: resolvePath(
+      env.TOOLS_WORKSPACE_ROOT,
+      '~/.icos/workspace',
+    ),
+    searxngBaseUrl: (env.SEARXNG_BASE_URL ?? '').trim() || undefined,
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(
       env.REALTIME_HEARTBEAT_MS,
@@ -715,6 +874,18 @@ function parseKindList(raw: string | undefined): string[] {
  * Comma-separated id list (channel/user ids). Empty/unset returns `[]`.
  * Trimmed and deduped; values are kept as-typed.
  */
+/** Accepted upload MIME types when ATTACHMENTS_ALLOWED_MIME_TYPES is unset. */
+const DEFAULT_ATTACHMENT_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'application/json',
+];
+
 function parseCsv(raw: string | undefined): string[] {
   if (raw === undefined || raw.trim() === '') return [];
   return [

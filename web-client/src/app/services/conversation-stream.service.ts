@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { mutationHeaders } from '../auth/credentials';
+import type { TurnAttachment } from '../models/attachment';
 import { parseStreamBlock, splitStreamBlocks } from '../models/stream-event';
 import type { StreamEvent } from '../models/stream-event';
 import { CoreApiService } from './core-api.service';
@@ -22,12 +23,16 @@ export class ConversationStreamService {
   async streamTurn(
     message: string,
     sessionId: string | null,
+    attachments: readonly TurnAttachment[],
     callbacks: StreamCallbacks,
     signal?: AbortSignal,
   ): Promise<void> {
+    const body: Record<string, unknown> = { message };
+    if (sessionId) body['sessionId'] = sessionId;
+    if (attachments.length > 0) body['attachments'] = attachments;
     await this.postStream(
       this.api.conversationUrl('/stream'),
-      sessionId ? { message, sessionId } : { message },
+      body,
       callbacks,
       signal,
     );

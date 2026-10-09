@@ -2,6 +2,7 @@ import type {
   ChannelSendOutcome,
   ExecutionOutcome,
   McpOutcome,
+  NativeToolOutcome,
   RenameOutcome,
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
@@ -20,11 +21,21 @@ export interface RunObservation {
   tool: string;
   args: Record<string, unknown>;
   status: ObservationStatus;
-  result: ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome;
+  result:
+    | ExecutionOutcome
+    | RenameOutcome
+    | McpOutcome
+    | ChannelSendOutcome
+    | NativeToolOutcome;
 }
 
 export function observationStatus(
-  execution: ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome,
+  execution:
+    | ExecutionOutcome
+    | RenameOutcome
+    | McpOutcome
+    | ChannelSendOutcome
+    | NativeToolOutcome,
 ): ObservationStatus {
   if (execution.ok) return 'succeeded';
   if (execution.failure.code === 'unknown') return 'unknown';

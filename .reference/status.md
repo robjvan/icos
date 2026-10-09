@@ -6,6 +6,8 @@
 
 > _See `full-roadmap-extended.md` for full details._
 
+### Phase 1 - Foundation
+
 - [x] M1: Build core
 - [x] M2: Streaming
 - [x] M3: Persistent Session Store + FTS5
@@ -15,6 +17,11 @@
 - [x] M7: Skills — discovery, retrieval, activation, context injection
 - [x] M8: Tool integration — reliable, durable, approval-aware execution
 - [x] M9: Agent Orchestration
+
+---
+
+### Phase 2 - Epistemic Grounding
+
 - [x] M10: Build the epistemic memory
 - [x] M11: Memory retrieval / application
 - [x] M12: Memory dynamics
@@ -25,24 +32,68 @@
       provider-agnostic verifier, explicit logged mitigations; blocking
       pre-send mitigation deferred)
 
+---
+
 ## Planned
 
 > _See `full-roadmap-extended.md` for full details._
 
+### Phase 3 - Environment & Agency
+
 - [ ] M16: External communication integrations
-- [ ] M17: Autonomous agency and action execution
-- [ ] M18: External sensory reintegration
-- [ ] M19: Subagent support
-- [ ] M20: Reactionary events
-- [ ] M21: Knowledge-base stewardship
-- [ ] M22: Self-Observation and Introspection
-- [ ] M23: Self-Evaluation and Capability Assessment
-- [ ] M24: Self-Maintenance
-- [ ] M25: Autopoiesis
-- [ ] M26: Experimental Learning
-- [ ] M27: Multi-Model Cognition
-- [ ] M28: Distributed ICOS
-- [ ] M29: Long-Horizon Agency
+- [ ] M17: Tools Expansion
+- [ ] M18: Skills Adoption
+- [ ] M19: Dynamic MCP Server toolsets
+- [ ] M20: Web client catchup Work
+- [ ] M21: Subagent support
+- [ ] M22: Autonomous agency and action execution
+- [ ] M23: Knowledge-base stewardship
+
+---
+
+### Phase 4 - Perception & Self-Improvement
+
+- [ ] M24: External physical sensor reintegration
+- [ ] M25: Reactionary events
+- [ ] M26: Self-Observation and Introspection
+- [ ] M27: Self-Evaluation and Capability Assessment
+- [ ] M28: Self-Maintenance
+- [ ] M29: Autopoiesis
+
+---
+
+### Phase 5 - Cognitive Expansion
+
+- [ ] M30: Experimental Learning
+- [ ] M31: Multi-Model Cognition
+- [ ] M32: Long-Horizon Agency
+
+---
+
+### Phase 6 - Distribution & Embodiment
+
+- [ ] M33: Distributed ICOS
+- [ ] M34: Embodied Autonomy
+- [ ] M35: Situated Learning
+
+---
+
+### Phase 7 - Open-Ended Inquiry
+
+- [ ] M36: Open-Ended Knowledge Acquisition
+- [ ] M37: Self-Directed Research
+- [ ] M38: Continuity
+- [ ] M39: ICOS Ecosystem
+- [ ] M40: Open-Ended Research
+
+---
+
+### Phase 8 - Physical Mastery
+
+- [ ] M41: Advanced Perception
+- [ ] M42: Building-Scale Environment Control
+- [ ] M43: Mobile Embodiment
+- [ ] M44: Vehicle Embodiment
 
 ## Deferred / Under Consideration
 

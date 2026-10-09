@@ -3,6 +3,7 @@ import { CoreController } from './core.controller';
 import { CoreService } from './core.service';
 import { TestClientController } from './test-client.controller';
 import { AuthModule } from './auth/auth.module';
+import { AttachmentsModule } from './attachments/attachments.module';
 import { ChannelsModule } from './channels/channels.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { PersonaModule } from './persona/persona.module';
@@ -18,6 +19,7 @@ import { SecurityModule } from './security/security.module';
     SecretsModule,
     ProvidersModule,
     ConversationModule,
+    AttachmentsModule,
     PersonaModule,
     ChannelsModule,
     RealtimeModule,

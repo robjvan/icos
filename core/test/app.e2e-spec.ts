@@ -226,6 +226,14 @@ describe('Conversation (e2e)', () => {
         // exercises channels.
         channelsDbPath: join(dir, 'channels.sqlite'),
         channelDeliveryEnabled: false,
+        attachmentsDirPath: join(dir, 'attachments'),
+        attachmentsMaxBytes: 10485760,
+        attachmentsAllowedMimeTypes: [
+          'image/png',
+          'image/jpeg',
+          'application/pdf',
+          'text/plain',
+        ],
         skillsDirPath: join(dir, 'skills'),
         skillsEnabled: true,
         skillsMaxBodyChars: 12000,
@@ -1625,6 +1633,45 @@ describe('Conversation (e2e)', () => {
       .expect(400);
   });
 
+  it('uploads an attachment, serves it back, and carries it into a turn', async () => {
+    const upload = await request(http())
+      .post('/core/attachments')
+      .attach('file', Buffer.from('hello image'), {
+        filename: 'a.png',
+        contentType: 'image/png',
+      })
+      .expect(201);
+    const meta = upload.body as { id: string; name: string; url: string };
+    expect(meta.name).toBe('a.png');
+    expect(meta.url).toBe(`/core/attachments/${meta.id}`);
+
+    // The stored file is served back.
+    await request(http())
+      .get(meta.url)
+      .expect(200)
+      .expect('Content-Type', /image\/png/);
+
+    // A turn can carry the reference; the model sees a bounded attachments band.
+    await request(http())
+      .post('/core/conversation')
+      .send({
+        message: 'please review the attached file',
+        attachments: [
+          { url: meta.url, name: meta.name, contentType: 'image/png' },
+        ],
+      })
+      .expect(200);
+
+    const sent = chatWithTools.mock.calls[0]?.[0] as {
+      messages: { role: string; content: string }[];
+    };
+    const band = sent.messages.find(
+      (m) => m.role === 'system' && m.content.includes('<attachments>'),
+    );
+    expect(band?.content).toContain(meta.url);
+    expect(band?.content).toContain('name: a.png');
+  });
+
   describe('tool turns', () => {
     // NOTE: mock call ids must be unique per proposal like a real
     // provider's. Reused ids collide in context validation
@@ -1705,7 +1752,7 @@ describe('Conversation (e2e)', () => {
         ),
       );
       expect(chained).toBeDefined();
-      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(3);
+      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(25);
       const toolMessage = (
         chained?.[0] as {
           messages: { role: string; callId?: string; content: string }[];

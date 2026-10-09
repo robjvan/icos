@@ -5,7 +5,32 @@ import {
 } from '../mcp/mcp-tool-bridge';
 import { validateForeignArgs } from '../mcp/mcp-tool-bridge';
 
-export type ToolName = 'session.search' | 'session.rename' | 'channel.send';
+export type ToolName =
+  | 'session.search'
+  | 'session.rename'
+  | 'channel.send'
+  | 'read_file'
+  | 'search_files'
+  | 'write_file'
+  | 'patch'
+  | 'web_search'
+  | 'web_extract'
+  | 'skills_list'
+  | 'skill_view'
+  | 'todo'
+  | 'memory'
+  | 'clarify'
+  | 'vision_analyze'
+  | 'image_generate'
+  | 'terminal'
+  | 'process_start'
+  | 'process_manage'
+  | 'skill_manage'
+  | 'discord'
+  | 'discord_admin'
+  | 'cronjob_manage'
+  | 'execute_code'
+  | 'browser';
 
 /**
  * A validated foreign (MCP) tool call. The `foreign` marker
@@ -35,6 +60,8 @@ export interface ToolDescriptor {
   readonly version: 1;
   readonly description: string;
   readonly approval: ApprovalPolicy;
+  /** Enablement grouping (M17a): e.g. `session`, `channel`, `mcp`, `web`. */
+  readonly toolset: string;
   readonly argsSchema: Readonly<{
     type: 'object';
     additionalProperties: false;
@@ -60,8 +87,205 @@ export interface ChannelSendArgs {
   readonly body: string;
 }
 
+export interface ReadFileArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Optional cap; the server also enforces its own maximum. */
+  readonly maxBytes?: number;
+}
+
+export interface SearchFilesArgs {
+  /** Regex (or literal) to search for. */
+  readonly query: string;
+  /** Directory to search, relative to the workspace root. Defaults to '.'. */
+  readonly path?: string;
+  readonly maxResults?: number;
+}
+
+export interface WriteFileArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Full UTF-8 content to write (bounded). */
+  readonly content: string;
+}
+
+export interface PatchArgs {
+  /** Path relative to the workspace root (or absolute, if inside it). */
+  readonly path: string;
+  /** Exact text to find (must be unique unless replaceAll). */
+  readonly oldString: string;
+  /** Replacement text. */
+  readonly newString: string;
+  readonly replaceAll?: boolean;
+}
+
+export interface WebSearchArgs {
+  readonly query: string;
+  readonly maxResults?: number;
+}
+
+export interface WebExtractArgs {
+  /** The page URL to fetch and extract text from. */
+  readonly url: string;
+  /** Optional cap; the server also enforces its own maximum. */
+  readonly maxBytes?: number;
+}
+
+export interface SkillViewArgs {
+  /** The skill name (directory name / frontmatter name). */
+  readonly name: string;
+}
+
+export type TodoArgs =
+  | { readonly action: 'list' }
+  | { readonly action: 'clear' }
+  | { readonly action: 'add'; readonly text: string }
+  | { readonly action: 'complete'; readonly id: string }
+  | { readonly action: 'remove'; readonly id: string };
+
+export interface ClarifyArgs {
+  /** The question to put to the user. */
+  readonly question: string;
+  /** Optional structured choices (2–4). Absent = free-form. */
+  readonly options?: string[];
+  /** Optional answer deadline, in milliseconds from creation. */
+  readonly ttlMs?: number;
+}
+
+export interface VisionAnalyzeArgs {
+  /** Workspace-relative image path. Exactly one of path/url. */
+  readonly path?: string;
+  /** http(s) image URL. Exactly one of path/url. */
+  readonly url?: string;
+  /** Optional instruction; defaults to a describe prompt. */
+  readonly prompt?: string;
+}
+
+export interface ImageGenerateArgs {
+  /** What to draw. */
+  readonly prompt: string;
+  /** Optional `WxH` size, e.g. "1024x1024". */
+  readonly size?: string;
+}
+
+export interface TerminalArgs {
+  /** Shell command to run. */
+  readonly command: string;
+  /** Working directory relative to the workspace root (default: root). */
+  readonly cwd?: string;
+  /** Optional timeout in milliseconds. */
+  readonly timeoutMs?: number;
+}
+
+export interface ProcessStartArgs {
+  /** Shell command to run in the background. */
+  readonly command: string;
+  /** Working directory relative to the workspace root (default: root). */
+  readonly cwd?: string;
+}
+
+export type ProcessManageArgs =
+  | { readonly action: 'list' }
+  | { readonly action: 'output'; readonly id: string }
+  | { readonly action: 'kill'; readonly id: string };
+
+export interface SkillManageArgs {
+  readonly action: 'create' | 'update' | 'delete';
+  readonly name: string;
+  /** Required for create/update. */
+  readonly description?: string;
+  /** Required for create/update. */
+  readonly body?: string;
+}
+
+export interface DiscordArgs {
+  readonly action: 'server_info' | 'member_info' | 'channel_list';
+  /** Required for member_info. */
+  readonly user_id?: string;
+}
+
+export interface DiscordAdminArgs {
+  readonly action: 'timeout_member' | 'kick_member';
+  readonly user_id: string;
+  /** Required for timeout_member. */
+  readonly duration_ms?: number;
+  readonly reason?: string;
+}
+
+export type CronJobManageArgs =
+  | { readonly action: 'list' }
+  | {
+      readonly action: 'create';
+      readonly name: string;
+      readonly schedule: string;
+      readonly prompt: string;
+      readonly deliver_channel?: 'discord' | 'email';
+      readonly deliver_target?: 'operator' | 'channel' | 'user';
+      readonly deliver_id?: string;
+    }
+  | { readonly action: 'pause'; readonly id: string }
+  | { readonly action: 'resume'; readonly id: string }
+  | { readonly action: 'remove'; readonly id: string }
+  | { readonly action: 'run'; readonly id: string };
+
+export interface ExecuteCodeArgs {
+  /** The script source. */
+  readonly code: string;
+  /** Runtime; defaults to python. */
+  readonly language?: 'python' | 'javascript';
+}
+
+export interface BrowserArgs {
+  readonly action:
+    'navigate' | 'snapshot' | 'click' | 'type' | 'scroll' | 'screenshot';
+  readonly url?: string;
+  readonly selector?: string;
+  readonly text?: string;
+  readonly dy?: number;
+}
+
+export type MemoryBeliefStatus =
+  'candidate' | 'active' | 'contradicted' | 'retired';
+
+export interface MemoryArgs {
+  /**
+   * Which memory layer to inspect: `beliefs` (epistemic claims, direct),
+   * `recall` (ranked multi-surface retrieval, needs a query), `persona`
+   * (curated identity / user model / relationship), `candidates` (raw
+   * extracted candidates).
+   */
+  readonly layer: 'beliefs' | 'persona' | 'candidates' | 'recall';
+  readonly query?: string;
+  /** Beliefs only. */
+  readonly status?: MemoryBeliefStatus;
+  readonly limit?: number;
+}
+
 export type ValidatedToolArgs =
-  SessionSearchArgs | SessionRenameArgs | ChannelSendArgs;
+  | SessionSearchArgs
+  | SessionRenameArgs
+  | ChannelSendArgs
+  | ReadFileArgs
+  | SearchFilesArgs
+  | WriteFileArgs
+  | PatchArgs
+  | WebSearchArgs
+  | WebExtractArgs
+  | SkillViewArgs
+  | TodoArgs
+  | MemoryArgs
+  | ClarifyArgs
+  | VisionAnalyzeArgs
+  | ImageGenerateArgs
+  | TerminalArgs
+  | ProcessStartArgs
+  | ProcessManageArgs
+  | SkillManageArgs
+  | DiscordArgs
+  | DiscordAdminArgs
+  | CronJobManageArgs
+  | ExecuteCodeArgs
+  | BrowserArgs;
 
 export type ValidatedToolRequest = {
   readonly version: 1;
@@ -70,6 +294,28 @@ export type ValidatedToolRequest = {
   | { readonly name: 'session.search'; readonly args: SessionSearchArgs }
   | { readonly name: 'session.rename'; readonly args: SessionRenameArgs }
   | { readonly name: 'channel.send'; readonly args: ChannelSendArgs }
+  | { readonly name: 'read_file'; readonly args: ReadFileArgs }
+  | { readonly name: 'search_files'; readonly args: SearchFilesArgs }
+  | { readonly name: 'write_file'; readonly args: WriteFileArgs }
+  | { readonly name: 'patch'; readonly args: PatchArgs }
+  | { readonly name: 'web_search'; readonly args: WebSearchArgs }
+  | { readonly name: 'web_extract'; readonly args: WebExtractArgs }
+  | { readonly name: 'skills_list'; readonly args: Record<string, never> }
+  | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
+  | { readonly name: 'todo'; readonly args: TodoArgs }
+  | { readonly name: 'memory'; readonly args: MemoryArgs }
+  | { readonly name: 'clarify'; readonly args: ClarifyArgs }
+  | { readonly name: 'vision_analyze'; readonly args: VisionAnalyzeArgs }
+  | { readonly name: 'image_generate'; readonly args: ImageGenerateArgs }
+  | { readonly name: 'terminal'; readonly args: TerminalArgs }
+  | { readonly name: 'process_start'; readonly args: ProcessStartArgs }
+  | { readonly name: 'process_manage'; readonly args: ProcessManageArgs }
+  | { readonly name: 'skill_manage'; readonly args: SkillManageArgs }
+  | { readonly name: 'discord'; readonly args: DiscordArgs }
+  | { readonly name: 'discord_admin'; readonly args: DiscordAdminArgs }
+  | { readonly name: 'cronjob_manage'; readonly args: CronJobManageArgs }
+  | { readonly name: 'execute_code'; readonly args: ExecuteCodeArgs }
+  | { readonly name: 'browser'; readonly args: BrowserArgs }
   | Omit<ForeignToolCall, 'version' | 'sessionId'>
 );
 export interface ToolValidationContext {
@@ -144,6 +390,43 @@ const MAX_QUERY_LENGTH = 500;
 const MAX_TITLE_LENGTH = 200;
 const MAX_BODY_LENGTH = 8000;
 const MAX_ID_LENGTH = 200;
+const MAX_PATH_LENGTH = 500;
+const MAX_READ_BYTES = 256 * 1024;
+const MAX_CONTENT_LENGTH = 256 * 1024;
+const MIN_SEARCH_RESULTS = 1;
+const MAX_SEARCH_RESULTS = 50;
+const DEFAULT_SEARCH_RESULTS = 20;
+const MAX_WEB_RESULTS = 10;
+const DEFAULT_WEB_RESULTS = 5;
+const MIN_MEMORY_LIMIT = 1;
+const MAX_MEMORY_LIMIT = 50;
+const DEFAULT_MEMORY_LIMIT = 20;
+const MAX_QUESTION_LENGTH = 500;
+const MIN_CLARIFY_OPTIONS = 2;
+const MAX_CLARIFY_OPTIONS = 4;
+const MAX_OPTION_LENGTH = 200;
+const MIN_CLARIFY_TTL_MS = 1000;
+const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
+const IMAGE_SIZE_PATTERN = '^[0-9]{2,5}x[0-9]{2,5}$';
+const MAX_IMAGE_SIZE_LENGTH = 11;
+const MAX_COMMAND_LENGTH = 4000;
+const MIN_TERMINAL_TIMEOUT_MS = 1000;
+const MAX_TERMINAL_TIMEOUT_MS = 300000;
+const SKILL_NAME_PATTERN = '^[a-z0-9-]{1,64}$';
+const MAX_SKILL_NAME_LENGTH = 64;
+const MAX_SKILL_DESCRIPTION_LENGTH = 500;
+const MAX_SKILL_BODY_LENGTH = 64 * 1024;
+const MAX_DISCORD_REASON_LENGTH = 500;
+const MIN_DISCORD_TIMEOUT_MS = 1000;
+const MAX_DISCORD_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
+const MAX_CRON_NAME_LENGTH = 120;
+const MAX_CRON_SCHEDULE_LENGTH = 120;
+const MAX_CRON_PROMPT_LENGTH = 4000;
+const MAX_CODE_LENGTH = 64 * 1024;
+const MAX_BROWSER_TEXT_LENGTH = 8000;
+const MAX_BROWSER_SCROLL = 100000;
+const MAX_URL_LENGTH = 2000;
+const MAX_EXTRACT_BYTES = 256 * 1024;
 
 const NONBLANK_PATTERN = '\\S';
 
@@ -229,6 +512,501 @@ const CHANNEL_SEND_SCHEMA = deepFreeze({
   },
 } as const);
 
+const READ_FILE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    maxBytes: {
+      type: 'integer',
+      minimum: 1,
+      maximum: MAX_READ_BYTES,
+    },
+  },
+} as const);
+
+const SEARCH_FILES_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['query'],
+  properties: {
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    maxResults: {
+      type: 'integer',
+      minimum: MIN_SEARCH_RESULTS,
+      maximum: MAX_SEARCH_RESULTS,
+      default: DEFAULT_SEARCH_RESULTS,
+    },
+  },
+} as const);
+
+const WRITE_FILE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'content'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    content: { type: 'string', maxLength: MAX_CONTENT_LENGTH },
+  },
+} as const);
+
+const PATCH_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'oldString', 'newString'],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    oldString: { type: 'string', minLength: 1, maxLength: MAX_CONTENT_LENGTH },
+    newString: { type: 'string', maxLength: MAX_CONTENT_LENGTH },
+    replaceAll: { type: 'boolean', default: false },
+  },
+} as const);
+
+const WEB_SEARCH_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['query'],
+  properties: {
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    maxResults: {
+      type: 'integer',
+      minimum: 1,
+      maximum: MAX_WEB_RESULTS,
+      default: DEFAULT_WEB_RESULTS,
+    },
+  },
+} as const);
+
+const WEB_EXTRACT_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    maxBytes: { type: 'integer', minimum: 1, maximum: MAX_EXTRACT_BYTES },
+  },
+} as const);
+
+const SKILLS_LIST_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: [],
+  properties: {},
+} as const);
+
+const SKILL_VIEW_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const TODO_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'add', 'complete', 'remove', 'clear'],
+    },
+    text: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BODY_LENGTH,
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const MEMORY_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['layer'],
+  properties: {
+    layer: {
+      type: 'string',
+      enum: ['beliefs', 'persona', 'candidates', 'recall'],
+    },
+    query: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    status: {
+      type: 'string',
+      enum: ['candidate', 'active', 'contradicted', 'retired'],
+    },
+    limit: {
+      type: 'integer',
+      minimum: MIN_MEMORY_LIMIT,
+      maximum: MAX_MEMORY_LIMIT,
+      default: DEFAULT_MEMORY_LIMIT,
+    },
+  },
+} as const);
+
+const CLARIFY_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['question'],
+  properties: {
+    question: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+    options: {
+      type: 'array',
+      minItems: MIN_CLARIFY_OPTIONS,
+      maxItems: MAX_CLARIFY_OPTIONS,
+      items: {
+        type: 'string',
+        pattern: NONBLANK_PATTERN,
+        minLength: 1,
+        maxLength: MAX_OPTION_LENGTH,
+      },
+    },
+    ttlMs: {
+      type: 'integer',
+      minimum: MIN_CLARIFY_TTL_MS,
+      maximum: MAX_CLARIFY_TTL_MS,
+    },
+  },
+} as const);
+
+const VISION_ANALYZE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: [],
+  properties: {
+    path: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+  },
+} as const);
+
+const IMAGE_GENERATE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt'],
+  properties: {
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUESTION_LENGTH,
+    },
+    size: {
+      type: 'string',
+      pattern: IMAGE_SIZE_PATTERN,
+      minLength: 3,
+      maxLength: MAX_IMAGE_SIZE_LENGTH,
+    },
+  },
+} as const);
+
+const TERMINAL_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['command'],
+  properties: {
+    command: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_COMMAND_LENGTH,
+    },
+    cwd: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+    timeoutMs: {
+      type: 'integer',
+      minimum: MIN_TERMINAL_TIMEOUT_MS,
+      maximum: MAX_TERMINAL_TIMEOUT_MS,
+    },
+  },
+} as const);
+
+const PROCESS_START_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['command'],
+  properties: {
+    command: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_COMMAND_LENGTH,
+    },
+    cwd: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_PATH_LENGTH,
+    },
+  },
+} as const);
+
+const PROCESS_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'output', 'kill'],
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const SKILL_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action', 'name'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['create', 'update', 'delete'],
+    },
+    name: {
+      type: 'string',
+      pattern: SKILL_NAME_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_NAME_LENGTH,
+    },
+    description: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_DESCRIPTION_LENGTH,
+    },
+    body: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_SKILL_BODY_LENGTH,
+    },
+  },
+} as const);
+
+const DISCORD_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['server_info', 'member_info', 'channel_list'],
+    },
+    user_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const DISCORD_ADMIN_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action', 'user_id'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['timeout_member', 'kick_member'],
+    },
+    user_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+    duration_ms: {
+      type: 'integer',
+      minimum: MIN_DISCORD_TIMEOUT_MS,
+      maximum: MAX_DISCORD_TIMEOUT_MS,
+    },
+    reason: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_DISCORD_REASON_LENGTH,
+    },
+  },
+} as const);
+
+const CRONJOB_MANAGE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'create', 'pause', 'resume', 'remove', 'run'],
+    },
+    id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+    name: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_NAME_LENGTH,
+    },
+    schedule: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_SCHEDULE_LENGTH,
+    },
+    prompt: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CRON_PROMPT_LENGTH,
+    },
+    deliver_channel: { type: 'string', enum: ['discord', 'email'] },
+    deliver_target: { type: 'string', enum: ['operator', 'channel', 'user'] },
+    deliver_id: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+    },
+  },
+} as const);
+
+const EXECUTE_CODE_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: {
+    code: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_CODE_LENGTH,
+    },
+    language: { type: 'string', enum: ['python', 'javascript'] },
+  },
+} as const);
+
+const BROWSER_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['navigate', 'snapshot', 'click', 'type', 'scroll', 'screenshot'],
+    },
+    url: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_URL_LENGTH,
+    },
+    selector: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_QUERY_LENGTH,
+    },
+    text: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BROWSER_TEXT_LENGTH,
+    },
+    dy: {
+      type: 'integer',
+      minimum: -MAX_BROWSER_SCROLL,
+      maximum: MAX_BROWSER_SCROLL,
+    },
+  },
+} as const);
+
 const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
   Object.freeze({
     name: 'session.search',
@@ -236,6 +1014,7 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     description:
       'Search the current session transcript. Returns matching messages.',
     approval: 'none',
+    toolset: 'session',
     argsSchema: SEARCH_SCHEMA,
   }),
   Object.freeze({
@@ -246,16 +1025,237 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     // session is benign and reversible. Granular per-tool approval
     // toggles remain future UI work; if that lands, revisit this.
     approval: 'none',
+    toolset: 'session',
     argsSchema: RENAME_SCHEMA,
   }),
   Object.freeze({
     name: 'channel.send',
     version: 1,
     description:
-      'Send a message on a configured channel (e.g. Discord) to the ' +
+      'Send a message on a configured channel (Discord or email) to the ' +
       'operator, or to an allowlisted channel or user. Requires approval.',
     approval: 'required',
+    toolset: 'channel',
     argsSchema: CHANNEL_SEND_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'read_file',
+    version: 1,
+    description:
+      'Read a UTF-8 file from the workspace. Returns bounded content.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: READ_FILE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'search_files',
+    version: 1,
+    description:
+      'Search file contents under the workspace for a pattern. Returns ' +
+      'matching path:line pairs.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: SEARCH_FILES_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'write_file',
+    version: 1,
+    description:
+      'Write (or overwrite) a UTF-8 file in the workspace. Creates parent ' +
+      'directories as needed.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: WRITE_FILE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'patch',
+    version: 1,
+    description:
+      'Replace an exact string in a workspace file. Fails if the string is ' +
+      'absent, or ambiguous unless replaceAll is set.',
+    approval: 'none',
+    toolset: 'files',
+    argsSchema: PATCH_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'web_search',
+    version: 1,
+    description:
+      'Search the web. Returns titles, URLs, and snippets. Use web_extract ' +
+      'to read a result page.',
+    approval: 'none',
+    toolset: 'web',
+    argsSchema: WEB_SEARCH_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'web_extract',
+    version: 1,
+    description:
+      'Fetch a web page and return its readable text (bounded). Use after ' +
+      'web_search to read a result.',
+    approval: 'none',
+    toolset: 'web',
+    argsSchema: WEB_EXTRACT_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skills_list',
+    version: 1,
+    description: 'List the available skills (name, description, version).',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILLS_LIST_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skill_view',
+    version: 1,
+    description:
+      'Read a skill’s full instructions by name. Use skills_list to discover ' +
+      'names.',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILL_VIEW_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'todo',
+    version: 1,
+    description:
+      'Manage a todo list for the current session: list, add, complete, ' +
+      'remove, or clear items.',
+    approval: 'none',
+    toolset: 'todo',
+    argsSchema: TODO_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'memory',
+    version: 1,
+    description:
+      'Inspect memory: beliefs (epistemic claims), recall (ranked retrieval ' +
+      'across lexical/semantic/associative), persona, or raw candidates.',
+    approval: 'none',
+    toolset: 'memory',
+    argsSchema: MEMORY_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'clarify',
+    version: 1,
+    description:
+      'Ask the user a clarifying question and wait for the answer. Optionally ' +
+      'offer up to 4 choices; an optional ttlMs bounds the wait.',
+    approval: 'none',
+    toolset: 'agent',
+    argsSchema: CLARIFY_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'vision_analyze',
+    version: 1,
+    description:
+      'Analyze an image with the vision model and return a text description. ' +
+      'Provide a workspace path or an http(s) URL.',
+    approval: 'none',
+    toolset: 'vision',
+    argsSchema: VISION_ANALYZE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'image_generate',
+    version: 1,
+    description:
+      'Generate an image from a text prompt and save it to the workspace. ' +
+      'Returns the saved path.',
+    approval: 'none',
+    toolset: 'image',
+    argsSchema: IMAGE_GENERATE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'terminal',
+    version: 1,
+    description:
+      'Run a shell command in the workspace (jailed to the workspace root) ' +
+      'and return its exit code, stdout, and stderr. Requires approval.',
+    approval: 'required',
+    toolset: 'terminal',
+    argsSchema: TERMINAL_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'process_start',
+    version: 1,
+    description:
+      'Start a background shell command in the workspace and return its id. ' +
+      'Use process_manage to read output or kill it. Requires approval.',
+    approval: 'required',
+    toolset: 'terminal',
+    argsSchema: PROCESS_START_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'process_manage',
+    version: 1,
+    description:
+      'List, read output of, or kill background processes started via ' +
+      'process_start.',
+    approval: 'none',
+    toolset: 'terminal',
+    argsSchema: PROCESS_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'skill_manage',
+    version: 1,
+    description:
+      'Create, update, or delete a skill (a kebab-case name plus a one-line ' +
+      'description and a markdown body). Guarded and validated before write.',
+    approval: 'none',
+    toolset: 'skills',
+    argsSchema: SKILL_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'discord',
+    version: 1,
+    description:
+      'Read Discord server information: server_info, member_info, or ' +
+      'channel_list.',
+    approval: 'none',
+    toolset: 'discord',
+    argsSchema: DISCORD_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'discord_admin',
+    version: 1,
+    description:
+      'Discord moderation: timeout_member or kick_member. Requires approval ' +
+      'and the bot must hold the relevant permissions.',
+    approval: 'required',
+    toolset: 'discord',
+    argsSchema: DISCORD_ADMIN_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'cronjob_manage',
+    version: 1,
+    description:
+      'Manage scheduled jobs: list, create, pause, resume, remove, or run a ' +
+      'cron job. A job runs its prompt as a turn on schedule and may deliver ' +
+      'the reply to a channel.',
+    approval: 'none',
+    toolset: 'cron',
+    argsSchema: CRONJOB_MANAGE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'execute_code',
+    version: 1,
+    description:
+      'Run a Python or JavaScript script in the workspace. The script can ' +
+      'call approval-free ICOS tools via the ICOS_RPC_URL/ICOS_RPC_TOKEN env ' +
+      'vars. Requires approval.',
+    approval: 'required',
+    toolset: 'code',
+    argsSchema: EXECUTE_CODE_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'browser',
+    version: 1,
+    description:
+      'Drive a headless browser: navigate, snapshot, click, type, scroll, or ' +
+      'screenshot a page.',
+    approval: 'none',
+    toolset: 'browser',
+    argsSchema: BROWSER_SCHEMA,
   }),
 ]);
 
@@ -385,6 +1385,1042 @@ function validateChannelSendArgs(
   };
 }
 
+function validateReadFileArgs(
+  args: Record<string, unknown>,
+): ParseResult<ReadFileArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'maxBytes']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  let maxBytes: number | undefined;
+  if (Object.hasOwn(args, 'maxBytes')) {
+    const value = ownValue(args, 'maxBytes');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_READ_BYTES
+    ) {
+      return {
+        ok: false,
+        message: `maxBytes must be an integer between 1 and ${MAX_READ_BYTES}`,
+      };
+    }
+    maxBytes = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      path: path.value,
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    }),
+  };
+}
+
+function validateSearchFilesArgs(
+  args: Record<string, unknown>,
+): ParseResult<SearchFilesArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'query',
+    'path',
+    'maxResults',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const query = validText(ownValue(args, 'query'), 'query', MAX_QUERY_LENGTH);
+  if (!query.ok) {
+    return query;
+  }
+  let path: string | undefined;
+  if (Object.hasOwn(args, 'path')) {
+    const parsed = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    path = parsed.value;
+  }
+  let maxResults: number | undefined;
+  if (Object.hasOwn(args, 'maxResults')) {
+    const value = ownValue(args, 'maxResults');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_SEARCH_RESULTS ||
+      value > MAX_SEARCH_RESULTS
+    ) {
+      return {
+        ok: false,
+        message: `maxResults must be an integer between ${MIN_SEARCH_RESULTS} and ${MAX_SEARCH_RESULTS}`,
+      };
+    }
+    maxResults = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      query: query.value,
+      ...(path !== undefined ? { path } : {}),
+      ...(maxResults !== undefined ? { maxResults } : {}),
+    }),
+  };
+}
+
+function validateWriteFileArgs(
+  args: Record<string, unknown>,
+): ParseResult<WriteFileArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'content']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  const content = ownValue(args, 'content');
+  if (typeof content !== 'string') {
+    return { ok: false, message: 'content must be a string' };
+  }
+  if (content.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `content must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  return { ok: true, value: Object.freeze({ path: path.value, content }) };
+}
+
+function validatePatchArgs(
+  args: Record<string, unknown>,
+): ParseResult<PatchArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'path',
+    'oldString',
+    'newString',
+    'replaceAll',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const path = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+  if (!path.ok) {
+    return path;
+  }
+  const oldString = ownValue(args, 'oldString');
+  if (typeof oldString !== 'string' || oldString.length === 0) {
+    return { ok: false, message: 'oldString must be a non-empty string' };
+  }
+  if (oldString.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `oldString must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  const newString = ownValue(args, 'newString');
+  if (typeof newString !== 'string') {
+    return { ok: false, message: 'newString must be a string' };
+  }
+  if (newString.length > MAX_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `newString must be at most ${MAX_CONTENT_LENGTH} characters`,
+    };
+  }
+  let replaceAll: boolean | undefined;
+  if (Object.hasOwn(args, 'replaceAll')) {
+    const value = ownValue(args, 'replaceAll');
+    if (typeof value !== 'boolean') {
+      return { ok: false, message: 'replaceAll must be a boolean' };
+    }
+    replaceAll = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      path: path.value,
+      oldString,
+      newString,
+      ...(replaceAll !== undefined ? { replaceAll } : {}),
+    }),
+  };
+}
+
+function validateWebSearchArgs(
+  args: Record<string, unknown>,
+): ParseResult<WebSearchArgs> {
+  const unknownField = rejectUnknownFields(args, ['query', 'maxResults']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const query = validText(ownValue(args, 'query'), 'query', MAX_QUERY_LENGTH);
+  if (!query.ok) {
+    return query;
+  }
+  let maxResults: number | undefined;
+  if (Object.hasOwn(args, 'maxResults')) {
+    const value = ownValue(args, 'maxResults');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_WEB_RESULTS
+    ) {
+      return {
+        ok: false,
+        message: `maxResults must be an integer between 1 and ${MAX_WEB_RESULTS}`,
+      };
+    }
+    maxResults = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      query: query.value,
+      ...(maxResults !== undefined ? { maxResults } : {}),
+    }),
+  };
+}
+
+function validateWebExtractArgs(
+  args: Record<string, unknown>,
+): ParseResult<WebExtractArgs> {
+  const unknownField = rejectUnknownFields(args, ['url', 'maxBytes']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const url = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+  if (!url.ok) {
+    return url;
+  }
+  let maxBytes: number | undefined;
+  if (Object.hasOwn(args, 'maxBytes')) {
+    const value = ownValue(args, 'maxBytes');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < 1 ||
+      value > MAX_EXTRACT_BYTES
+    ) {
+      return {
+        ok: false,
+        message: `maxBytes must be an integer between 1 and ${MAX_EXTRACT_BYTES}`,
+      };
+    }
+    maxBytes = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      url: url.value,
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    }),
+  };
+}
+
+function validateSkillsListArgs(
+  args: Record<string, unknown>,
+): ParseResult<Record<string, never>> {
+  const unknownField = rejectUnknownFields(args, []);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  return { ok: true, value: Object.freeze({}) };
+}
+
+function validateSkillViewArgs(
+  args: Record<string, unknown>,
+): ParseResult<SkillViewArgs> {
+  const unknownField = rejectUnknownFields(args, ['name']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const name = validText(ownValue(args, 'name'), 'name', MAX_ID_LENGTH);
+  if (!name.ok) {
+    return name;
+  }
+  return { ok: true, value: Object.freeze({ name: name.value }) };
+}
+
+function validateTodoArgs(
+  args: Record<string, unknown>,
+): ParseResult<TodoArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'text', 'id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list' || action === 'clear') {
+    return { ok: true, value: Object.freeze({ action }) };
+  }
+  if (action === 'add') {
+    const text = validText(ownValue(args, 'text'), 'text', MAX_BODY_LENGTH);
+    if (!text.ok) {
+      return text;
+    }
+    return {
+      ok: true,
+      value: Object.freeze({ action: 'add', text: text.value }),
+    };
+  }
+  if (action === 'complete' || action === 'remove') {
+    const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+    if (!id.ok) {
+      return id;
+    }
+    return { ok: true, value: Object.freeze({ action, id: id.value }) };
+  }
+  return {
+    ok: false,
+    message: 'action must be "list", "add", "complete", "remove", or "clear"',
+  };
+}
+
+function validateMemoryArgs(
+  args: Record<string, unknown>,
+): ParseResult<MemoryArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'layer',
+    'query',
+    'status',
+    'limit',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const layer = ownValue(args, 'layer');
+  if (
+    layer !== 'beliefs' &&
+    layer !== 'persona' &&
+    layer !== 'candidates' &&
+    layer !== 'recall'
+  ) {
+    return {
+      ok: false,
+      message: 'layer must be "beliefs", "persona", "candidates", or "recall"',
+    };
+  }
+  let query: string | undefined;
+  if (Object.hasOwn(args, 'query')) {
+    const parsed = validText(
+      ownValue(args, 'query'),
+      'query',
+      MAX_QUERY_LENGTH,
+    );
+    if (!parsed.ok) {
+      return parsed;
+    }
+    query = parsed.value;
+  }
+  if (layer === 'recall' && query === undefined) {
+    return { ok: false, message: 'query is required for the recall layer' };
+  }
+  let status: MemoryBeliefStatus | undefined;
+  if (Object.hasOwn(args, 'status')) {
+    if (layer !== 'beliefs') {
+      return {
+        ok: false,
+        message: 'status applies to the beliefs layer only',
+      };
+    }
+    const value = ownValue(args, 'status');
+    if (
+      value !== 'candidate' &&
+      value !== 'active' &&
+      value !== 'contradicted' &&
+      value !== 'retired'
+    ) {
+      return {
+        ok: false,
+        message:
+          'status must be "candidate", "active", "contradicted", or "retired"',
+      };
+    }
+    status = value;
+  }
+  let limit: number | undefined;
+  if (Object.hasOwn(args, 'limit')) {
+    const value = ownValue(args, 'limit');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_MEMORY_LIMIT ||
+      value > MAX_MEMORY_LIMIT
+    ) {
+      return {
+        ok: false,
+        message: `limit must be an integer between ${MIN_MEMORY_LIMIT} and ${MAX_MEMORY_LIMIT}`,
+      };
+    }
+    limit = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      layer,
+      ...(query !== undefined ? { query } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    }),
+  };
+}
+
+function validateClarifyArgs(
+  args: Record<string, unknown>,
+): ParseResult<ClarifyArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'question',
+    'options',
+    'ttlMs',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const question = validText(
+    ownValue(args, 'question'),
+    'question',
+    MAX_QUESTION_LENGTH,
+  );
+  if (!question.ok) {
+    return question;
+  }
+  let options: string[] | undefined;
+  if (Object.hasOwn(args, 'options')) {
+    const raw = ownValue(args, 'options');
+    if (!Array.isArray(raw)) {
+      return { ok: false, message: 'options must be an array of strings' };
+    }
+    if (raw.length < MIN_CLARIFY_OPTIONS || raw.length > MAX_CLARIFY_OPTIONS) {
+      return {
+        ok: false,
+        message: `options must have between ${MIN_CLARIFY_OPTIONS} and ${MAX_CLARIFY_OPTIONS} items`,
+      };
+    }
+    const cleaned: string[] = [];
+    for (const item of raw) {
+      const parsed = validText(item, 'options[]', MAX_OPTION_LENGTH);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      cleaned.push(parsed.value);
+    }
+    options = cleaned;
+  }
+  let ttlMs: number | undefined;
+  if (Object.hasOwn(args, 'ttlMs')) {
+    const value = ownValue(args, 'ttlMs');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_CLARIFY_TTL_MS ||
+      value > MAX_CLARIFY_TTL_MS
+    ) {
+      return {
+        ok: false,
+        message: `ttlMs must be an integer between ${MIN_CLARIFY_TTL_MS} and ${MAX_CLARIFY_TTL_MS}`,
+      };
+    }
+    ttlMs = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      question: question.value,
+      ...(options !== undefined ? { options } : {}),
+      ...(ttlMs !== undefined ? { ttlMs } : {}),
+    }),
+  };
+}
+
+function validateVisionAnalyzeArgs(
+  args: Record<string, unknown>,
+): ParseResult<VisionAnalyzeArgs> {
+  const unknownField = rejectUnknownFields(args, ['path', 'url', 'prompt']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const hasPath = Object.hasOwn(args, 'path');
+  const hasUrl = Object.hasOwn(args, 'url');
+  if (hasPath === hasUrl) {
+    return { ok: false, message: 'provide exactly one of "path" or "url"' };
+  }
+  let path: string | undefined;
+  if (hasPath) {
+    const parsed = validText(ownValue(args, 'path'), 'path', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    path = parsed.value;
+  }
+  let url: string | undefined;
+  if (hasUrl) {
+    const parsed = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+    if (!parsed.ok) return parsed;
+    url = parsed.value;
+  }
+  let prompt: string | undefined;
+  if (Object.hasOwn(args, 'prompt')) {
+    const parsed = validText(
+      ownValue(args, 'prompt'),
+      'prompt',
+      MAX_QUESTION_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    prompt = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      ...(path !== undefined ? { path } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(prompt !== undefined ? { prompt } : {}),
+    }),
+  };
+}
+
+function validateImageGenerateArgs(
+  args: Record<string, unknown>,
+): ParseResult<ImageGenerateArgs> {
+  const unknownField = rejectUnknownFields(args, ['prompt', 'size']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const prompt = validText(
+    ownValue(args, 'prompt'),
+    'prompt',
+    MAX_QUESTION_LENGTH,
+  );
+  if (!prompt.ok) {
+    return prompt;
+  }
+  let size: string | undefined;
+  if (Object.hasOwn(args, 'size')) {
+    const parsed = validText(
+      ownValue(args, 'size'),
+      'size',
+      MAX_IMAGE_SIZE_LENGTH,
+    );
+    if (!parsed.ok) {
+      return parsed;
+    }
+    if (!new RegExp(IMAGE_SIZE_PATTERN).test(parsed.value)) {
+      return { ok: false, message: 'size must look like "1024x1024"' };
+    }
+    size = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      prompt: prompt.value,
+      ...(size !== undefined ? { size } : {}),
+    }),
+  };
+}
+
+function validateTerminalArgs(
+  args: Record<string, unknown>,
+): ParseResult<TerminalArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'command',
+    'cwd',
+    'timeoutMs',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const command = validText(
+    ownValue(args, 'command'),
+    'command',
+    MAX_COMMAND_LENGTH,
+  );
+  if (!command.ok) {
+    return command;
+  }
+  let cwd: string | undefined;
+  if (Object.hasOwn(args, 'cwd')) {
+    const parsed = validText(ownValue(args, 'cwd'), 'cwd', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    cwd = parsed.value;
+  }
+  let timeoutMs: number | undefined;
+  if (Object.hasOwn(args, 'timeoutMs')) {
+    const value = ownValue(args, 'timeoutMs');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_TERMINAL_TIMEOUT_MS ||
+      value > MAX_TERMINAL_TIMEOUT_MS
+    ) {
+      return {
+        ok: false,
+        message: `timeoutMs must be an integer between ${MIN_TERMINAL_TIMEOUT_MS} and ${MAX_TERMINAL_TIMEOUT_MS}`,
+      };
+    }
+    timeoutMs = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      command: command.value,
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    }),
+  };
+}
+
+function validateProcessStartArgs(
+  args: Record<string, unknown>,
+): ParseResult<ProcessStartArgs> {
+  const unknownField = rejectUnknownFields(args, ['command', 'cwd']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const command = validText(
+    ownValue(args, 'command'),
+    'command',
+    MAX_COMMAND_LENGTH,
+  );
+  if (!command.ok) return command;
+  let cwd: string | undefined;
+  if (Object.hasOwn(args, 'cwd')) {
+    const parsed = validText(ownValue(args, 'cwd'), 'cwd', MAX_PATH_LENGTH);
+    if (!parsed.ok) return parsed;
+    cwd = parsed.value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      command: command.value,
+      ...(cwd !== undefined ? { cwd } : {}),
+    }),
+  };
+}
+
+function validateProcessManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<ProcessManageArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list') {
+    return { ok: true, value: Object.freeze({ action: 'list' }) };
+  }
+  if (action !== 'output' && action !== 'kill') {
+    return {
+      ok: false,
+      message: 'action must be "list", "output", or "kill"',
+    };
+  }
+  const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+  if (!id.ok) return id;
+  return { ok: true, value: Object.freeze({ action, id: id.value }) };
+}
+
+function validateSkillManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<SkillManageArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'name',
+    'description',
+    'body',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action !== 'create' && action !== 'update' && action !== 'delete') {
+    return {
+      ok: false,
+      message: 'action must be "create", "update", or "delete"',
+    };
+  }
+  const name = validText(ownValue(args, 'name'), 'name', MAX_SKILL_NAME_LENGTH);
+  if (!name.ok) return name;
+  if (!new RegExp(SKILL_NAME_PATTERN).test(name.value)) {
+    return { ok: false, message: 'name must be kebab-case (a-z0-9-, 1-64)' };
+  }
+  let description: string | undefined;
+  if (Object.hasOwn(args, 'description')) {
+    const parsed = validText(
+      ownValue(args, 'description'),
+      'description',
+      MAX_SKILL_DESCRIPTION_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    description = parsed.value;
+  }
+  let body: string | undefined;
+  if (Object.hasOwn(args, 'body')) {
+    const parsed = validText(
+      ownValue(args, 'body'),
+      'body',
+      MAX_SKILL_BODY_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    body = parsed.value;
+  }
+  if (action === 'delete') {
+    if (description !== undefined || body !== undefined) {
+      return { ok: false, message: 'delete takes no description or body' };
+    }
+  } else {
+    if (description === undefined) {
+      return { ok: false, message: `${action} requires a description` };
+    }
+    if (body === undefined) {
+      return { ok: false, message: `${action} requires a body` };
+    }
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      name: name.value,
+      ...(description !== undefined ? { description } : {}),
+      ...(body !== undefined ? { body } : {}),
+    }),
+  };
+}
+
+function validateDiscordArgs(
+  args: Record<string, unknown>,
+): ParseResult<DiscordArgs> {
+  const unknownField = rejectUnknownFields(args, ['action', 'user_id']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (
+    action !== 'server_info' &&
+    action !== 'member_info' &&
+    action !== 'channel_list'
+  ) {
+    return {
+      ok: false,
+      message: 'action must be "server_info", "member_info", or "channel_list"',
+    };
+  }
+  let userId: string | undefined;
+  if (Object.hasOwn(args, 'user_id')) {
+    const parsed = validText(
+      ownValue(args, 'user_id'),
+      'user_id',
+      MAX_ID_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    userId = parsed.value;
+  }
+  if (action === 'member_info' && userId === undefined) {
+    return { ok: false, message: 'member_info requires user_id' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      ...(userId !== undefined ? { user_id: userId } : {}),
+    }),
+  };
+}
+
+function validateDiscordAdminArgs(
+  args: Record<string, unknown>,
+): ParseResult<DiscordAdminArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'user_id',
+    'duration_ms',
+    'reason',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action !== 'timeout_member' && action !== 'kick_member') {
+    return {
+      ok: false,
+      message: 'action must be "timeout_member" or "kick_member"',
+    };
+  }
+  const userId = validText(ownValue(args, 'user_id'), 'user_id', MAX_ID_LENGTH);
+  if (!userId.ok) return userId;
+  let durationMs: number | undefined;
+  if (Object.hasOwn(args, 'duration_ms')) {
+    const value = ownValue(args, 'duration_ms');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < MIN_DISCORD_TIMEOUT_MS ||
+      value > MAX_DISCORD_TIMEOUT_MS
+    ) {
+      return {
+        ok: false,
+        message: `duration_ms must be an integer between ${MIN_DISCORD_TIMEOUT_MS} and ${MAX_DISCORD_TIMEOUT_MS}`,
+      };
+    }
+    durationMs = value;
+  }
+  let reason: string | undefined;
+  if (Object.hasOwn(args, 'reason')) {
+    const parsed = validText(
+      ownValue(args, 'reason'),
+      'reason',
+      MAX_DISCORD_REASON_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    reason = parsed.value;
+  }
+  if (action === 'timeout_member' && durationMs === undefined) {
+    return { ok: false, message: 'timeout_member requires duration_ms' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action,
+      user_id: userId.value,
+      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    }),
+  };
+}
+
+function validateCronJobManageArgs(
+  args: Record<string, unknown>,
+): ParseResult<CronJobManageArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'id',
+    'name',
+    'schedule',
+    'prompt',
+    'deliver_channel',
+    'deliver_target',
+    'deliver_id',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  if (action === 'list') {
+    return { ok: true, value: Object.freeze({ action: 'list' }) };
+  }
+  if (action === 'create') {
+    const name = validText(
+      ownValue(args, 'name'),
+      'name',
+      MAX_CRON_NAME_LENGTH,
+    );
+    if (!name.ok) return name;
+    const schedule = validText(
+      ownValue(args, 'schedule'),
+      'schedule',
+      MAX_CRON_SCHEDULE_LENGTH,
+    );
+    if (!schedule.ok) return schedule;
+    const prompt = validText(
+      ownValue(args, 'prompt'),
+      'prompt',
+      MAX_CRON_PROMPT_LENGTH,
+    );
+    if (!prompt.ok) return prompt;
+    let deliverChannel: 'discord' | 'email' | undefined;
+    if (Object.hasOwn(args, 'deliver_channel')) {
+      const value = ownValue(args, 'deliver_channel');
+      if (value !== 'discord' && value !== 'email') {
+        return {
+          ok: false,
+          message: 'deliver_channel must be "discord" or "email"',
+        };
+      }
+      deliverChannel = value;
+    }
+    let deliverTarget: 'operator' | 'channel' | 'user' | undefined;
+    if (Object.hasOwn(args, 'deliver_target')) {
+      const value = ownValue(args, 'deliver_target');
+      if (value !== 'operator' && value !== 'channel' && value !== 'user') {
+        return {
+          ok: false,
+          message: 'deliver_target must be "operator", "channel", or "user"',
+        };
+      }
+      deliverTarget = value;
+    }
+    let deliverId: string | undefined;
+    if (Object.hasOwn(args, 'deliver_id')) {
+      const parsed = validText(
+        ownValue(args, 'deliver_id'),
+        'deliver_id',
+        MAX_ID_LENGTH,
+      );
+      if (!parsed.ok) return parsed;
+      deliverId = parsed.value;
+    }
+    if ((deliverChannel === undefined) !== (deliverTarget === undefined)) {
+      return {
+        ok: false,
+        message: 'deliver_channel and deliver_target go together',
+      };
+    }
+    return {
+      ok: true,
+      value: Object.freeze({
+        action: 'create',
+        name: name.value,
+        schedule: schedule.value,
+        prompt: prompt.value,
+        ...(deliverChannel !== undefined
+          ? { deliver_channel: deliverChannel }
+          : {}),
+        ...(deliverTarget !== undefined
+          ? { deliver_target: deliverTarget }
+          : {}),
+        ...(deliverId !== undefined ? { deliver_id: deliverId } : {}),
+      }),
+    };
+  }
+  if (
+    action !== 'pause' &&
+    action !== 'resume' &&
+    action !== 'remove' &&
+    action !== 'run'
+  ) {
+    return {
+      ok: false,
+      message: 'action must be list, create, pause, resume, remove, or run',
+    };
+  }
+  const id = validText(ownValue(args, 'id'), 'id', MAX_ID_LENGTH);
+  if (!id.ok) return id;
+  return { ok: true, value: Object.freeze({ action, id: id.value }) };
+}
+
+function validateExecuteCodeArgs(
+  args: Record<string, unknown>,
+): ParseResult<ExecuteCodeArgs> {
+  const unknownField = rejectUnknownFields(args, ['code', 'language']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const code = validText(ownValue(args, 'code'), 'code', MAX_CODE_LENGTH);
+  if (!code.ok) return code;
+  let language: 'python' | 'javascript' | undefined;
+  if (Object.hasOwn(args, 'language')) {
+    const value = ownValue(args, 'language');
+    if (value !== 'python' && value !== 'javascript') {
+      return {
+        ok: false,
+        message: 'language must be "python" or "javascript"',
+      };
+    }
+    language = value;
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      code: code.value,
+      ...(language !== undefined ? { language } : {}),
+    }),
+  };
+}
+
+function validateBrowserArgs(
+  args: Record<string, unknown>,
+): ParseResult<BrowserArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'action',
+    'url',
+    'selector',
+    'text',
+    'dy',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const action = ownValue(args, 'action');
+  const actions: readonly string[] = [
+    'navigate',
+    'snapshot',
+    'click',
+    'type',
+    'scroll',
+    'screenshot',
+  ];
+  if (typeof action !== 'string' || !actions.includes(action)) {
+    return {
+      ok: false,
+      message:
+        'action must be navigate, snapshot, click, type, scroll, or screenshot',
+    };
+  }
+  let url: string | undefined;
+  if (Object.hasOwn(args, 'url')) {
+    const parsed = validText(ownValue(args, 'url'), 'url', MAX_URL_LENGTH);
+    if (!parsed.ok) return parsed;
+    url = parsed.value;
+  }
+  let selector: string | undefined;
+  if (Object.hasOwn(args, 'selector')) {
+    const parsed = validText(
+      ownValue(args, 'selector'),
+      'selector',
+      MAX_QUERY_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    selector = parsed.value;
+  }
+  let text: string | undefined;
+  if (Object.hasOwn(args, 'text')) {
+    const parsed = validText(
+      ownValue(args, 'text'),
+      'text',
+      MAX_BROWSER_TEXT_LENGTH,
+    );
+    if (!parsed.ok) return parsed;
+    text = parsed.value;
+  }
+  let dy: number | undefined;
+  if (Object.hasOwn(args, 'dy')) {
+    const value = ownValue(args, 'dy');
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < -MAX_BROWSER_SCROLL ||
+      value > MAX_BROWSER_SCROLL
+    ) {
+      return {
+        ok: false,
+        message: `dy must be an integer within +/-${MAX_BROWSER_SCROLL}`,
+      };
+    }
+    dy = value;
+  }
+  if (action === 'navigate' && url === undefined) {
+    return { ok: false, message: 'navigate requires url' };
+  }
+  if ((action === 'click' || action === 'type') && selector === undefined) {
+    return { ok: false, message: `${action} requires selector` };
+  }
+  if (action === 'type' && text === undefined) {
+    return { ok: false, message: 'type requires text' };
+  }
+  if (action === 'scroll' && dy === undefined) {
+    return { ok: false, message: 'scroll requires dy' };
+  }
+  return {
+    ok: true,
+    value: Object.freeze({
+      action: action as BrowserArgs['action'],
+      ...(url !== undefined ? { url } : {}),
+      ...(selector !== undefined ? { selector } : {}),
+      ...(text !== undefined ? { text } : {}),
+      ...(dy !== undefined ? { dy } : {}),
+    }),
+  };
+}
+
 function fail(
   code: ToolValidationFailureCode,
   message: string,
@@ -407,6 +2443,7 @@ export class ToolRegistry {
         version: 1,
         description: descriptor.description,
         approval: descriptor.approval,
+        toolset: 'mcp',
         argsSchema: descriptor.argsSchema,
       })) ?? [];
     return [...DESCRIPTORS, ...foreign];
@@ -436,6 +2473,7 @@ export class ToolRegistry {
       version: 1,
       description: foreign.description,
       approval: foreign.approval,
+      toolset: 'mcp',
       argsSchema: foreign.argsSchema,
     };
   }
@@ -517,6 +2555,314 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'channel.send',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'read_file') {
+      const result = validateReadFileArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'read_file',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'search_files') {
+      const result = validateSearchFilesArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'search_files',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'write_file') {
+      const result = validateWriteFileArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'write_file',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'patch') {
+      const result = validatePatchArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'patch',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'web_search') {
+      const result = validateWebSearchArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'web_search',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'web_extract') {
+      const result = validateWebExtractArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'web_extract',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skills_list') {
+      const result = validateSkillsListArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skills_list',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skill_view') {
+      const result = validateSkillViewArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skill_view',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'todo') {
+      const result = validateTodoArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'todo',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'memory') {
+      const result = validateMemoryArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'memory',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'clarify') {
+      const result = validateClarifyArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'clarify',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'vision_analyze') {
+      const result = validateVisionAnalyzeArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'vision_analyze',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'image_generate') {
+      const result = validateImageGenerateArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'image_generate',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'terminal') {
+      const result = validateTerminalArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'terminal',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'process_start') {
+      const result = validateProcessStartArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'process_start',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'process_manage') {
+      const result = validateProcessManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'process_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'skill_manage') {
+      const result = validateSkillManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'skill_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'discord') {
+      const result = validateDiscordArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'discord',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'discord_admin') {
+      const result = validateDiscordAdminArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'discord_admin',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'cronjob_manage') {
+      const result = validateCronJobManageArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'cronjob_manage',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'execute_code') {
+      const result = validateExecuteCodeArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'execute_code',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'browser') {
+      const result = validateBrowserArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'browser',
           ...base,
           args: result.value,
         }),

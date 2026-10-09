@@ -156,4 +156,24 @@ describe('buildContext', () => {
       }),
     ).toEqual(buildContext('sys', history, 'c', 50));
   });
+
+  it('inserts source and attachment bands ahead of persona and memory', () => {
+    const history: ChatMessage[] = [{ role: 'user', content: 'a' }];
+    const result = buildContext('sys', history, 'c', 50, undefined, {
+      sourceBand: '<source_context>Discord</source_context>',
+      attachmentBand: '<attachments>\n- url: https://x/y.png\n</attachments>',
+      personaBand: '<persona_grounding></persona_grounding>',
+      memoryBand: '[memory: 1 recalled]',
+      kbBand: null,
+    });
+    expect(result.map((m) => m.content)).toEqual([
+      'sys',
+      '<source_context>Discord</source_context>',
+      '<attachments>\n- url: https://x/y.png\n</attachments>',
+      '<persona_grounding></persona_grounding>',
+      '[memory: 1 recalled]',
+      'a',
+      'c',
+    ]);
+  });
 });

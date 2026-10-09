@@ -1,6 +1,11 @@
 import type { ToolDescriptor, ToolName } from '../tools/tool-registry';
 import { LlmError } from './llm.client';
-import type { ChatMessage, StreamSink } from './llm.client';
+import type {
+  ChatMessage,
+  LlmContentPart,
+  MultimodalUserMessage,
+  StreamSink,
+} from './llm.client';
 
 export interface LlmToolCall {
   readonly id: string;
@@ -13,10 +18,16 @@ export interface LlmToolCall {
 
 export type LlmMessage =
   | ChatMessage
+  | MultimodalUserMessage
   | {
       role: 'assistant';
       content: string | null;
       toolCalls: readonly LlmToolCall[];
+      /**
+       * Thinking models (e.g. deepseek via opencode) require the reasoning
+       * that accompanied a tool call to be passed back on the next request.
+       */
+      reasoningContent?: string;
     }
   | { role: 'tool'; callId: string; content: string };
 
@@ -27,6 +38,8 @@ export type LlmResult =
       content: string | null;
       model: string;
       toolCalls: readonly LlmToolCall[];
+      /** Echoed back on the assistant tool-call message (see LlmMessage). */
+      reasoningContent?: string;
     };
 
 export interface LlmToolRequest {
@@ -40,12 +53,38 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   'session.search': 'session_search',
   'session.rename': 'session_rename',
   'channel.send': 'channel_send',
+  read_file: 'read_file',
+  search_files: 'search_files',
+  write_file: 'write_file',
+  patch: 'patch',
+  web_search: 'web_search',
+  web_extract: 'web_extract',
+  skills_list: 'skills_list',
+  skill_view: 'skill_view',
+  todo: 'todo',
+  memory: 'memory',
+  clarify: 'clarify',
+  vision_analyze: 'vision_analyze',
+  image_generate: 'image_generate',
+  terminal: 'terminal',
+  process_start: 'process_start',
+  process_manage: 'process_manage',
+  skill_manage: 'skill_manage',
+  discord: 'discord',
+  discord_admin: 'discord_admin',
+  cronjob_manage: 'cronjob_manage',
+  execute_code: 'execute_code',
+  browser: 'browser',
 };
 const MAX_CALLS = 8;
 const MAX_ARGUMENT_BYTES = 64 * 1024;
 const MAX_TOTAL_ARGUMENT_BYTES = 256 * 1024;
 export const MAX_SSE_BUFFER_BYTES = 128 * 1024;
 const MAX_METADATA_CHARS = 128;
+const MAX_REASONING_CHARS = 200_000;
+const MAX_CONTENT_PARTS = 8;
+const MAX_PART_TEXT_CHARS = 64 * 1024;
+const MAX_IMAGE_URL_CHARS = 12 * 1024 * 1024;
 
 export function protocolError(): LlmError {
   return new LlmError(
@@ -177,13 +216,53 @@ export class ToolOffer {
             function: { name: alias, arguments: call.rawArguments },
           };
         });
-        return { role: 'assistant', content: message.content, tool_calls };
+        return {
+          role: 'assistant',
+          content: message.content,
+          tool_calls,
+          ...(typeof message.reasoningContent === 'string' &&
+          message.reasoningContent.length > 0
+            ? { reasoning_content: message.reasoningContent }
+            : {}),
+        };
+      }
+      if (Array.isArray(message.content)) {
+        if (message.role !== 'user') throw protocolError();
+        return { role: 'user', content: this.contentParts(message.content) };
       }
       if (typeof message.content !== 'string') throw protocolError();
       return { role: message.role, content: message.content };
     });
     if (pending.size) throw protocolError();
     return result;
+  }
+
+  /** Validate and normalize multimodal user content parts (M16.2d). */
+  private contentParts(content: readonly LlmContentPart[]): unknown[] {
+    if (content.length === 0 || content.length > MAX_CONTENT_PARTS)
+      throw protocolError();
+    return content.map((part) => {
+      if (part.type === 'text') {
+        if (
+          typeof part.text !== 'string' ||
+          part.text.length === 0 ||
+          part.text.length > MAX_PART_TEXT_CHARS
+        )
+          throw protocolError();
+        return { type: 'text', text: part.text };
+      }
+      if (part.type === 'image_url') {
+        const url = part.image_url?.url;
+        if (
+          typeof url !== 'string' ||
+          url.length === 0 ||
+          url.length > MAX_IMAGE_URL_CHARS
+        )
+          throw protocolError();
+        return { type: 'image_url', image_url: { url } };
+      }
+      throw protocolError();
+    });
   }
 }
 
@@ -196,6 +275,7 @@ interface PendingCall {
 
 export class CompletionParser {
   private content: string | null = null;
+  private reasoning: string | null = null;
   private readonly calls = new Map<number, PendingCall>();
   private finish: string | null = null;
   private done = false;
@@ -285,6 +365,9 @@ export class CompletionParser {
         content: this.content,
         model: this.model,
         toolCalls,
+        ...(this.reasoning !== null && this.reasoning.length > 0
+          ? { reasoningContent: this.reasoning }
+          : {}),
       };
     }
     if (this.offer && this.finish !== 'stop') throw protocolError();
@@ -347,6 +430,11 @@ export class CompletionParser {
     }
     if (typeof message.content === 'string')
       this.content = (this.content ?? '') + message.content;
+    if (message.reasoning_content !== undefined) {
+      if (typeof message.reasoning_content !== 'string') throw protocolError();
+      this.reasoning = (this.reasoning ?? '') + message.reasoning_content;
+      if (this.reasoning.length > MAX_REASONING_CHARS) throw protocolError();
+    }
   }
 
   private addCall(value: unknown, position?: number): void {

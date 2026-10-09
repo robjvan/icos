@@ -59,6 +59,21 @@ export type McpOutcome =
       };
     };
 
+/**
+ * Generic native-tool outcome (M17b). A bounded JSON result for a native tool
+ * that is not one of the bespoke arms (search/rename/channel.send). Failures
+ * are code-only, like the other arms.
+ */
+export type NativeToolOutcome =
+  | { ok: true; tool: string; result: unknown }
+  | {
+      ok: false;
+      failure: {
+        code:
+          'tool_failed' | 'result_too_large' | 'unavailable' | 'invalid_args';
+      };
+    };
+
 export type FinalOutcome =
   | { state: 'not_required'; result?: Extract<LlmResult, { kind: 'text' }> }
   | { state: 'pending' | 'claimed' }
@@ -97,18 +112,25 @@ export interface ToolExecutionRecord {
   input: ToolExecutionInput;
   invocationId: string | null;
   approvalId: string | null;
+  clarificationId: string | null;
   state:
     | 'closed'
     | 'invalid'
     | 'validated'
     | 'awaiting_approval'
+    | 'awaiting_clarification'
     | 'executing'
     | 'succeeded'
     | 'failed'
     | MirrorOutcomeState;
   validation: ValidationOutcome;
   execution:
-    ExecutionOutcome | RenameOutcome | McpOutcome | ChannelSendOutcome | null;
+    | ExecutionOutcome
+    | RenameOutcome
+    | McpOutcome
+    | ChannelSendOutcome
+    | NativeToolOutcome
+    | null;
   final: FinalOutcome;
   executionToken: string | null;
   ownership: 'unconfirmed' | 'released' | 'none';
@@ -120,6 +142,7 @@ interface Row {
   input_json: string;
   invocation_id: string | null;
   approval_id: string | null;
+  clarification_id: string | null;
   state: ToolExecutionRecord['state'];
   validation_json: string;
   execution_json: string | null;
@@ -178,6 +201,7 @@ export class ToolExecutionRepository {
         input: JSON.parse(row.input_json) as ToolExecutionInput,
         invocationId: row.invocation_id,
         approvalId: row.approval_id,
+        clarificationId: row.clarification_id,
         state: row.state,
         validation: JSON.parse(row.validation_json) as ValidationOutcome,
         execution:
@@ -187,7 +211,8 @@ export class ToolExecutionRepository {
                 | ExecutionOutcome
                 | RenameOutcome
                 | McpOutcome
-                | ChannelSendOutcome),
+                | ChannelSendOutcome
+                | NativeToolOutcome),
         final: JSON.parse(row.final_json) as FinalOutcome,
         executionToken: row.execution_token,
         ownership: row.state === 'executing' ? row.ownership : 'none',
@@ -198,7 +223,7 @@ export class ToolExecutionRepository {
   register(
     snapshot: string,
     validate: (input: ToolExecutionInput) => ValidationOutcome,
-    parked?: { approvalId: string },
+    parked?: { approvalId?: string; clarificationId?: string },
   ): ToolExecutionRecord {
     return this.access(() =>
       this.database.connection
@@ -216,16 +241,18 @@ export class ToolExecutionRepository {
             validation.ok && 'request' in validation
               ? validation.request
               : null;
-          // Parked bindings ride the INSERT (M13b): the immutability
-          // trigger forbids touching approval_id afterwards, so
-          // authority binds at birth or not at all.
+          // Parked bindings ride the INSERT (M13b/M17b): the immutability
+          // trigger forbids touching approval_id/clarification_id
+          // afterwards, so authority binds at birth or not at all.
           const state = !validation.ok
             ? 'invalid'
-            : parked
+            : parked?.approvalId
               ? 'awaiting_approval'
-              : request
-                ? 'validated'
-                : 'closed';
+              : parked?.clarificationId
+                ? 'awaiting_clarification'
+                : request
+                  ? 'validated'
+                  : 'closed';
           const final: FinalOutcome =
             state === 'closed' && input.proposal.kind === 'text'
               ? { state: 'not_required', result: input.proposal }
@@ -237,15 +264,18 @@ export class ToolExecutionRepository {
               ? randomUUID()
               : null;
           const approvalId: string | null = parked?.approvalId ?? null;
-          // Native tools never park (rename was de-escalated).
-          // Pre-flip parked rows keep their stored approval ids and
-          // resume paths; foreign tools mint them via register's
+          const clarificationId: string | null =
+            parked?.clarificationId ?? null;
+          // Native tools never park (rename was de-escalated) except
+          // clarify, which binds its clarification at birth like an
+          // approval. Pre-flip parked rows keep their stored ids and
+          // resume paths; foreign tools mint approvals via register's
           // parked binding above.
           this.database.connection
             .prepare(
               `INSERT INTO tool_requests
-        (request_id, session_id, input_json, invocation_id, approval_id, state, validation_json, execution_token, ownership, final_state, final_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'unconfirmed', ?, ?)`,
+        (request_id, session_id, input_json, invocation_id, approval_id, clarification_id, state, validation_json, execution_token, ownership, final_state, final_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'unconfirmed', ?, ?)`,
             )
             .run(
               input.requestId,
@@ -253,6 +283,7 @@ export class ToolExecutionRepository {
               snapshot,
               invocationId,
               approvalId,
+              clarificationId,
               state,
               JSON.stringify(validation),
               final.state,
@@ -389,6 +420,50 @@ export class ToolExecutionRepository {
   }
 
   /**
+   * Claim a validated (approval-free) native call for inline execution
+   * (M17b). Mirrors claimTool with the native check (no `foreign` marker):
+   * revalidates inside the claim transaction and invalidates on disagreement.
+   */
+  claimNativeTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'validated') return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            'foreign' in validation.request ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'validated'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'validated' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
    * Claim an approval-parked foreign call after grant. Mirrors
    * claimRename (awaiting_approval start) with the namespaced
    * check: only a granted stored approval executes, exactly once.
@@ -438,7 +513,11 @@ export class ToolExecutionRepository {
    * finishSearch (succeeded/failed + pending final) — outcomes
    * flow to the model through the shared final path untouched.
    */
-  finishTool(requestId: string, token: string, outcome: McpOutcome): void {
+  finishTool(
+    requestId: string,
+    token: string,
+    outcome: McpOutcome | NativeToolOutcome,
+  ): void {
     this.access(() =>
       this.database.connection
         .transaction(() => {
@@ -482,6 +561,100 @@ export class ToolExecutionRepository {
             !('request' in validation) ||
             validation.request.name !== 'channel.send' ||
             'foreign' in validation.request ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'awaiting_approval'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'awaiting_approval' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Claim an awaiting-clarification native call for execution once its
+   * clarification is answered (M17b). Mirrors claimChannelSend with the
+   * native check and the clarification-park start state; revalidates
+   * inside the claim so a policy change since parking invalidates.
+   */
+  claimClarify(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'awaiting_clarification') return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            validation.request.name !== 'clarify' ||
+            'foreign' in validation.request ||
+            !isDeepStrictEqual(validation, record.validation)
+          ) {
+            const failure: ValidationOutcome = validation.ok
+              ? { ok: false, failure: { code: 'unpermitted_tool' } }
+              : validation;
+            this.database.connection
+              .prepare(
+                "UPDATE tool_requests SET state = 'invalid', validation_json = ? WHERE request_id = ? AND state = 'awaiting_clarification'",
+              )
+              .run(JSON.stringify(failure), requestId);
+            return null;
+          }
+          const token = randomUUID();
+          const result = this.database.connection
+            .prepare(
+              "UPDATE tool_requests SET state = 'executing', execution_token = ? WHERE request_id = ? AND state = 'awaiting_clarification' AND execution_token IS NULL",
+            )
+            .run(token, requestId);
+          return result.changes === 1 ? token : null;
+        })
+        .immediate(),
+    );
+  }
+
+  /**
+   * Claim an approval-parked native call for execution once granted
+   * (M17c). Generic native arm: any non-foreign, non-channel.send,
+   * non-rename native tool (e.g. terminal) that parked on approval.
+   * Mirrors claimChannelSend with the native check.
+   */
+  claimApprovedNativeTool(
+    requestId: string,
+    revalidate: (input: ToolExecutionInput) => ValidationOutcome,
+  ): string | null {
+    return this.access(() =>
+      this.database.connection
+        .transaction(() => {
+          const record = this.required(requestId);
+          if (record.state !== 'awaiting_approval' || !record.approvalId)
+            return null;
+          this.requireSession(record.sessionId);
+          const validation = revalidate(record.input);
+          if (
+            !validation.ok ||
+            !('request' in validation) ||
+            'foreign' in validation.request ||
+            validation.request.name === 'channel.send' ||
+            validation.request.name === 'session.rename' ||
             !isDeepStrictEqual(validation, record.validation)
           ) {
             const failure: ValidationOutcome = validation.ok
@@ -667,18 +840,23 @@ export class ToolExecutionRepository {
    * Mirror a terminal non-approved approval outcome onto an
    * awaiting-approval invocation. Rejection, cancellation, and expiry
    * close the invocation without execution; the model is not
-   * re-prompted (final stays `not_required`).
+   * re-prompted (final stays `not_required`). Also mirrors an
+   * unanswered clarification (cancelled/expired) from its park state.
    */
-  mirrorOutcome(requestId: string, to: MirrorOutcomeState): boolean {
+  mirrorOutcome(
+    requestId: string,
+    to: MirrorOutcomeState,
+    from: 'awaiting_approval' | 'awaiting_clarification' = 'awaiting_approval',
+  ): boolean {
     return this.access(() =>
       this.database.connection
         .transaction(() => {
           const result = this.database.connection
             .prepare(
               `UPDATE tool_requests SET state = ?
-               WHERE request_id = ? AND state = 'awaiting_approval'`,
+               WHERE request_id = ? AND state = ?`,
             )
-            .run(to, requestId);
+            .run(to, requestId, from);
           if (result.changes === 1) return true;
           return this.required(requestId).state === to;
         })

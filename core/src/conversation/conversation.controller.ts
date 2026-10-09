@@ -36,6 +36,7 @@ export class ConversationController {
     const outcome = await this.conversation.converse(
       dto.message,
       dto.sessionId,
+      dto.attachments ? { attachments: dto.attachments } : undefined,
     );
     if (outcome.status !== 'ok') res.status(202);
     return outcome;
@@ -84,6 +85,7 @@ export class ConversationController {
       dto.sessionId,
       send.emit,
       upstream.signal,
+      dto.attachments ?? [],
     );
     send.end();
   }

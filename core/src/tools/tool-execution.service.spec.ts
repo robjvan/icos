@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -19,6 +19,27 @@ import {
   type ToolExecutionInput,
 } from './tool-execution.service';
 import type { ChannelSendPort } from '../channels/channel-send.port';
+import { ClarificationService } from '../clarifications/clarification.service';
+import { SqliteClarificationRepository } from '../clarifications/sqlite-clarification.repository';
+import { SkillService } from '../skills/skill.service';
+import type { TodoRepository } from '../session/todo.repository';
+import type { Claim } from '../memory/claim';
+import type { ClaimRepository } from '../memory/claim.repository';
+import type { MemoryCandidateRepository } from '../memory/memory-candidate.repository';
+import type { RecallResult, RecallService } from '../memory/recall.service';
+import type { PersonaRepository } from '../persona/persona.repository';
+import type { VisionService } from '../vision/vision.service';
+import type { ImageGenService } from '../image/image-gen.service';
+import { ProcessRegistry } from '../process/process-registry.service';
+import type { DiscordAdminPort } from '../channels/discord-admin.port';
+import type { CronService } from '../cron/cron.service';
+import { ToolRpcTokens } from './tool-rpc.tokens';
+import type { BrowserService } from '../browser/browser.service';
+
+const noopClarifications = {
+  create: () => Promise.reject(new Error('clarify unwired')),
+  get: () => Promise.reject(new Error('clarify unwired')),
+} as unknown as ClarificationService;
 
 function input(): ToolExecutionInput {
   return {
@@ -48,7 +69,54 @@ describe('ToolExecutionService SQLite', () => {
   const databases: SessionDatabaseService[] = [];
   const final = jest.fn<Promise<LlmResult>, [LlmToolRequest]>();
 
-  function open(channels?: ChannelSendPort) {
+  function toolInput(
+    requestId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): ToolExecutionInput {
+    const rawArguments = JSON.stringify(args);
+    return {
+      requestId,
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'do it' }],
+      allowedTools: [name],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: `${requestId}-call`,
+            name,
+            version: 1,
+            rawArguments,
+            args,
+          },
+        ],
+      },
+    };
+  }
+
+  function open(
+    channels?: ChannelSendPort,
+    searxngBaseUrl?: string,
+    skills?: SkillService,
+    todos?: TodoRepository,
+    memory: {
+      claims?: ClaimRepository;
+      recall?: RecallService;
+      candidates?: MemoryCandidateRepository;
+      persona?: PersonaRepository;
+    } = {},
+    clarifications?: ClarificationService,
+    vision?: VisionService,
+    imageGen?: ImageGenService,
+    processes?: ProcessRegistry,
+    discordAdmin?: DiscordAdminPort,
+    cron?: CronService,
+    rpcTokens?: ToolRpcTokens,
+    browser?: BrowserService,
+  ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
       memoryDbPath: join(dir, 'unused.sqlite'),
@@ -67,6 +135,16 @@ describe('ToolExecutionService SQLite', () => {
       sessions,
       new NoopPublisher(),
     );
+    const clarificationsRepository = new SqliteClarificationRepository(
+      database,
+    );
+    const clarificationsPort: ClarificationService =
+      clarifications ??
+      new ClarificationService(
+        clarificationsRepository,
+        sessions,
+        new NoopPublisher(),
+      );
     const service = new ToolExecutionService(
       ledger,
       store,
@@ -75,13 +153,31 @@ describe('ToolExecutionService SQLite', () => {
         chatWithTools: final,
       },
       approvals,
-      {},
+      {
+        workspaceRoot: dir,
+        ...(searxngBaseUrl !== undefined ? { searxngBaseUrl } : {}),
+        rpcBaseUrl: 'http://127.0.0.1:3000',
+      },
       undefined,
       approvalService,
       {
         callTool: () => Promise.reject(new Error('mcp unwired')),
       } as unknown as McpConnectionService,
+      clarificationsPort,
       channels,
+      skills,
+      todos,
+      memory.claims,
+      memory.recall,
+      memory.candidates,
+      memory.persona,
+      vision,
+      imageGen,
+      processes ?? new ProcessRegistry(),
+      discordAdmin,
+      cron,
+      rpcTokens ?? new ToolRpcTokens(),
+      browser,
     );
     return {
       database,
@@ -92,6 +188,7 @@ describe('ToolExecutionService SQLite', () => {
       service,
       approvals,
       approvalService,
+      clarifications: clarificationsRepository,
     };
   }
 
@@ -135,6 +232,957 @@ describe('ToolExecutionService SQLite', () => {
     expect(search).toHaveBeenCalledWith('teal', { sessionId: 's1', limit: 1 });
     expect(final).toHaveBeenCalledTimes(1);
     expect(await sessions.getMessages('s1')).toHaveLength(1);
+  });
+
+  it('reads a workspace file through the generic native path (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'note.txt'), 'hello workspace');
+
+    const record = await service.consume({
+      requestId: 'req-read',
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'read it' }],
+      allowedTools: ['read_file'],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'call-read',
+            name: 'read_file',
+            version: 1,
+            rawArguments: '{"path":"note.txt"}',
+            args: { path: 'note.txt' },
+          },
+        ],
+      },
+    });
+
+    expect(record.state).toBe('succeeded');
+    expect(record.execution).toMatchObject({
+      ok: true,
+      tool: 'read_file',
+      result: { path: 'note.txt', content: 'hello workspace' },
+    });
+  });
+
+  it('refuses a read_file path outside the workspace (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const record = await service.consume({
+      requestId: 'req-escape',
+      sessionId: 's1',
+      context: [{ role: 'user', content: 'read it' }],
+      allowedTools: ['read_file'],
+      proposal: {
+        kind: 'tool_calls',
+        model: 'test',
+        content: null,
+        toolCalls: [
+          {
+            id: 'call-escape',
+            name: 'read_file',
+            version: 1,
+            rawArguments: '{"path":"../outside.txt"}',
+            args: { path: '../outside.txt' },
+          },
+        ],
+      },
+    });
+
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('writes and patches a workspace file through the generic native path (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const write = await service.consume(
+      toolInput('req-write', 'write_file', {
+        path: 'sub/a.txt',
+        content: 'hello',
+      }),
+    );
+    expect(write.state).toBe('succeeded');
+    expect(write.execution).toMatchObject({
+      ok: true,
+      tool: 'write_file',
+      result: { path: 'sub/a.txt', bytes: 5 },
+    });
+    expect(readFileSync(join(dir, 'sub/a.txt'), 'utf8')).toBe('hello');
+
+    const patch = await service.consume(
+      toolInput('req-patch', 'patch', {
+        path: 'sub/a.txt',
+        oldString: 'hello',
+        newString: 'bye',
+      }),
+    );
+    expect(patch.state).toBe('succeeded');
+    expect(readFileSync(join(dir, 'sub/a.txt'), 'utf8')).toBe('bye');
+  });
+
+  it('fails a patch when the string is absent (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'a.txt'), 'hello');
+
+    const record = await service.consume(
+      toolInput('req-patch-miss', 'patch', {
+        path: 'a.txt',
+        oldString: 'nope',
+        newString: 'x',
+      }),
+    );
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('searches the web through SearXNG (M17b)', async () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'SearXNG',
+              url: 'https://searxng.example',
+              content: 'meta search',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    try {
+      const { sessions, service } = open(
+        undefined,
+        'http://searxng.local:8080',
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolInput('req-web', 'web_search', { query: 'searxng' }),
+      );
+
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        tool: 'web_search',
+        result: {
+          query: 'searxng',
+          results: [
+            {
+              title: 'SearXNG',
+              url: 'https://searxng.example',
+              snippet: 'meta search',
+            },
+          ],
+        },
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[0] as string).toContain('format=json');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('fails web_search when SearXNG is not configured (M17b)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const record = await service.consume(
+      toolInput('req-web-none', 'web_search', { query: 'x' }),
+    );
+
+    expect(record.state).toBe('failed');
+    expect(record.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'unavailable' },
+    });
+  });
+
+  it('extracts readable text from a web page (M17b)', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          '<html><head><style>.x{}</style><script>bad()</script></head>' +
+            '<body><h1>Title</h1><p>Hello &amp; welcome</p></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        ),
+      );
+    try {
+      const { sessions, service } = open(
+        undefined,
+        'http://searxng.local:8080',
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolInput('req-extract', 'web_extract', {
+          url: 'https://example.com/page',
+        }),
+      );
+
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        tool: 'web_extract',
+        result: {
+          url: 'https://example.com/page',
+          text: 'Title Hello & welcome',
+        },
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('lists and views skills through the generic native path (M17b)', async () => {
+    const skills = {
+      listDescriptors: () => [
+        { name: 'demo', description: 'A demo skill', version: '1.0.0' },
+      ],
+      loadBody: (name: string) =>
+        Promise.resolve({
+          name,
+          description: 'A demo skill',
+          version: '1.0.0',
+          body: 'Do the demo.',
+          bodyChars: 12,
+        }),
+    } as unknown as SkillService;
+    const { sessions, service } = open(undefined, undefined, skills);
+    await sessions.createSession('s1');
+
+    const list = await service.consume(
+      toolInput('req-skills', 'skills_list', {}),
+    );
+    expect(list.state).toBe('succeeded');
+    expect(list.execution).toMatchObject({
+      ok: true,
+      tool: 'skills_list',
+      result: { skills: [{ name: 'demo', description: 'A demo skill' }] },
+    });
+
+    const view = await service.consume(
+      toolInput('req-skill-view', 'skill_view', { name: 'demo' }),
+    );
+    expect(view.state).toBe('succeeded');
+    expect(view.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_view',
+      result: { name: 'demo', body: 'Do the demo.' },
+    });
+  });
+
+  it('manages todos through the generic native path (M17b)', async () => {
+    const todos = {
+      list: () => Promise.resolve([]),
+      add: (sessionId: string, text: string) =>
+        Promise.resolve({
+          id: 't1',
+          sessionId,
+          text,
+          status: 'open',
+          createdAt: 'now',
+          updatedAt: 'now',
+        }),
+      complete: (sessionId: string, id: string) =>
+        Promise.resolve({
+          id,
+          sessionId,
+          text: 'do it',
+          status: 'done',
+          createdAt: 'now',
+          updatedAt: 'now',
+        }),
+      remove: () => Promise.resolve(true),
+      clear: () => Promise.resolve(0),
+    } as unknown as TodoRepository;
+    const { sessions, service } = open(undefined, undefined, undefined, todos);
+    await sessions.createSession('s1');
+
+    const add = await service.consume(
+      toolInput('req-todo-add', 'todo', { action: 'add', text: 'do it' }),
+    );
+    expect(add.state).toBe('succeeded');
+    expect(add.execution).toMatchObject({
+      ok: true,
+      tool: 'todo',
+      result: { todo: { id: 't1', text: 'do it', status: 'open' } },
+    });
+
+    const done = await service.consume(
+      toolInput('req-todo-done', 'todo', { action: 'complete', id: 't1' }),
+    );
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'todo',
+      result: { todo: { id: 't1', status: 'done' } },
+    });
+  });
+
+  it('inspects the memory layers through the generic native path (M17b)', async () => {
+    const claim = {
+      id: 'c1',
+      subject: 'user',
+      predicate: 'likes',
+      object: 'cashmere sweaters',
+      status: 'active',
+      category: 'preference',
+      origin: 'user',
+      confidence: 0.8,
+      negated: false,
+      entities: ['cashmere sweaters'],
+    } as unknown as Claim;
+    const otherClaim = {
+      ...claim,
+      id: 'c2',
+      predicate: 'dislikes',
+      object: 'wool',
+      entities: ['wool'],
+    };
+    const claims = {
+      listClaims: () => Promise.resolve([claim, otherClaim]),
+      getClaim: (id: string) => Promise.resolve(id === 'c1' ? claim : null),
+    } as unknown as ClaimRepository;
+    const recall = {
+      recall: () =>
+        Promise.resolve({
+          query: { text: 'sweaters', tokens: ['sweaters'] },
+          lexical: {
+            surface: 'lexical',
+            available: true,
+            hits: [{ claimId: 'c1', score: 0.9, surface: 'lexical' }],
+          },
+          semantic: {
+            surface: 'semantic',
+            available: false,
+            reason: 'down',
+            hits: [],
+          },
+          associative: { surface: 'associative', available: true, hits: [] },
+          kb: { available: false, hits: [] },
+        } as unknown as RecallResult),
+    } as unknown as RecallService;
+    const candidates = {
+      listCandidates: () =>
+        Promise.resolve([
+          {
+            id: 'm1',
+            kind: 'preference',
+            subject: 'user',
+            predicate: 'likes',
+            object: 'cashmere',
+            confidence: 0.7,
+            importance: 0.5,
+            sourceRole: 'user',
+            negated: false,
+            extractedAt: 'now',
+            source: { sessionId: 's1', messageId: 1, role: 'user' },
+          },
+        ]),
+    } as unknown as MemoryCandidateRepository;
+    const persona = {
+      listRecords: () =>
+        Promise.resolve([
+          {
+            recordId: 'r1',
+            category: 'identity',
+            content: 'goes by Rob',
+            confidence: 0.9,
+            sensitivity: 'normal',
+            protected: false,
+          },
+        ]),
+      listUserFacts: () =>
+        Promise.resolve([
+          { memoryId: 'f1', content: 'middle name is James', confidence: 0.9 },
+        ]),
+      getRelationship: () =>
+        Promise.resolve({
+          trustLevel: 0.6,
+          emotionalTemperature: 0.4,
+          activeNicknames: ['Rob'],
+          recentDevelopments: [],
+        }),
+      getCoreState: () =>
+        Promise.resolve({
+          path: '/core.md',
+          hash: 'abc',
+          entryCount: 11,
+          loaded: true,
+          reason: null,
+          updatedAt: 'now',
+        }),
+    } as unknown as PersonaRepository;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { claims, recall, candidates, persona },
+    );
+    await sessions.createSession('s1');
+
+    const beliefs = await service.consume(
+      toolInput('req-mem-beliefs', 'memory', {
+        layer: 'beliefs',
+        query: 'wool',
+      }),
+    );
+    expect(beliefs.state).toBe('succeeded');
+    expect(beliefs.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { beliefs: [{ id: 'c2' }] },
+    });
+
+    const ranked = await service.consume(
+      toolInput('req-mem-recall', 'memory', {
+        layer: 'recall',
+        query: 'sweaters',
+      }),
+    );
+    expect(ranked.state).toBe('succeeded');
+    expect(ranked.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { beliefs: [{ id: 'c1', score: 0.9 }] },
+    });
+
+    const personaResult = await service.consume(
+      toolInput('req-mem-persona', 'memory', { layer: 'persona' }),
+    );
+    expect(personaResult.state).toBe('succeeded');
+    expect(personaResult.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: {
+        core: { loaded: true, entryCount: 11 },
+        records: [{ id: 'r1' }],
+        userFacts: [{ id: 'f1' }],
+        relationship: { trustLevel: 0.6 },
+      },
+    });
+
+    const candidateResult = await service.consume(
+      toolInput('req-mem-candidates', 'memory', { layer: 'candidates' }),
+    );
+    expect(candidateResult.state).toBe('succeeded');
+    expect(candidateResult.execution).toMatchObject({
+      ok: true,
+      tool: 'memory',
+      result: { candidates: [{ id: 'm1', kind: 'preference' }] },
+    });
+  });
+
+  it('parks on a clarification and resumes with the answer (M17b)', async () => {
+    const { sessions, service, clarifications } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-clarify', 'clarify', {
+        question: 'Which one?',
+        options: ['a', 'b'],
+      }),
+    );
+    expect(parked.state).toBe('awaiting_clarification');
+    const clarificationId = parked.clarificationId;
+    expect(clarificationId).toBeDefined();
+
+    // Polling before an answer keeps the invocation parked.
+    const polled = await service.resume('req-clarify', 's1');
+    expect(polled.state).toBe('awaiting_clarification');
+
+    await clarifications.answerClarification(clarificationId as string, 'a');
+    const answered = await service.resume('req-clarify', 's1', {
+      skipFinal: true,
+    });
+    expect(answered.state).toBe('succeeded');
+    expect(answered.execution).toMatchObject({
+      ok: true,
+      tool: 'clarify',
+      result: {
+        question: 'Which one?',
+        answer: 'a',
+        options: ['a', 'b'],
+      },
+    });
+  });
+
+  it('analyzes a workspace image through the vision role (M17b.8)', async () => {
+    type VisionInput = { prompt: string; dataUrl: string };
+    const analyze = jest.fn<
+      Promise<{ text: string; model: string }>,
+      [VisionInput]
+    >(() => Promise.resolve({ text: 'A teal square.', model: 'v' }));
+    const vision = { analyze } as unknown as VisionService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      vision,
+    );
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const result = await service.consume(
+      toolInput('req-vision', 'vision_analyze', {
+        path: 'pic.png',
+        prompt: 'What?',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'vision_analyze',
+      result: {
+        path: 'pic.png',
+        mime: 'image/png',
+        model: 'v',
+        text: 'A teal square.',
+      },
+    });
+    expect(analyze).toHaveBeenCalledTimes(1);
+    const call = analyze.mock.calls[0][0];
+    expect(call.prompt).toBe('What?');
+    expect(call.dataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('rejects an unsupported image type (M17b.8)', async () => {
+    const analyze = jest.fn();
+    const vision = { analyze } as unknown as VisionService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      vision,
+    );
+    await sessions.createSession('s1');
+    writeFileSync(join(dir, 'notes.txt'), 'hello');
+
+    const result = await service.consume(
+      toolInput('req-vision-bad', 'vision_analyze', { path: 'notes.txt' }),
+    );
+    expect(result.state).toBe('failed');
+    expect(result.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
+  it('generates an image through the image backend (M17b.9)', async () => {
+    const generate = jest.fn(() =>
+      Promise.resolve({
+        path: '/w/generated/x.png',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        bytes: 4,
+      }),
+    );
+    const imageGen = { generate } as unknown as ImageGenService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      imageGen,
+    );
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-img', 'image_generate', {
+        prompt: 'a teal square',
+        size: '512x512',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'image_generate',
+      result: {
+        path: '/w/generated/x.png',
+        provider: 'openai',
+        model: 'gpt-image-1',
+        bytes: 4,
+      },
+    });
+    expect(generate).toHaveBeenCalledWith({
+      prompt: 'a teal square',
+      size: '512x512',
+    });
+  });
+
+  it('reports image_generate unavailable when unconfigured (M17b.9)', async () => {
+    const { sessions, service } = open();
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-img-none', 'image_generate', { prompt: 'x' }),
+    );
+    expect(result.state).toBe('failed');
+    expect(result.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'unavailable' },
+    });
+  });
+
+  it('runs an approved terminal command in the workspace jail (M17c)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-term', 'terminal', { command: 'echo hello' }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    expect(parked.approvalId).toBeTruthy();
+    expect(parked.execution).toBeNull();
+
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-term', 's1', { skipFinal: true });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'terminal',
+      result: { exitCode: 0 },
+    });
+    const outcome = done.execution as unknown as {
+      result: { stdout: string };
+    };
+    expect(outcome.result.stdout).toContain('hello');
+  });
+
+  it('rejects a terminal cwd outside the workspace (M17c)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-term-esc', 'terminal', {
+        command: 'pwd',
+        cwd: '../..',
+      }),
+    );
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-term-esc', 's1', {
+      skipFinal: true,
+    });
+    expect(done.state).toBe('failed');
+    expect(done.execution).toMatchObject({
+      ok: false,
+      failure: { code: 'tool_failed' },
+    });
+  });
+
+  it('starts a background process after approval and manages it (M17c.2)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-ps', 'process_start', { command: 'sleep 30' }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const started = await service.resume('req-ps', 's1', { skipFinal: true });
+    expect(started.state).toBe('succeeded');
+    const startedResult = started.execution as unknown as {
+      result: { id: string };
+    };
+    const id = startedResult.result.id;
+    expect(id).toBeTruthy();
+
+    const listed = await service.consume(
+      toolInput('req-ps-list', 'process_manage', { action: 'list' }),
+    );
+    expect(listed.state).toBe('succeeded');
+    expect(listed.execution).toMatchObject({
+      ok: true,
+      tool: 'process_manage',
+    });
+
+    const killed = await service.consume(
+      toolInput('req-ps-kill', 'process_manage', { action: 'kill', id }),
+    );
+    expect(killed.state).toBe('succeeded');
+    expect(killed.execution).toMatchObject({
+      ok: true,
+      tool: 'process_manage',
+      result: { killed: true },
+    });
+  });
+
+  it('creates, updates, and deletes a skill through skill_manage (M17c.3)', async () => {
+    const skillsDir = mkdtempSync(join(tmpdir(), 'icos-skills-'));
+    const skills = new SkillService({
+      skillsEnabled: true,
+      skillsDirPath: skillsDir,
+      skillsMaxBodyChars: 64 * 1024,
+    } as unknown as CoreConfig);
+    await skills.onModuleInit();
+    const { sessions, service } = open(undefined, undefined, skills);
+    await sessions.createSession('s1');
+
+    const created = await service.consume(
+      toolInput('req-skill-create', 'skill_manage', {
+        action: 'create',
+        name: 'demo',
+        description: 'Demo.',
+        body: 'Step.',
+      }),
+    );
+    expect(created.state).toBe('succeeded');
+    expect(created.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_manage',
+      result: { action: 'create', skill: { name: 'demo' } },
+    });
+
+    const updated = await service.consume(
+      toolInput('req-skill-update', 'skill_manage', {
+        action: 'update',
+        name: 'demo',
+        description: 'Updated.',
+        body: 'Step two.',
+      }),
+    );
+    expect(updated.state).toBe('succeeded');
+
+    const deleted = await service.consume(
+      toolInput('req-skill-delete', 'skill_manage', {
+        action: 'delete',
+        name: 'demo',
+      }),
+    );
+    expect(deleted.state).toBe('succeeded');
+    expect(deleted.execution).toMatchObject({
+      ok: true,
+      tool: 'skill_manage',
+      result: { deleted: true },
+    });
+    expect(skills.listDescriptors().map((d) => d.name)).not.toContain('demo');
+    rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  it('reads Discord info and runs approved moderation (M17c.4)', async () => {
+    const run = jest.fn((request: { action: string }) =>
+      Promise.resolve({ action: request.action, ok: true }),
+    );
+    const discordAdmin = { run } as unknown as DiscordAdminPort;
+    const { sessions, service, approvalService } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      discordAdmin,
+    );
+    await sessions.createSession('s1');
+
+    const info = await service.consume(
+      toolInput('req-dc-info', 'discord', { action: 'server_info' }),
+    );
+    expect(info.state).toBe('succeeded');
+    expect(info.execution).toMatchObject({
+      ok: true,
+      tool: 'discord',
+      result: { action: 'server_info' },
+    });
+
+    const parked = await service.consume(
+      toolInput('req-dc-timeout', 'discord_admin', {
+        action: 'timeout_member',
+        user_id: 'u1',
+        duration_ms: 60000,
+        reason: 'spam',
+      }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-dc-timeout', 's1', {
+      skipFinal: true,
+    });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'discord_admin',
+      result: { action: 'timeout_member', ok: true },
+    });
+    expect(run).toHaveBeenCalledWith({
+      action: 'timeout_member',
+      userId: 'u1',
+      durationMs: 60000,
+      reason: 'spam',
+    });
+  });
+
+  it('manages cron jobs through cronjob_manage (M17d)', async () => {
+    const job = {
+      id: 'j1',
+      name: 'morning',
+      schedule: '0 9 * * *',
+      prompt: 'p',
+      sessionId: 's1',
+      deliver: null,
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: '2026-10-10T09:00:00.000Z',
+      createdAt: 't',
+      updatedAt: 't',
+    };
+    const cronCreate = jest.fn(() => Promise.resolve(job));
+    const cron = {
+      list: jest.fn(() => Promise.resolve([job])),
+      create: cronCreate,
+      pause: jest.fn(() => Promise.resolve({ ...job, enabled: false })),
+      resume: jest.fn(() => Promise.resolve(job)),
+      remove: jest.fn(() => Promise.resolve()),
+      runNow: jest.fn(() => Promise.resolve({ reply: 'ok', delivered: false })),
+    } as unknown as CronService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      cron,
+    );
+    await sessions.createSession('s1');
+
+    const list = await service.consume(
+      toolInput('req-cron-list', 'cronjob_manage', { action: 'list' }),
+    );
+    expect(list.state).toBe('succeeded');
+    expect(list.execution).toMatchObject({
+      ok: true,
+      tool: 'cronjob_manage',
+      result: { jobs: [{ id: 'j1' }] },
+    });
+
+    const create = await service.consume(
+      toolInput('req-cron-create', 'cronjob_manage', {
+        action: 'create',
+        name: 'morning',
+        schedule: '0 9 * * *',
+        prompt: 'p',
+      }),
+    );
+    expect(create.state).toBe('succeeded');
+    expect(cronCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'morning',
+        schedule: '0 9 * * *',
+        prompt: 'p',
+        sessionId: 's1',
+      }),
+    );
+
+    const remove = await service.consume(
+      toolInput('req-cron-remove', 'cronjob_manage', {
+        action: 'remove',
+        id: 'j1',
+      }),
+    );
+    expect(remove.state).toBe('succeeded');
+    expect(remove.execution).toMatchObject({
+      ok: true,
+      result: { removed: true },
+    });
+  });
+
+  it('runs an approved script through execute_code (M17d.2)', async () => {
+    const { sessions, service, approvalService } = open();
+    await sessions.createSession('s1');
+
+    const parked = await service.consume(
+      toolInput('req-code', 'execute_code', {
+        language: 'javascript',
+        code: 'console.log("hi from code")',
+      }),
+    );
+    expect(parked.state).toBe('awaiting_approval');
+    await approvalService.approve(parked.approvalId as string, 's1');
+    const done = await service.resume('req-code', 's1', { skipFinal: true });
+    expect(done.state).toBe('succeeded');
+    expect(done.execution).toMatchObject({
+      ok: true,
+      tool: 'execute_code',
+      result: { language: 'javascript', exitCode: 0 },
+    });
+    const outcome = done.execution as unknown as {
+      result: { stdout: string };
+    };
+    expect(outcome.result.stdout).toContain('hi from code');
+  });
+
+  it('drives the browser through the browser tool (M17d.3)', async () => {
+    const run = jest.fn<Promise<unknown>, [string, { action: string }]>(() =>
+      Promise.resolve({ ok: true }),
+    );
+    const browser = { run } as unknown as BrowserService;
+    const { sessions, service } = open(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      browser,
+    );
+    await sessions.createSession('s1');
+
+    const result = await service.consume(
+      toolInput('req-browser', 'browser', {
+        action: 'navigate',
+        url: 'https://example.com/',
+      }),
+    );
+    expect(result.state).toBe('succeeded');
+    expect(result.execution).toMatchObject({
+      ok: true,
+      tool: 'browser',
+      result: { ok: true },
+    });
+    expect(run).toHaveBeenCalledWith('s1', {
+      action: 'navigate',
+      url: 'https://example.com/',
+    });
   });
 
   it('defers the final call when skipFinal is set, then finalizes on demand', async () => {
@@ -939,6 +1987,7 @@ describe('ToolExecutionService SQLite', () => {
         {
           callTool: () => Promise.reject(new Error('mcp unwired')),
         } as unknown as McpConnectionService,
+        noopClarifications,
       );
       const result = await service.consume(input());
       expect(result).toMatchObject({
@@ -1353,6 +2402,7 @@ describe('ToolExecutionService foreign tools (M13b)', () => {
           _args: Record<string, unknown>,
         ) => mcpCall(tool, _args),
       } as unknown as McpConnectionService,
+      noopClarifications,
     );
     return {
       database,

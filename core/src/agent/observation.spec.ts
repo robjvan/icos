@@ -29,6 +29,7 @@ function record(
     },
     invocationId: 'inv-1',
     approvalId: null,
+    clarificationId: null,
     state: 'succeeded',
     validation: {
       ok: true,

@@ -48,12 +48,23 @@ import { buildPlanningBlock } from '../agent/planning-context';
 import type { ConversationStreamEvent } from './conversation.service';
 import { FakeSessionRepository } from './fake-session.repository';
 import { SessionStore } from './session.store';
+import type { AttachmentImageResolver } from './attachment-images';
+
+/** Test helper: the string content of a message (multimodal-safe). */
+function textOf(message: { content: unknown }): string {
+  return typeof message.content === 'string'
+    ? message.content
+    : JSON.stringify(message.content);
+}
 import {
+  answeredClarifyRecord,
+  clarifyProposal,
   closedTextRecord,
   executingRecord,
   foreignProposal,
   foreignSuccessRecord,
   invalidRecord,
+  pendingClarifyRecord,
   pendingForeignRecord,
   pendingRenameRecord,
   renameProposal,
@@ -152,6 +163,7 @@ function testRun(overrides: Partial<AgentRun> = {}): AgentRun {
       maxTurnDurationMs: MAX_TURN_DURATION_MS,
     },
     approvalId: 'appr-1',
+    clarificationId: null,
     termination: null,
     createdAt: 't',
     updatedAt: 't',
@@ -166,6 +178,16 @@ function renameInput(requestId: string): ToolExecutionInput {
     context: [{ role: 'user', content: 'rename it' }],
     allowedTools: ['session.search', 'session.rename'],
     proposal: renameProposal(),
+  };
+}
+
+function clarifyInput(requestId: string): ToolExecutionInput {
+  return {
+    requestId,
+    sessionId: 's-1',
+    context: [{ role: 'user', content: 'ask me' }],
+    allowedTools: ['session.search', 'clarify'],
+    proposal: clarifyProposal(),
   };
 }
 
@@ -331,6 +353,9 @@ function setup(
         audit: () => Promise.resolve(0),
       } as unknown as HallucinationGuardService,
       new NoopPublisher(),
+      {
+        resolve: () => Promise.resolve({ parts: [], description: null }),
+      } as unknown as AttachmentImageResolver,
     ),
     repository,
     chatWithTools,
@@ -361,9 +386,31 @@ describe('ConversationService', () => {
     const sent = chatWithTools.mock.calls[0][0];
     expect(sent.sessionId).toBe(result.sessionId);
     expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
+      'browser',
       'channel.send',
+      'clarify',
+      'cronjob_manage',
+      'discord',
+      'discord_admin',
+      'execute_code',
+      'image_generate',
+      'memory',
+      'patch',
+      'process_manage',
+      'process_start',
+      'read_file',
+      'search_files',
       'session.rename',
       'session.search',
+      'skill_manage',
+      'skill_view',
+      'skills_list',
+      'terminal',
+      'todo',
+      'vision_analyze',
+      'web_extract',
+      'web_search',
+      'write_file',
     ]);
     expect(sent.messages[0]).toEqual({
       role: 'system',
@@ -380,6 +427,28 @@ describe('ConversationService', () => {
       'session.search',
       'session.rename',
       'channel.send',
+      'read_file',
+      'search_files',
+      'write_file',
+      'patch',
+      'web_search',
+      'web_extract',
+      'skills_list',
+      'skill_view',
+      'todo',
+      'memory',
+      'clarify',
+      'vision_analyze',
+      'image_generate',
+      'terminal',
+      'process_start',
+      'process_manage',
+      'skill_manage',
+      'discord',
+      'discord_admin',
+      'cronjob_manage',
+      'execute_code',
+      'browser',
     ]);
     expect(await repository.getMessages(result.sessionId)).toEqual([
       { role: 'user', content: 'hello' },
@@ -393,7 +462,7 @@ describe('ConversationService', () => {
     await service.converse('find teal');
 
     const sent = chatWithTools.mock.calls[0][0];
-    const system = String(sent.messages[0].content);
+    const system = textOf(sent.messages[0]);
     expect(system).toContain('Goal for this turn: find teal');
     expect(system).toContain('session.search (runs immediately)');
     expect(system).toContain('session.rename (runs immediately)');
@@ -858,7 +927,7 @@ describe('ConversationService', () => {
       expect(result.status).toBe('ok');
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name)).toContain('mcp_files_read');
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'mcp_files_read (pauses for human approval and ends your turn)',
       );
       const consumed = tools.consume.mock.calls[0][0];
@@ -933,7 +1002,7 @@ describe('ConversationService', () => {
         toolCalls: [{ id: 'inv-foreign-1', name: 'mcp_files_read' }],
       });
       expect(tail[1]).toMatchObject({ role: 'tool', callId: 'inv-foreign-1' });
-      expect(JSON.parse(String(tail[1].content))).toMatchObject({
+      expect(JSON.parse(textOf(tail[1]))).toMatchObject({
         ok: true,
         mcp: { server: 'files', tool: 'read' },
       });
@@ -1025,14 +1094,36 @@ describe('ConversationService', () => {
 
       const sent = chatWithTools.mock.calls[0][0];
       expect(sent.tools.map((tool) => tool.name).sort()).toEqual([
+        'browser',
         'channel.send',
+        'clarify',
+        'cronjob_manage',
+        'discord',
+        'discord_admin',
+        'execute_code',
+        'image_generate',
+        'memory',
+        'patch',
+        'process_manage',
+        'process_start',
+        'read_file',
+        'search_files',
         'session.rename',
         'session.search',
+        'skill_manage',
+        'skill_view',
+        'skills_list',
+        'terminal',
+        'todo',
+        'vision_analyze',
+        'web_extract',
+        'web_search',
+        'write_file',
       ]);
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'Unavailable (do not propose):',
       );
-      expect(String(sent.messages[0].content)).toContain(
+      expect(textOf(sent.messages[0])).toContain(
         'mcp_files_* (server "files" failed: refused)',
       );
       const consumed = tools.consume.mock.calls[0][0];
@@ -1040,6 +1131,28 @@ describe('ConversationService', () => {
         'session.search',
         'session.rename',
         'channel.send',
+        'read_file',
+        'search_files',
+        'write_file',
+        'patch',
+        'web_search',
+        'web_extract',
+        'skills_list',
+        'skill_view',
+        'todo',
+        'memory',
+        'clarify',
+        'vision_analyze',
+        'image_generate',
+        'terminal',
+        'process_start',
+        'process_manage',
+        'skill_manage',
+        'discord',
+        'discord_admin',
+        'cronjob_manage',
+        'execute_code',
+        'browser',
       ]);
     });
 
@@ -1436,6 +1549,58 @@ describe('ConversationService', () => {
       expect(result.status).toBe('approval_required');
       expect(agentRuns.markParked).toHaveBeenCalledWith('run-1', 'appr-1');
       expect(agentRuns.markTerminal).not.toHaveBeenCalled();
+    });
+
+    it('parks clarify proposals as clarification_required with the pointer', async () => {
+      const { service, agentRuns } = setup(
+        testConfig(),
+        () => Promise.resolve(clarifyProposal()),
+        undefined,
+        undefined,
+        (input) => Promise.resolve(pendingClarifyRecord(input)),
+      );
+
+      const result = await service.converse('ask me');
+
+      expect(result.status).toBe('clarification_required');
+      expect(result.clarification).toMatchObject({
+        clarificationId: 'clar-1',
+        question: 'Which one?',
+        options: ['a', 'b'],
+      });
+      expect(agentRuns.markParkedForInteraction).toHaveBeenCalledWith(
+        'run-1',
+        'clar-1',
+      );
+      expect(agentRuns.markParked).not.toHaveBeenCalled();
+      expect(agentRuns.markTerminal).not.toHaveBeenCalled();
+    });
+
+    it('continues planning with the clarification answer on resume', async () => {
+      const { service, agentRuns, tools, chatWithTools } = setup(
+        testConfig(),
+        () => Promise.resolve(textProposal('teal found again')),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : pendingClarifyRecord(input),
+          ),
+      );
+      agentRuns.findByRequest.mockReturnValue(
+        testRun({ clarificationId: 'clar-1', approvalId: null }),
+      );
+      tools.resume.mockImplementation(() =>
+        Promise.resolve(answeredClarifyRecord(clarifyInput('req-9'))),
+      );
+
+      const result = await service.resumeTurn('req-9', 's-1');
+
+      expect(result.status).toBe('ok');
+      expect(chatWithTools).toHaveBeenCalledTimes(1);
+      expect(agentRuns.markTerminal).toHaveBeenCalled();
     });
 
     it('completes the parked run on resume', async () => {
@@ -2025,6 +2190,34 @@ describe('ConversationService', () => {
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'hi back' },
       ]);
+    });
+
+    it('carries attachments into the streamed turn (M16.2)', async () => {
+      const { service, chatStreamWithTools } = setup();
+      const events: ConversationStreamEvent[] = [];
+
+      await service.converseStream(
+        'see attached',
+        undefined,
+        (event) => events.push(event),
+        undefined,
+        [
+          {
+            url: '/core/attachments/a1',
+            name: 'a.txt',
+            contentType: 'text/plain',
+          },
+        ],
+      );
+
+      const sent = chatStreamWithTools.mock.calls[0]?.[0] as {
+        messages: readonly { role: string; content: string }[];
+      };
+      const band = sent.messages.find(
+        (m) => m.role === 'system' && m.content.includes('<attachments>'),
+      );
+      expect(band?.content).toContain('name: a.txt');
+      expect(band?.content).toContain('url: /core/attachments/a1');
     });
 
     it('emits error and stores nothing when the LLM fails', async () => {
