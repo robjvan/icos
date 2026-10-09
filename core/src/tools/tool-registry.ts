@@ -362,6 +362,8 @@ export interface UnavailableForeignServer {
 export interface ForeignToolSource {
   listForeign(): readonly {
     readonly name: string;
+    /** Generated toolset (M19); absent → pooled under `mcp`. */
+    readonly toolset?: string;
     readonly description: string;
     readonly approval: ApprovalPolicy;
     readonly argsSchema: ToolDescriptor['argsSchema'];
@@ -371,6 +373,8 @@ export interface ForeignToolSource {
         readonly name: string;
         readonly server: string;
         readonly tool: string;
+        /** Generated toolset (M19); absent → pooled under `mcp`. */
+        readonly toolset?: string;
         readonly description: string;
         readonly approval: ApprovalPolicy;
         readonly argsSchema: ToolDescriptor['argsSchema'];
@@ -381,6 +385,11 @@ export interface ForeignToolSource {
    * declared). The bridge serves it; test doubles omit it.
    */
   unavailableForeign?(): readonly UnavailableForeignServer[];
+  /**
+   * Selector aliases for dynamically-registered toolsets (optional seam,
+   * M19). Absent = no aliases (literal toolset names only).
+   */
+  toolsetAliases?(): Readonly<Record<string, readonly string[]>>;
 }
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -2443,7 +2452,7 @@ export class ToolRegistry {
         version: 1,
         description: descriptor.description,
         approval: descriptor.approval,
-        toolset: 'mcp',
+        toolset: descriptor.toolset ?? 'mcp',
         argsSchema: descriptor.argsSchema,
       })) ?? [];
     return [...DESCRIPTORS, ...foreign];
@@ -2465,6 +2474,14 @@ export class ToolRegistry {
     return this.foreign?.unavailableForeign?.() ?? [];
   }
 
+  /**
+   * Selector aliases for the foreign source's generated toolsets (M19).
+   * Empty without a source or when the seam is absent.
+   */
+  toolsetAliases(): Readonly<Record<string, readonly string[]>> {
+    return this.foreign?.toolsetAliases?.() ?? {};
+  }
+
   private foreignSourceDescriptor(name: string): ToolDescriptor | undefined {
     const foreign = this.foreign?.lookupForeign(name);
     if (!foreign) return undefined;
@@ -2473,7 +2490,7 @@ export class ToolRegistry {
       version: 1,
       description: foreign.description,
       approval: foreign.approval,
-      toolset: 'mcp',
+      toolset: foreign.toolset ?? 'mcp',
       argsSchema: foreign.argsSchema,
     };
   }

@@ -863,6 +863,7 @@ describe('ConversationService', () => {
 
     const foreignDescriptor = {
       name: 'mcp_files_read',
+      toolset: 'mcp-files',
       description: 'Read a file',
       approval: 'required' as const,
       argsSchema: foreignArgsSchema,
@@ -887,6 +888,7 @@ describe('ConversationService', () => {
               }
             : undefined,
         unavailableForeign: () => unavailable,
+        toolsetAliases: () => ({ files: ['mcp-files'], mcp: ['mcp-files'] }),
       });
     }
 
@@ -932,6 +934,27 @@ describe('ConversationService', () => {
       );
       const consumed = tools.consume.mock.calls[0][0];
       expect(consumed.allowedTools).toContain('mcp_files_read');
+    });
+
+    it('selects foreign tools by the bare server alias (M19)', async () => {
+      const { service, chatWithTools } = setup(
+        testConfig({ toolsEnabledToolsets: ['files'] }),
+        () => Promise.resolve(textProposal()),
+        undefined,
+        undefined,
+        undefined,
+        foreignRegistry(),
+      );
+
+      const result = await service.converse('read it');
+
+      expect(result.status).toBe('ok');
+      const sent = chatWithTools.mock.calls[0][0];
+      const offered = sent.tools.map((tool) => tool.name);
+      // The bare server name resolves to the generated mcp-files toolset.
+      expect(offered).toContain('mcp_files_read');
+      // Opt-in: a native tool outside the enabled toolset is not offered.
+      expect(offered).not.toContain('web_search');
     });
 
     it('parks foreign proposals under their own name with no writes', async () => {

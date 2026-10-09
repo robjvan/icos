@@ -204,7 +204,7 @@
 
 - [x] **M18: Skills Adoption**
 
-- [ ] **M19: Dynamic MCP Server toolsets**
+- [x] **M19: Dynamic MCP Server toolsets**
 
 - [ ] **M20: Web/Client Surface Catch-Up**
   - Discord EXP-2 (Discord slash commands)

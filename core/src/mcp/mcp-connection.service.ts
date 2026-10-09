@@ -30,6 +30,7 @@ import {
   writeCatalogEntries,
 } from './mcp-server-config';
 import type { McpServerEntry } from './mcp-server-config';
+import { toolsetFor } from './mcp-tool-bridge';
 import { SecretChangeNotifier } from '../secrets/secret-change.notifier';
 
 export type McpServerState = 'connected' | 'disabled' | 'failed';
@@ -42,6 +43,8 @@ export interface McpServerStatus {
   /** Human reason for disabled/failed (never secrets). */
   reason?: string;
   toolCount: number;
+  /** Generated toolset (M19): `mcp-<server>`. */
+  toolset: string;
 }
 
 /** Per-server reload result (same shape as the health surface). */
@@ -549,6 +552,7 @@ export class McpConnectionService implements OnModuleInit, OnModuleDestroy {
       state: server.state,
       ...(server.reason !== undefined ? { reason: server.reason } : {}),
       toolCount: server.tools.length,
+      toolset: toolsetFor(server.entry.name),
     };
   }
 

@@ -1620,6 +1620,7 @@ describe('ToolRegistry', () => {
       name: 'mcp_files_read',
       server: 'files',
       tool: 'read',
+      toolset: 'mcp-files',
       description: 'Read a file',
       approval: 'required' as const,
       argsSchema: {
@@ -1677,6 +1678,7 @@ describe('ToolRegistry', () => {
       ]);
       expect(bridged.lookup('mcp_files_read')).toMatchObject({
         approval: 'required',
+        toolset: 'mcp-files',
       });
       expect(bridged.lookup('mcp_nope')).toBeUndefined();
     });

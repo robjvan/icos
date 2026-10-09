@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { McpConnectionService } from './mcp-connection.service';
-import { toArgsSchema, toNamespacedName } from './mcp-tool-bridge';
+import { toArgsSchema, toNamespacedName, toolsetFor } from './mcp-tool-bridge';
 import type { TranslatedSchema } from './mcp-tool-bridge';
 import type {
   ApprovalPolicy,
@@ -13,6 +13,8 @@ export interface ForeignToolDescriptor {
   readonly name: string;
   readonly server: string;
   readonly tool: string;
+  /** Generated toolset (M19): `mcp-<server>`. */
+  readonly toolset: string;
   readonly description: string;
   readonly approval: ApprovalPolicy;
   readonly argsSchema: TranslatedSchema;
@@ -75,6 +77,7 @@ export class McpToolBridge implements ForeignToolSource, OnModuleInit {
         name,
         server,
         tool: tool.name,
+        toolset: toolsetFor(server),
         description: tool.description?.trim() || `${server}/${tool.name}`,
         approval: entry?.approval ?? 'required',
         argsSchema,
@@ -91,6 +94,23 @@ export class McpToolBridge implements ForeignToolSource, OnModuleInit {
 
   lookupForeign(name: string): ForeignToolDescriptor | undefined {
     return this.descriptors.find((descriptor) => descriptor.name === name);
+  }
+
+  /**
+   * Selector aliases for the generated toolsets (M19): the bare server name
+   * resolves to its `mcp-<server>` toolset, and `mcp` resolves to every
+   * generated toolset. Additive — a server named after a built-in toolset
+   * (browser, web) composes rather than shadows.
+   */
+  toolsetAliases(): Readonly<Record<string, readonly string[]>> {
+    const aliases: Record<string, string[]> = {};
+    const all = new Set<string>();
+    for (const descriptor of this.descriptors) {
+      all.add(descriptor.toolset);
+      aliases[descriptor.server] = [descriptor.toolset];
+    }
+    if (all.size > 0) aliases['mcp'] = [...all];
+    return aliases;
   }
 
   /**

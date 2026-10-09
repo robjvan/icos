@@ -155,10 +155,15 @@ describe('McpToolBridge', () => {
     expect(bridge.listForeign()[0]).toMatchObject({
       server: 'files',
       tool: 'read',
+      toolset: 'mcp-files',
       approval: 'required',
     });
     expect(bridge.lookupForeign('mcp_files_read')?.server).toBe('files');
     expect(bridge.lookupForeign('mcp_files_nope')).toBeUndefined();
+    expect(bridge.toolsetAliases()).toEqual({
+      files: ['mcp-files'],
+      mcp: ['mcp-files'],
+    });
     await connections.onModuleDestroy();
   });
 
