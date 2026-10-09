@@ -169,22 +169,32 @@ resolveToolPolicy(this.registry.list(), {
 
 ## Live verification target (M19.4)
 
-ByteStash MCP server at `http://192.168.2.10:5000/` (HTTP transport, API-key
-auth). It may not be registered yet — M19.4 registers it via
-`PUT /core/mcp/servers/bytestash` (or `~/.icos/mcp-servers.json`) + reload, then
-asserts the `mcp-bytestash` toolset appears and is selectable.
+ByteStash MCP server (`http://192.168.2.10:5000/mcp`, Streamable HTTP, API-key
+auth). Verified against the code:
 
-Credentials follow the existing rule: the catalog holds **references only**:
+- ICOS speaks the **Streamable HTTP** transport
+  (`StreamableHTTPClientTransport`, `sdk-mcp-client.ts:3`). ✅
+- The catalog `url` is a **literal** (not a reference) → the entry carries
+  `http://192.168.2.10:5000/mcp` directly.
+- `env_file: ./core/.env` is wired, so `$BYTESTASH_AUTH` resolves in-container;
+  `MCP_ENABLED=true` and `MCP_SERVERS_PATH` are already set.
+- `BYTESTASH_AUTH` holds the raw key, and ByteStash accepts `x-api-key`, so the
+  entry uses `"x-api-key": "$BYTESTASH_AUTH"` (no scheme prefix needed).
 
-- `$VAR` → the process environment (`.env` / compose `environment:`) — the
-  testing path.
-- `secret:NAME` → the encrypted vault (`PUT /core/secrets/:name`) — the durable
-  operator path.
+```jsonc
+{
+  "name": "bytestash",
+  "transport": "http",
+  "url": "http://192.168.2.10:5000/mcp",
+  "headers": { "x-api-key": "$BYTESTASH_AUTH" },
+  "approval": "required"
+}
+```
 
-A catalog value must be **exactly one reference** (no surrounding text), so a
-scheme prefix goes in the referenced value itself (e.g. `BYTESTASH_AUTH="Bearer
-<key>"` → `"Authorization": "$BYTESTASH_AUTH"`), or the server accepts a bare
-token header.
+ByteStash exposes six tools (`list_snippets`, `get_snippet`, `create_snippet`,
+`update_snippet`, `delete_snippet`, `list_metadata`), so the target is a
+`mcp-bytestash` toolset with those tools. M19.4 also exercises the vault path
+(`secret:`) alongside `$VAR`.
 
 ## Slices
 
