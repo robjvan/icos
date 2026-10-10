@@ -26,7 +26,7 @@ Find your machine; the rest of this page explains the pieces.
 
 ### 1. Discrete GPU, 8 GB VRAM — the supported baseline
 
-This is the configuration the [USAGE](../USAGE.md) requirement (8 GB VRAM)
+This is the configuration the [usage](usage.md) requirement (8 GB VRAM)
 describes: **one model served, everything else off the GPU.**
 
 - **Resident on the GPU:** the memory/vision/audio model (Gemma4-E4B,

@@ -23,11 +23,8 @@ icos/   # Root of project.
 │     └── .env.sample       # Authoritative runtime configuration template.
 │
 ├── docs/                       # User-facing documents.
-│     ├── skills/               # Sample skills.
-│     │     ├── ...             # Other sample skill files.
-│     │     └── icos-v3-stack/  # Skill containing ICOS stack knowledge and guidance.
-│     │         └── SKILL.md   # Skill file.
-│     │
+│     ├── usage.md              # Setup, configuration, and operation.
+│     ├── releases.md           # Release history and milestone changelog.
 │     ├── model-lineups.md      # Which models to run, and the memory budget.
 │     ├── security.md           # Exposure, TLS, auth, and secrets.
 │     ├── skill-blueprint.md    # Template for new skill creation.
@@ -47,6 +44,5 @@ icos/   # Root of project.
 ├── docker-compose.yml      # Core Compose configuration.
 ├── INDEX.md                # Project index.
 ├── LICENSE.md              # Non-commercial use license.
-├── README.md               # Project-level README document.
-└── USAGE.md                # Setup, configuration, and operation.
+└── README.md               # Project-level README document.
 ```

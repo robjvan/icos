@@ -63,7 +63,8 @@ The agent loop, interaction layer, model boundary, session persistence, memory s
 
 The goal is not to reproduce a biological model of cognition. Instead, ICOS is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
 
-> **Trying it out?** Start with **[USAGE.md](USAGE.md)** (setup, configuration,
+> **Trying it out?** Start with **[docs/usage.md](docs/usage.md)** (setup,
+> configuration,
 > and running the stack). Before exposing it beyond your machine, read
 > **[docs/security.md](docs/security.md).** To understand what the platform
 > actually does — feature by feature, and how each is verified — read
@@ -306,11 +307,10 @@ web-client/             # Angular web client
 docker-compose.yml      # Supported launch path (core service)
 docker-compose-dmr.yml  # DMR override: models served in-stack (see bin/dmr)
 bin/dmr                 # Shorthand for the DMR variant
-docs/                   # User-facing docs (security, blueprints, model lineups)
+docs/                   # User-facing docs (usage, security, blueprints, model lineups)
 .reference/             # Plans, evidence, and planning notes
 ARCHITECTURE.md         # Plain-English architecture and feature guide
 INDEX.md                # Full repository map
-USAGE.md                # Setup, configuration, and operation
 ```
 
 See **[INDEX.md](INDEX.md)** for the complete annotated map.
