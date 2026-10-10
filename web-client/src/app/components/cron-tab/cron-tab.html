@@ -1,5 +1,79 @@
-<app-tab-placeholder
-  title="Cron jobs"
-  description="Scheduled job management. Unimplemented in the server."
-  milestone="M17"
-/>
+<section class="tab-pane" aria-label="Cron jobs">
+  <div class="tab-pane-header">
+    <h1>Cron</h1>
+    <span class="badge">server-backed</span>
+    <span class="grow"></span>
+    <button type="button" (click)="refresh()">Refresh</button>
+  </div>
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <form class="create" [formGroup]="form" (ngSubmit)="create()" aria-label="New cron job">
+    <div class="row">
+      <label class="field">
+        <span>Name</span>
+        <input formControlName="name" placeholder="morning-brief" />
+      </label>
+      <label class="field">
+        <span>Schedule (5-field cron)</span>
+        <input formControlName="schedule" class="mono" placeholder="0 9 * * *" />
+      </label>
+    </div>
+    <label class="field">
+      <span>Prompt</span>
+      <textarea
+        formControlName="prompt"
+        rows="3"
+        placeholder="What should the job do when it runs?"
+      ></textarea>
+    </label>
+    <div class="actions">
+      <button type="submit" class="primary" [disabled]="form.invalid">Create job</button>
+    </div>
+  </form>
+
+  <ul class="job-list" aria-label="Cron jobs">
+    @for (job of jobs(); track job.id) {
+      <li class="job">
+        <div class="job-header">
+          <span class="name">{{ job.name }}</span>
+          <span class="schedule mono">{{ job.schedule }}</span>
+          <span class="state" [class.off]="!job.enabled">{{ job.enabled ? 'enabled' : 'paused' }}</span>
+        </div>
+        <p class="prompt">{{ job.prompt }}</p>
+        <span class="meta mono">
+          next {{ job.nextRunAt ?? '—' }} · last {{ job.lastRunAt ?? '—' }}
+        </span>
+        @if (lastRun()?.id === job.id) {
+          <p class="run-result" role="status">
+            {{ lastRun()!.delivered ? 'delivered' : 'no delivery' }} —
+            {{ lastRun()!.reply ?? '(no reply)' }}
+          </p>
+        }
+        <div class="actions">
+          @if (pendingDelete() === job.id) {
+            <span class="confirm">Delete this job?</span>
+            <button type="button" class="danger" (click)="doDelete(job)">Confirm</button>
+            <button type="button" (click)="cancelDelete()">Cancel</button>
+          } @else {
+            @if (job.enabled) {
+              <button type="button" (click)="pause(job)" [disabled]="busy() === job.id">Pause</button>
+            } @else {
+              <button type="button" (click)="resume(job)" [disabled]="busy() === job.id">Resume</button>
+            }
+            <button type="button" (click)="run(job)" [disabled]="busy() === job.id">Run now</button>
+            <button type="button" class="danger" (click)="confirmDelete(job)" [disabled]="busy() === job.id">
+              Delete
+            </button>
+          }
+        </div>
+      </li>
+    } @empty {
+      @if (error() === null) {
+        <li class="empty">No cron jobs.</li>
+      }
+    }
+  </ul>
+</section>

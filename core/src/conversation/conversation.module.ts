@@ -87,6 +87,7 @@ import { CronJobRepository } from '../cron/cron-job.repository';
 import { SqliteCronJobRepository } from '../cron/sqlite-cron-job.repository';
 import { CronService } from '../cron/cron.service';
 import { CronScheduler } from '../cron/cron-scheduler.service';
+import { CronController } from '../cron/cron.controller';
 import { BrowserService } from '../browser/browser.service';
 import { DISCORD_ADMIN } from '../channels/discord-admin.port';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
@@ -224,6 +225,7 @@ const toolExecutionServiceProvider = {
     HealthController,
     McpController,
     HallucinationController,
+    CronController,
   ],
   providers: [
     coreConfigProvider,

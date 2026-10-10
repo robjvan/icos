@@ -1,7 +1,7 @@
 <section class="tab-pane" aria-label="Memory">
   <div class="tab-pane-header">
     <h1>Memory</h1>
-    <span class="badge">evidence ledger · ranking unimplemented (M10–M12)</span>
+    <span class="badge">evidence ledger · rankable</span>
     <span class="grow"></span>
     <button type="button" (click)="refresh()">Refresh</button>
   </div>
@@ -49,6 +49,12 @@
           autocomplete="off"
           aria-label="Filter by session id"
         />
+        <select formControlName="sort" aria-label="Rank ledger by" (change)="refresh()">
+          <option value="recent">Most recent</option>
+          <option value="confidence">Confidence</option>
+          <option value="importance">Importance</option>
+          <option value="stability">Stability</option>
+        </select>
         <button type="submit">Apply</button>
         <button type="button" (click)="clearFilter()">Clear</button>
       </form>

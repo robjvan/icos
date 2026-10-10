@@ -12,6 +12,7 @@ import { map } from 'rxjs';
 import { LucideSearch } from '@lucide/angular';
 import { MemoryCandidateService } from '../../services/memory-candidate.service';
 import { MemoryReviewService } from '../../services/memory-review.service';
+import type { CandidateSort } from '../../models/memory-candidate';
 import { ClaimList } from '../claim-list/claim-list';
 import { MemoryReviewQueue } from '../memory-review-queue/memory-review-queue';
 
@@ -67,6 +68,7 @@ export class MemoryTab implements OnInit {
 
   readonly filterForm = new FormGroup({
     sessionId: new FormControl('', { nonNullable: true }),
+    sort: new FormControl<CandidateSort>('recent', { nonNullable: true }),
   });
 
   ngOnInit(): void {
@@ -84,11 +86,14 @@ export class MemoryTab implements OnInit {
 
   refresh(): void {
     const sessionId = this.filterForm.controls.sessionId.value.trim();
+    this.ledger.sort.set(this.filterForm.controls.sort.value);
     void this.ledger.refresh(sessionId || undefined);
   }
 
   clearFilter(): void {
     this.filterForm.controls.sessionId.setValue('');
+    this.filterForm.controls.sort.setValue('recent');
+    this.ledger.sort.set('recent');
     void this.ledger.refresh();
   }
 }

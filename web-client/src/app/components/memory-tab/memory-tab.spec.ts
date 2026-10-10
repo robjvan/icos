@@ -19,7 +19,12 @@ describe('MemoryTab', () => {
         provideRouter([]),
         {
           provide: MemoryCandidateService,
-          useValue: { candidates: () => [], error: () => null, refresh: vi.fn() },
+          useValue: {
+            candidates: () => [],
+            error: () => null,
+            sort: signal('recent'),
+            refresh: vi.fn(),
+          },
         },
         {
           provide: MemoryReviewService,

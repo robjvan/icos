@@ -40,3 +40,6 @@ export interface MemoryCandidate {
 export interface ListCandidatesResponse {
   readonly candidates: MemoryCandidate[];
 }
+
+/** Ledger ordering (M20g). Mirrors core `CandidateSort`. */
+export type CandidateSort = 'recent' | 'confidence' | 'importance' | 'stability';

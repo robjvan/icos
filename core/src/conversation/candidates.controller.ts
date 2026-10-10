@@ -19,6 +19,7 @@ export class CandidatesController {
   ): Promise<ListCandidatesResponseDto> {
     const candidates = await this.candidates.listCandidates(query.sessionId, {
       limit: query.limit,
+      ...(query.sort !== undefined ? { sort: query.sort } : {}),
     });
     return { candidates };
   }
