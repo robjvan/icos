@@ -291,10 +291,14 @@ export class DiscordAdapter
   /**
    * Set the native command catalog (M20k) — registered with Discord on ready.
    * Called before login; the definitions come from the internal registry, so
-   * Discord is never a second source of truth.
+   * Discord is never a second source of truth. If the client is already ready
+   * (login resolves after the gateway READY), register immediately.
    */
   setCommands(commands: { name: string; description: string }[]): void {
     this.commands = commands;
+    if (this.ready && this.client) {
+      void this.registerCommands(this.client);
+    }
   }
 
   /** Register the chat-input command handler (M20k). */
