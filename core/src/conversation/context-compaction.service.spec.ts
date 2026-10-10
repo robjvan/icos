@@ -65,6 +65,22 @@ describe('ContextCompactionService', () => {
     expect(result?.summarizedMessages).toBe(10); // walked back to the user turn
   });
 
+  it('falls back to the conversation model when the memory role fails', async () => {
+    const memoryChat = jest.fn(() => Promise.reject(new Error('memory down')));
+    const withMemory = new ContextCompactionService(
+      config(),
+      store,
+      budget,
+      { chat } as unknown as LlmClient,
+      { chat: memoryChat } as unknown as LlmClient,
+    );
+    await seed('s1', 20);
+    const result = await withMemory.compact('s1');
+    expect(result).not.toBeNull();
+    expect(memoryChat).toHaveBeenCalled();
+    expect(chat).toHaveBeenCalled(); // conversation model served the summary
+  });
+
   it('returns null when the conversation is shorter than the keep floor', async () => {
     await seed('s1', 5);
     expect(await service.compact('s1')).toBeNull();

@@ -3,6 +3,7 @@ import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
 import { LlmClient } from '../llm/llm.client';
 import type { ChatMessage } from '../llm/llm.client';
+import type { LlmChatRequest } from '../llm/llm-provider';
 import { MEMORY_LLM_CLIENT } from '../memory/llm-memory-candidate-extractor';
 import { SessionStore } from './session.store';
 import type { ContextSummary } from '../session/session.repository';
@@ -80,17 +81,19 @@ export class ContextCompactionService {
       .join('\n')
       .slice(0, MAX_TRANSCRIPT_CHARS);
     const prior = existing ? `Existing summary:\n${existing.summary}\n\n` : '';
-    const client = this.memoryLlm ?? this.llm;
-    const result = await client.chat({
-      messages: [
-        { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `${prior}New transcript to fold in:\n${transcript}`,
-        },
-      ],
-    });
-    const summary = result.content.trim().slice(0, MAX_SUMMARY_CHARS);
+    const summary = (
+      await this.summarizeWithFallback({
+        messages: [
+          { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `${prior}New transcript to fold in:\n${transcript}`,
+          },
+        ],
+      })
+    )
+      .trim()
+      .slice(0, MAX_SUMMARY_CHARS);
     if (!summary) return null;
 
     const coveredUptoMessageId = toFold[toFold.length - 1].id;
@@ -139,5 +142,26 @@ export class ContextCompactionService {
   /** The resolved summarizer model name (for `/status` / `/compact`). */
   summarizerLabel(): string {
     return this.memoryLlm ? this.config.memoryLlmModel : this.config.llmModel;
+  }
+
+  /**
+   * Summarize via the memory role when configured, falling back to the
+   * conversation model when it is absent or fails (M20.6.2 decision).
+   */
+  private async summarizeWithFallback(
+    request: LlmChatRequest,
+  ): Promise<string> {
+    if (this.memoryLlm) {
+      try {
+        return (await this.memoryLlm.chat(request)).content;
+      } catch (err) {
+        this.logger.warn(
+          `Memory-role summarizer failed (${
+            err instanceof Error ? err.message : 'unknown'
+          }); falling back to the conversation model`,
+        );
+      }
+    }
+    return (await this.llm.chat(request)).content;
   }
 }

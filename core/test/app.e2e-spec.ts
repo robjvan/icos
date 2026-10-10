@@ -24,6 +24,7 @@ import {
 import { buildPlanningBlock } from '../src/agent/planning-context';
 import { ToolRegistry } from '../src/tools/tool-registry';
 import { LlmClient } from '../src/llm/llm.client';
+import { MEMORY_LLM_CLIENT } from '../src/memory/llm-memory-candidate-extractor';
 import { MemoryCandidateExtractor } from '../src/memory/memory-candidate-extractor';
 import { ClaimIndex } from '../src/memory/claim-index';
 import { ClaimRepository } from '../src/memory/claim.repository';
@@ -55,6 +56,10 @@ describe('Conversation (e2e)', () => {
   const chatWithTools = jest.fn<Promise<MockLlmResult>, [unknown]>(
     chatWithToolsImpl,
   );
+  // M20.6.2 compaction uses LlmClient.chat (a plain completion).
+  const chatImpl = (): Promise<{ content: string; model: string }> =>
+    Promise.resolve({ content: 'compacted summary', model: 'test-model' });
+  const chat = jest.fn(chatImpl);
   let streamFails = false;
   let extractFails = false;
   const extractImpl = (
@@ -248,9 +253,18 @@ describe('Conversation (e2e)', () => {
         realtimeEnabled: false,
         realtimeHeartbeatMs: 30000,
         realtimeAllowedOrigins: ['http://localhost:4200'],
+        // M20.6 context budget + compaction (large window: no auto-compaction
+        // unless a test lowers it).
+        llmContextWindow: 1_000_000,
+        llmMaxOutputTokens: 8192,
+        contextCompactionEnabled: true,
+        contextCompactionTarget: 0.8,
+        contextSettingsPath: join(dir, 'context-settings.json'),
       })
       .overrideProvider(LlmClient)
-      .useValue({ chatWithTools, chatStreamWithTools })
+      .useValue({ chatWithTools, chatStreamWithTools, chat })
+      .overrideProvider(MEMORY_LLM_CLIENT)
+      .useValue({ chat })
       .overrideProvider(MemoryCandidateExtractor)
       .useValue({ extract })
       .overrideProvider(ClaimIndex)
@@ -2640,6 +2654,94 @@ describe('Conversation (e2e)', () => {
           .send({ value: 'v' })
           .expect(409);
       });
+    });
+  });
+
+  describe('Context budget + compaction (e2e)', () => {
+    interface ContextSettingsBody {
+      settings: {
+        contextWindow: number;
+        maxOutputTokens: number;
+        usableTokens: number;
+        triggerTokens: number;
+        target: number;
+        enabled: boolean;
+      };
+    }
+    interface ContextSummaryBody {
+      sessionId: string;
+      summary: {
+        sessionId: string;
+        summary: string;
+        coveredUptoMessageId: number;
+        tokenEstimate: number;
+      } | null;
+    }
+
+    it('exposes settings, round-trips the target, and stores a rolling summary', async () => {
+      const server = app!.getHttpServer();
+
+      const initial = await request(server).get('/core/context').expect(200);
+      expect((initial.body as ContextSettingsBody).settings).toMatchObject({
+        contextWindow: 1_000_000,
+        maxOutputTokens: 8192,
+        target: 0.8,
+        enabled: true,
+      });
+
+      const updated = await request(server)
+        .put('/core/context')
+        .send({ target: 0.9, enabled: false })
+        .expect(200);
+      expect((updated.body as ContextSettingsBody).settings).toMatchObject({
+        target: 0.9,
+        enabled: false,
+      });
+      await request(server)
+        .put('/core/context')
+        .send({ target: 0.8, enabled: true })
+        .expect(200);
+
+      // Ten turns ⇒ ~20 messages, more than the keep-recent floor.
+      let sessionId = '';
+      for (let i = 0; i < 10; i += 1) {
+        const res = await request(server)
+          .post('/core/conversation')
+          .send({ message: `turn ${i}`, ...(sessionId ? { sessionId } : {}) })
+          .expect(200);
+        sessionId = (res.body as ConversationResponse).sessionId;
+      }
+      const before = await request(server)
+        .get(`/core/conversation/${sessionId}`)
+        .expect(200);
+      const beforeCount = (before.body as HistoryResponse).messages.length;
+
+      const compact = await request(server)
+        .post('/core/conversation')
+        .send({ message: '/compact', sessionId })
+        .expect(200);
+      expect((compact.body as ConversationResponse).reply).toContain(
+        'Compacted',
+      );
+      expect(chat).toHaveBeenCalled();
+
+      const summary = await request(server)
+        .get('/core/context/summary')
+        .query({ sessionId })
+        .expect(200);
+      expect((summary.body as ContextSummaryBody).summary).toMatchObject({
+        sessionId,
+        summary: 'compacted summary',
+      });
+      expect(
+        (summary.body as ContextSummaryBody).summary?.coveredUptoMessageId,
+      ).toBeGreaterThan(0);
+
+      // Compaction is context-only: the transcript is untouched.
+      const after = await request(server)
+        .get(`/core/conversation/${sessionId}`)
+        .expect(200);
+      expect((after.body as HistoryResponse).messages.length).toBe(beforeCount);
     });
   });
 });
