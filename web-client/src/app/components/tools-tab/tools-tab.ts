@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ToolService } from '../../services/tool.service';
-import type { ToolInventoryEntry } from '../../models/tool';
+import type { ToolDiscoveryState, ToolInventoryEntry } from '../../models/tool';
 
 /**
  * Tools tab (M20f): the real tool inventory from `GET /core/tools/inventory`,
@@ -17,6 +17,7 @@ export class ToolsTab implements OnInit {
   private readonly toolsApi = inject(ToolService);
 
   readonly tools = signal<readonly ToolInventoryEntry[]>([]);
+  readonly discovery = signal<ToolDiscoveryState | null>(null);
   readonly error = signal<string | null>(null);
   readonly saving = signal<string | null>(null);
 
@@ -31,8 +32,12 @@ export class ToolsTab implements OnInit {
   async refresh(): Promise<void> {
     this.error.set(null);
     try {
-      const result = await this.toolsApi.inventory();
-      this.tools.set(result.tools);
+      const [inventory, discovery] = await Promise.all([
+        this.toolsApi.inventory(),
+        this.toolsApi.discovery().catch(() => null),
+      ]);
+      this.tools.set(inventory.tools);
+      this.discovery.set(discovery);
     } catch (error) {
       this.tools.set([]);
       this.error.set(error instanceof Error ? error.message : String(error));

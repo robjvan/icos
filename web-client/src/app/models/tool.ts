@@ -14,3 +14,16 @@ export interface ToolInventoryEntry {
 export interface ToolInventoryResponse {
   readonly tools: ToolInventoryEntry[];
 }
+
+/** Tool-discovery state + bounds from `GET /core/tools/discovery` (M20.7). */
+export interface ToolDiscoveryState {
+  readonly enabled: boolean;
+  readonly universe: number;
+  readonly bounds: {
+    readonly maxPerTurn: number;
+    readonly discoveryLimit: number;
+    readonly pullMaxResults: number;
+    readonly pullMaxPerTurn: number;
+    readonly alwaysOn: readonly string[];
+  };
+}

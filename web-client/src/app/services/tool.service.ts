@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { TOOLS_ENDPOINT } from '../../constants';
-import type { ToolInventoryResponse } from '../models/tool';
+import type { ToolDiscoveryState, ToolInventoryResponse } from '../models/tool';
 import { CoreApiService } from './core-api.service';
 
 /** Tool inventory + global auto-approve overrides (M20f). */
@@ -10,6 +10,11 @@ export class ToolService {
 
   async inventory(): Promise<ToolInventoryResponse> {
     return this.api.get<ToolInventoryResponse>(`${TOOLS_ENDPOINT}/inventory`);
+  }
+
+  /** M20.7 discovery state + bounds (read-only). */
+  async discovery(): Promise<ToolDiscoveryState> {
+    return this.api.get<ToolDiscoveryState>(`${TOOLS_ENDPOINT}/discovery`);
   }
 
   async setAutoApprove(name: string, autoApprove: boolean): Promise<ToolInventoryResponse> {

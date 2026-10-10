@@ -10,6 +10,7 @@ describe('ToolsTab', () => {
   let fixture: ComponentFixture<ToolsTab>;
   let toolsApi: {
     inventory: ReturnType<typeof vi.fn>;
+    discovery: ReturnType<typeof vi.fn>;
     setAutoApprove: ReturnType<typeof vi.fn>;
   };
 
@@ -33,6 +34,17 @@ describe('ToolsTab', () => {
   beforeEach(async () => {
     toolsApi = {
       inventory: vi.fn().mockResolvedValue({ tools }),
+      discovery: vi.fn().mockResolvedValue({
+        enabled: true,
+        universe: tools.length,
+        bounds: {
+          maxPerTurn: 12,
+          discoveryLimit: 8,
+          pullMaxResults: 5,
+          pullMaxPerTurn: 2,
+          alwaysOn: ['search_platform_tools'],
+        },
+      }),
       setAutoApprove: vi.fn().mockResolvedValue({
         tools: tools.map((tool) =>
           tool.name === 'terminal' ? { ...tool, autoApprove: true } : tool,

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ToolRegistry } from './tool-registry';
 import { ToolPrefsService } from './tool-prefs.service';
+import { ToolSurfaceService } from './tool-surface.service';
 import { RequireRole } from '../auth/decorators';
 
 export interface ToolInventoryEntry {
@@ -30,11 +31,26 @@ export class ToolInventoryController {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly prefs: ToolPrefsService,
+    private readonly surface: ToolSurfaceService,
   ) {}
 
   @Get('inventory')
   inventory(): { tools: ToolInventoryEntry[] } {
     return { tools: this.descriptors() };
+  }
+
+  /** M20.7 tool-discovery state + bounds (read-only). */
+  @Get('discovery')
+  discovery(): {
+    enabled: boolean;
+    universe: number;
+    bounds: ReturnType<ToolSurfaceService['bounds']>;
+  } {
+    return {
+      enabled: this.surface.discoveryEnabled,
+      universe: this.surface.universe().length,
+      bounds: this.surface.bounds(),
+    };
   }
 
   @RequireRole('admin')

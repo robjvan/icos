@@ -12,6 +12,16 @@
     {{ autoApprovedCount() }} of {{ tools().length }} auto-approved — use deliberately.
   </p>
 
+  @if (discovery(); as disc) {
+    <p class="hint">
+      Discovery is <strong>{{ disc.enabled ? 'on' : 'off' }}</strong>:
+      {{ disc.universe }} policy-enabled tools, at most {{ disc.bounds.maxPerTurn }}
+      injected per turn (discovery limit {{ disc.bounds.discoveryLimit }}).
+      Discovery narrows what the model is <em>shown</em>; it never widens what the
+      operator allows, and calls still approve normally.
+    </p>
+  }
+
   @if (error() !== null) {
     <p class="error" role="alert">{{ error() }}</p>
   }
