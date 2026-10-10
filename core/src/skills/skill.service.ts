@@ -147,7 +147,12 @@ export class SkillService implements OnModuleInit {
     return this.reloadAndRequire(input.name);
   }
 
-  /** Replace an existing skill's SKILL.md (guarded like create). */
+  /**
+   * Replace an existing skill's SKILL.md (guarded like create). The body and
+   * description are replaced; every other frontmatter key (version, author,
+   * license, metadata, …) is preserved, so editing a shipped skill does not
+   * strip its metadata.
+   */
   async updateSkill(input: {
     name: string;
     description: string;
@@ -158,9 +163,37 @@ export class SkillService implements OnModuleInit {
     if (!descriptor) {
       throw new NotFoundException(`Unknown skill "${input.name}"`);
     }
-    const content = this.buildSkillFile(input);
+    const description = input.description.replace(/\s+/g, ' ').trim();
+    if (!description) {
+      throw new BadRequestException('description is required');
+    }
+    if (description.length > MAX_DESCRIPTION_CHARS) {
+      throw new BadRequestException(
+        `description exceeds ${MAX_DESCRIPTION_CHARS} chars`,
+      );
+    }
+    const body = input.body.replace(/\r\n/g, '\n').trim();
+    if (!body) {
+      throw new BadRequestException('body is required');
+    }
+    this.scanSkillContent(body);
     const dir = join(this.skillsDir, descriptor.path ?? descriptor.name);
-    await fs.writeFile(join(dir, SKILL_FILE), content, { mode: 0o600 });
+    const file = join(dir, SKILL_FILE);
+    let raw: string;
+    try {
+      raw = await fs.readFile(file, 'utf8');
+    } catch {
+      throw new NotFoundException(`Skill "${input.name}" is unavailable`);
+    }
+    const content = mergeSkillFile(raw, descriptor.name, description, body);
+    try {
+      parseSkillFile(content, { maxBodyChars: this.config.skillsMaxBodyChars });
+    } catch (err) {
+      throw new BadRequestException(
+        `invalid skill: ${err instanceof Error ? err.message : 'unknown'}`,
+      );
+    }
+    await fs.writeFile(file, content, { mode: 0o600 });
     return this.reloadAndRequire(input.name);
   }
 
@@ -552,4 +585,34 @@ export class SkillService implements OnModuleInit {
   recordLastTurn(report: TurnSkillReport): void {
     this.lastTurn.set(report.sessionId, report);
   }
+}
+
+/**
+ * Rewrite a SKILL.md body/description while preserving the rest of its
+ * frontmatter verbatim. Only top-level `name` and `description` lines are
+ * replaced; nested blocks (`metadata:` and its indented children) are kept.
+ */
+function mergeSkillFile(
+  raw: string,
+  name: string,
+  description: string,
+  body: string,
+): string {
+  const normalized = raw.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  if (lines[0]?.trim() !== '---') {
+    throw new BadRequestException('skill file has no frontmatter');
+  }
+  const closing = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === '---',
+  );
+  if (closing < 0) {
+    throw new BadRequestException('skill file frontmatter is unterminated');
+  }
+  const kept = lines
+    .slice(1, closing)
+    .filter(
+      (line) => !/^name\s*:/.test(line) && !/^description\s*:/.test(line),
+    );
+  return `---\nname: ${name}\ndescription: ${description}\n${kept.join('\n')}\n---\n\n${body}\n`;
 }

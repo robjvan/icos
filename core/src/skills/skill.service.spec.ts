@@ -1,5 +1,11 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CoreConfig } from '../config';
@@ -368,5 +374,43 @@ describe('SkillService', () => {
     expect(service.setSessionSkillsEnabled('s1', true)).toBe(true);
     const back = await service.resolveTurnSkills('s1', 'a');
     expect(back.explicit.map((s) => s.name)).toEqual(['a-skill']);
+  });
+
+  it('update rewrites description + body but preserves other frontmatter', async () => {
+    mkdirSync(join(dir, 'shipped'), { recursive: true });
+    writeFileSync(
+      join(dir, 'shipped', SKILL_FILE),
+      [
+        '---',
+        'name: shipped',
+        'description: Original.',
+        'version: 2.3.4',
+        'author: Someone',
+        'metadata:',
+        '  hermes:',
+        '    tags: [a, b]',
+        '---',
+        '',
+        'Old body.',
+      ].join('\n') + '\n',
+    );
+    const service = new SkillService(testConfig(dir));
+    await service.refresh();
+
+    await service.updateSkill({
+      name: 'shipped',
+      description: 'Updated.',
+      body: 'New body.',
+    });
+
+    const raw = readFileSync(join(dir, 'shipped', SKILL_FILE), 'utf8');
+    expect(raw).toContain('description: Updated.');
+    expect(raw).toContain('version: 2.3.4');
+    expect(raw).toContain('author: Someone');
+    expect(raw).toContain('metadata:');
+    expect(raw).toContain('    tags: [a, b]');
+    expect(raw).toContain('New body.');
+    expect(raw).not.toContain('Old body.');
+    expect(raw).not.toContain('Original.');
   });
 });
