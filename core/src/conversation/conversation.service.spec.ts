@@ -32,6 +32,8 @@ import type {
 } from '../tools/tool-execution.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { ToolPullStore } from '../tools/tool-pull.store';
 import { ConversationService } from './conversation.service';
 import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
 import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
@@ -128,6 +130,14 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     realtimeEnabled: false,
     realtimeHeartbeatMs: 30000,
     realtimeAllowedOrigins: ['*'],
+    // These specs assert the full tool offer; M20.7 discovery has its own
+    // suite (conversation.tools-discovery.spec.ts) with it enabled.
+    toolsDiscoveryEnabled: false,
+    toolsAlwaysOn: ['search_platform_tools', 'memory', 'todo'],
+    toolsMaxPerTurn: 12,
+    toolsDiscoveryLimit: 8,
+    toolsPullMaxResults: 5,
+    toolsPullMaxPerTurn: 2,
     ...overrides,
   };
 }
@@ -243,6 +253,8 @@ function setup(
     ping: jest.fn(() => Promise.resolve()),
   } as unknown as MemoryCandidateRepository;
   const prefs = new DisplayPreferenceStore();
+  const pulls = new ToolPullStore();
+  const surface = new ToolSurfaceService(config, registry, pulls);
   const host = {
     collect: jest.fn(() =>
       Promise.resolve({
@@ -356,6 +368,7 @@ function setup(
       {
         resolve: () => Promise.resolve({ parts: [], description: null }),
       } as unknown as AttachmentImageResolver,
+      surface,
     ),
     repository,
     chatWithTools,
@@ -369,6 +382,8 @@ function setup(
     rankMock,
     traces,
     recordAccessed,
+    surface,
+    pulls,
   };
 }
 
@@ -400,6 +415,7 @@ describe('ConversationService', () => {
       'process_start',
       'read_file',
       'search_files',
+      'search_platform_tools',
       'session.rename',
       'session.search',
       'skill_manage',
@@ -434,6 +450,7 @@ describe('ConversationService', () => {
       'web_search',
       'web_extract',
       'skills_list',
+      'search_platform_tools',
       'skill_view',
       'todo',
       'memory',
@@ -1131,6 +1148,7 @@ describe('ConversationService', () => {
         'process_start',
         'read_file',
         'search_files',
+        'search_platform_tools',
         'session.rename',
         'session.search',
         'skill_manage',
@@ -1161,6 +1179,7 @@ describe('ConversationService', () => {
         'web_search',
         'web_extract',
         'skills_list',
+        'search_platform_tools',
         'skill_view',
         'todo',
         'memory',
@@ -2945,5 +2964,85 @@ describe('ConversationService', () => {
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ type: 'error' });
     });
+  });
+});
+
+describe('ConversationService tool discovery (M20.7.1)', () => {
+  const allToolNames = (): string[] =>
+    new ToolRegistry().list().map((tool) => tool.name);
+
+  it('injects always-on plus discovered tools, not the whole catalog', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true }),
+    );
+
+    await service.converse('please read the config file');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names).toContain('memory'); // always-on core
+    expect(names).toContain('read_file'); // discovered from the message
+    expect(names).not.toContain('discord_admin'); // irrelevant, not injected
+    expect(names.length).toBeLessThan(allToolNames().length);
+  });
+
+  it('never injects a policy-disabled tool, even when the message matches', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true, toolsDisabled: ['read_file'] }),
+    );
+
+    await service.converse('read the file');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names).not.toContain('read_file');
+  });
+
+  it('honours the per-turn injection budget', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true, toolsMaxPerTurn: 4 }),
+    );
+
+    await service.converse('read write search web file terminal memory');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names.length).toBeLessThanOrEqual(4);
+  });
+
+  it('injects the whole policy set when discovery is disabled', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: false }),
+    );
+
+    await service.converse('hello');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names.length).toBe(allToolNames().length);
+  });
+
+  it('reinjects a tool staged mid-turn on the next proposal round', async () => {
+    let round = 0;
+    const { service, chatWithTools, surface } = setup(
+      testConfig({ toolsDiscoveryEnabled: true }),
+      (request) => {
+        round += 1;
+        if (round === 1) {
+          // The real staging happens in the execution service's meta-tool
+          // handler; here we drive the surface directly to prove the loop
+          // reinjects on the next round.
+          surface.stagePullNow(request.sessionId ?? '', ['read_file']);
+          return Promise.resolve(searchProposal());
+        }
+        return Promise.resolve(textProposal('done'));
+      },
+      undefined,
+      undefined,
+      (input) => Promise.resolve(searchRecord(input, 'found')),
+    );
+
+    await service.converse('do something');
+
+    const first = chatWithTools.mock.calls[0][0];
+    expect(first.tools.map((t) => t.name)).not.toContain('read_file');
+    const second = chatWithTools.mock.calls[1][0];
+    expect(second.tools.map((t) => t.name)).toContain('read_file');
   });
 });

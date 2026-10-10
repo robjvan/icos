@@ -87,6 +87,7 @@ import { CronJobRepository } from '../cron/cron-job.repository';
 import { SqliteCronJobRepository } from '../cron/sqlite-cron-job.repository';
 import { CronService } from '../cron/cron.service';
 import { CronScheduler } from '../cron/cron-scheduler.service';
+import { CronController } from '../cron/cron.controller';
 import { BrowserService } from '../browser/browser.service';
 import { DISCORD_ADMIN } from '../channels/discord-admin.port';
 import type { DiscordAdminPort } from '../channels/discord-admin.port';
@@ -95,6 +96,8 @@ import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ToolRpcTokens } from '../tools/tool-rpc.tokens';
+import { ToolPrefsService } from '../tools/tool-prefs.service';
+import { ToolInventoryController } from '../tools/tool-inventory.controller';
 import { ToolRpcService } from '../tools/tool-rpc.service';
 import { ToolRpcController } from '../tools/tool-rpc.controller';
 import { CandidatesController } from './candidates.controller';
@@ -108,6 +111,11 @@ import { HealthService } from '../health/health.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
+import { ContextBudgetService } from './context-budget.service';
+import { ContextCompactionService } from './context-compaction.service';
+import { ContextController } from './context.controller';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { ToolPullStore } from '../tools/tool-pull.store';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -137,6 +145,8 @@ const toolExecutionServiceProvider = {
     cron: CronService,
     rpcTokens: ToolRpcTokens,
     browser: BrowserService,
+    toolPrefs: ToolPrefsService,
+    surface: ToolSurfaceService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -167,6 +177,8 @@ const toolExecutionServiceProvider = {
       cron,
       rpcTokens,
       browser,
+      toolPrefs,
+      surface,
     ),
   inject: [
     ToolExecutionRepository,
@@ -192,6 +204,8 @@ const toolExecutionServiceProvider = {
     CronService,
     ToolRpcTokens,
     BrowserService,
+    ToolPrefsService,
+    ToolSurfaceService,
   ],
 };
 
@@ -215,9 +229,12 @@ const toolExecutionServiceProvider = {
     ClarificationsController,
     SkillsController,
     ToolRpcController,
+    ToolInventoryController,
     HealthController,
     McpController,
     HallucinationController,
+    CronController,
+    ContextController,
   ],
   providers: [
     coreConfigProvider,
@@ -307,6 +324,7 @@ const toolExecutionServiceProvider = {
     ToolRpcTokens,
     ToolRpcService,
     BrowserService,
+    ToolPrefsService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,
@@ -334,8 +352,12 @@ const toolExecutionServiceProvider = {
     HallucinationMitigationService,
     HallucinationGuardService,
     ConversationService,
+    ContextBudgetService,
+    ContextCompactionService,
+    ToolSurfaceService,
+    ToolPullStore,
     SessionStore,
   ],
-  exports: [ConversationService, ApprovalService],
+  exports: [ConversationService, ApprovalService, CommandDispatcher],
 })
 export class ConversationModule {}

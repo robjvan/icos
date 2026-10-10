@@ -5,10 +5,19 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { MemoryCandidateRepository } from './memory-candidate.repository';
+import type { CandidateSort } from './memory-candidate.repository';
 import { MemoryDatabaseService } from './memory-database.service';
 import type { MemoryCandidate, NewMemoryCandidate } from './memory-candidate';
 
 const MAX_LIST_LIMIT = 200;
+
+/** Fixed ORDER BY per sort key (M20g); never interpolated from user input. */
+const ORDER_BY: Record<CandidateSort, string> = {
+  recent: 'rowid DESC',
+  confidence: 'confidence DESC, rowid DESC',
+  importance: 'importance DESC, rowid DESC',
+  stability: 'stability DESC, rowid DESC',
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -122,9 +131,10 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
 
   async listCandidates(
     sessionId?: string,
-    options?: { limit?: number },
+    options?: { limit?: number; sort?: CandidateSort },
   ): Promise<MemoryCandidate[]> {
     const limit = Math.min(options?.limit ?? 50, MAX_LIST_LIMIT);
+    const orderBy = ORDER_BY[options?.sort ?? 'recent'];
     const clauses: string[] = [];
     const params: (string | number)[] = [];
     if (sessionId !== undefined) {
@@ -139,7 +149,7 @@ export class SqliteMemoryCandidateRepository extends MemoryCandidateRepository {
               negated
          FROM memory_candidates` +
       (clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '') +
-      ` ORDER BY rowid DESC LIMIT ?`;
+      ` ORDER BY ${orderBy} LIMIT ?`;
     const rows = this.database.prepare(sql).all(...params) as CandidateRow[];
     return rows.map(toCandidate);
   }

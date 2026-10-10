@@ -40,4 +40,15 @@ export class CommandRegistry {
     for (const handler of this.handlers.values()) names.add(handler.name);
     return [...names].sort();
   }
+
+  /** Canonical descriptors (name + description), sorted by name. */
+  descriptors(): { name: string; description: string }[] {
+    const seen = new Map<string, string>();
+    for (const handler of this.handlers.values()) {
+      seen.set(handler.name, handler.description);
+    }
+    return [...seen.entries()]
+      .map(([name, description]) => ({ name, description }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
 }

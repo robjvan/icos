@@ -69,6 +69,15 @@ class FakeClient implements DiscordClientLike {
   readonly users: { fetch(id: string): Promise<DiscordUserLike> } = {
     fetch: async () => ({ createDM: async () => this.dmChannel }),
   };
+  registeredCommands: unknown[] = [];
+  readonly application = {
+    commands: {
+      set: async (commands: unknown[]): Promise<unknown> => {
+        this.registeredCommands = commands;
+        return commands;
+      },
+    },
+  };
 
   async login(): Promise<unknown> {
     this.loginCalled = true;
@@ -575,5 +584,66 @@ describe('splitForDiscord', () => {
       'z'.repeat(100),
       'z'.repeat(50),
     ]);
+  });
+
+  it('registers the command catalog on ready (M20k)', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    adapter.setCommands([{ name: 'status', description: 'Show status.' }]);
+    await adapter.connect();
+    client.emitReady();
+    await Promise.resolve();
+    expect(client.registeredCommands).toEqual([
+      {
+        name: 'status',
+        description: 'Show status.',
+        options: [
+          {
+            type: 3,
+            name: 'text',
+            description: 'Optional arguments for the command.',
+            required: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('routes a chat-input interaction to the command handler (M20k)', async () => {
+    const client = new FakeClient();
+    const adapter = new DiscordAdapter(
+      config('tok'),
+      secrets,
+      async () => client,
+    );
+    const received: { commandName?: string }[] = [];
+    adapter.onCommand((command) => received.push(command));
+    await adapter.connect();
+    client.emitReady();
+    client.emit('interactionCreate', {
+      id: 'i1',
+      isChatInputCommand: () => true,
+      isButton: () => false,
+      commandName: 'status',
+      channelId: 'c1',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      options: { getString: () => null },
+      deferReply: async () => undefined,
+      editReply: async () => undefined,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      commandName: 'status',
+      channelId: 'c1',
+      guildId: 'g1',
+      authorId: 'u1',
+      isDm: false,
+    });
   });
 });

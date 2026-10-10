@@ -2,11 +2,36 @@
   <header class="chat-header">
     <h1>ICOS</h1>
     <span class="session-id mono" aria-label="Current session">{{ sessionLabel() }}</span>
+    <span class="grow"></span>
+    @if (store.sessionId() !== null) {
+      <button
+        type="button"
+        class="danger-btn"
+        (click)="requestDeleteSession()"
+        aria-label="Delete this session"
+      >
+        <svg lucideTrash2 [size]="14" aria-hidden="true"></svg>
+        Delete
+      </button>
+    }
     <button type="button" class="new-btn" (click)="startNewSession()">
       <svg lucidePlus [size]="14" aria-hidden="true"></svg>
       New
     </button>
   </header>
+
+  @if (pendingDelete()) {
+    <div class="confirm-bar" role="alertdialog" aria-label="Confirm session delete">
+      <span>
+        Delete this session? The transcript is removed — memories learned from it are kept (delete
+        those separately under Memory).
+      </span>
+      <button type="button" class="danger-btn" (click)="confirmDeleteSession()">
+        Delete session
+      </button>
+      <button type="button" (click)="cancelDeleteSession()">Cancel</button>
+    </div>
+  }
 
   <div class="chat-body">
     <app-session-sidebar

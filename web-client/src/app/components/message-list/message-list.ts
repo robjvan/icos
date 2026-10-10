@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { ChatMessage } from '../../models/message';
+import { renderMarkdown } from '../../util/markdown';
 
 /**
  * Transcript bubbles. Auto-scroll handled by the parent via `messagesVersion`.
  * `excludedFromContext` rows render dimmed (test-client `/undo` marker).
+ * Content is rendered as a safe Markdown subset (M20a).
  */
 @Component({
   selector: 'app-message-list',
@@ -25,5 +27,10 @@ export class MessageList {
 
   bubbleTitle(message: ChatMessage): string | null {
     return message.excludedFromContext ? 'Excluded from LLM context by /undo' : null;
+  }
+
+  /** Safe Markdown → HTML for a message body. */
+  rendered(content: string): string {
+    return renderMarkdown(content);
   }
 }

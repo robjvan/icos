@@ -97,6 +97,24 @@ export class ConversationStore {
     await this.refreshQuestions();
   }
 
+  /**
+   * Delete a session. If it is the open one, start a fresh session. Memory
+   * derived from the session is deliberately kept (M20i) — the operator
+   * deletes that separately.
+   */
+  async deleteSession(id: string): Promise<void> {
+    try {
+      await this.sessionsApi.deleteSession(id);
+    } catch (error) {
+      this.appendMessage('system', `Error: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (this.sessionId() === id) {
+      this.newSession();
+    }
+    await this.refreshSessions();
+  }
+
   async sendMessage(input: string | ComposerSubmission): Promise<void> {
     const message = (typeof input === 'string' ? input : input.message).trim();
     const attachments = typeof input === 'string' ? [] : input.attachments;

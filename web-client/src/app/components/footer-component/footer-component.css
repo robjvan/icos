@@ -1,5 +1,1 @@
-hr {
-  fill: green;
-  stroke: green;
-  color: green;
-}
+/* Footer status bar styles live inline in the template (Tailwind utilities). */

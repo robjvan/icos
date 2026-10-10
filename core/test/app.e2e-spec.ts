@@ -24,6 +24,7 @@ import {
 import { buildPlanningBlock } from '../src/agent/planning-context';
 import { ToolRegistry } from '../src/tools/tool-registry';
 import { LlmClient } from '../src/llm/llm.client';
+import { MEMORY_LLM_CLIENT } from '../src/memory/llm-memory-candidate-extractor';
 import { MemoryCandidateExtractor } from '../src/memory/memory-candidate-extractor';
 import { ClaimIndex } from '../src/memory/claim-index';
 import { ClaimRepository } from '../src/memory/claim.repository';
@@ -55,6 +56,10 @@ describe('Conversation (e2e)', () => {
   const chatWithTools = jest.fn<Promise<MockLlmResult>, [unknown]>(
     chatWithToolsImpl,
   );
+  // M20.6.2 compaction uses LlmClient.chat (a plain completion).
+  const chatImpl = (): Promise<{ content: string; model: string }> =>
+    Promise.resolve({ content: 'compacted summary', model: 'test-model' });
+  const chat = jest.fn(chatImpl);
   let streamFails = false;
   let extractFails = false;
   const extractImpl = (
@@ -168,6 +173,7 @@ describe('Conversation (e2e)', () => {
       dir: join(dir, 'auth-unused'),
       enabled: false,
     },
+    configOverrides: Record<string, unknown> = {},
   ): Promise<INestApplication<App>> {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CoreModule],
@@ -248,9 +254,22 @@ describe('Conversation (e2e)', () => {
         realtimeEnabled: false,
         realtimeHeartbeatMs: 30000,
         realtimeAllowedOrigins: ['http://localhost:4200'],
+        // M20.6 context budget + compaction (large window: no auto-compaction
+        // unless a test lowers it).
+        llmContextWindow: 1_000_000,
+        llmMaxOutputTokens: 8192,
+        contextCompactionEnabled: true,
+        contextCompactionTarget: 0.8,
+        contextSettingsPath: join(dir, 'context-settings.json'),
+        // Existing e2e asserts the full tool offer; discovery is covered by
+        // its own e2e (M20.7.2).
+        toolsDiscoveryEnabled: false,
+        ...configOverrides,
       })
       .overrideProvider(LlmClient)
-      .useValue({ chatWithTools, chatStreamWithTools })
+      .useValue({ chatWithTools, chatStreamWithTools, chat })
+      .overrideProvider(MEMORY_LLM_CLIENT)
+      .useValue({ chat })
       .overrideProvider(MemoryCandidateExtractor)
       .useValue({ extract })
       .overrideProvider(ClaimIndex)
@@ -1753,7 +1772,7 @@ describe('Conversation (e2e)', () => {
         ),
       );
       expect(chained).toBeDefined();
-      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(25);
+      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(26);
       const toolMessage = (
         chained?.[0] as {
           messages: { role: string; callId?: string; content: string }[];
@@ -2640,6 +2659,171 @@ describe('Conversation (e2e)', () => {
           .send({ value: 'v' })
           .expect(409);
       });
+    });
+  });
+
+  describe('Context budget + compaction (e2e)', () => {
+    interface ContextSettingsBody {
+      settings: {
+        contextWindow: number;
+        maxOutputTokens: number;
+        usableTokens: number;
+        triggerTokens: number;
+        target: number;
+        enabled: boolean;
+      };
+    }
+    interface ContextSummaryBody {
+      sessionId: string;
+      summary: {
+        sessionId: string;
+        summary: string;
+        coveredUptoMessageId: number;
+        tokenEstimate: number;
+      } | null;
+    }
+
+    it('exposes settings, round-trips the target, and stores a rolling summary', async () => {
+      const server = app!.getHttpServer();
+
+      const initial = await request(server).get('/core/context').expect(200);
+      expect((initial.body as ContextSettingsBody).settings).toMatchObject({
+        contextWindow: 1_000_000,
+        maxOutputTokens: 8192,
+        target: 0.8,
+        enabled: true,
+      });
+
+      const updated = await request(server)
+        .put('/core/context')
+        .send({ target: 0.9, enabled: false })
+        .expect(200);
+      expect((updated.body as ContextSettingsBody).settings).toMatchObject({
+        target: 0.9,
+        enabled: false,
+      });
+      await request(server)
+        .put('/core/context')
+        .send({ target: 0.8, enabled: true })
+        .expect(200);
+
+      // Ten turns ⇒ ~20 messages, more than the keep-recent floor.
+      let sessionId = '';
+      for (let i = 0; i < 10; i += 1) {
+        const res = await request(server)
+          .post('/core/conversation')
+          .send({ message: `turn ${i}`, ...(sessionId ? { sessionId } : {}) })
+          .expect(200);
+        sessionId = (res.body as ConversationResponse).sessionId;
+      }
+      const before = await request(server)
+        .get(`/core/conversation/${sessionId}`)
+        .expect(200);
+      const beforeCount = (before.body as HistoryResponse).messages.length;
+
+      const compact = await request(server)
+        .post('/core/conversation')
+        .send({ message: '/compact', sessionId })
+        .expect(200);
+      expect((compact.body as ConversationResponse).reply).toContain(
+        'Compacted',
+      );
+      expect(chat).toHaveBeenCalled();
+
+      const summary = await request(server)
+        .get('/core/context/summary')
+        .query({ sessionId })
+        .expect(200);
+      expect((summary.body as ContextSummaryBody).summary).toMatchObject({
+        sessionId,
+        summary: 'compacted summary',
+      });
+      expect(
+        (summary.body as ContextSummaryBody).summary?.coveredUptoMessageId,
+      ).toBeGreaterThan(0);
+
+      // Compaction is context-only: the transcript is untouched.
+      const after = await request(server)
+        .get(`/core/conversation/${sessionId}`)
+        .expect(200);
+      expect((after.body as HistoryResponse).messages.length).toBe(beforeCount);
+    });
+  });
+
+  describe('Tool discovery (e2e)', () => {
+    interface ToolRequest {
+      tools: { name: string }[];
+    }
+
+    it('discovers a tool absent from the initial offer and executes it', async () => {
+      await app?.close();
+      app = await createApp(
+        join(dir, 'disc-sessions.sqlite'),
+        join(dir, 'disc-memories.sqlite'),
+        undefined,
+        undefined,
+        {
+          toolsDiscoveryEnabled: true,
+          toolsAlwaysOn: ['search_platform_tools'],
+          toolsMaxPerTurn: 3,
+        },
+      );
+      const server = app.getHttpServer();
+      chatWithTools.mockReset();
+      chatWithTools
+        .mockResolvedValueOnce({
+          kind: 'tool_calls',
+          content: null,
+          model: 'test-model',
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'search_platform_tools',
+              version: 1,
+              rawArguments: JSON.stringify({
+                query: 'search the session transcript',
+              }),
+              args: { query: 'search the session transcript' },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          kind: 'tool_calls',
+          content: null,
+          model: 'test-model',
+          toolCalls: [
+            {
+              id: 'c2',
+              name: 'session.search',
+              version: 1,
+              rawArguments: JSON.stringify({ query: 'hello' }),
+              args: { query: 'hello' },
+            },
+          ],
+        })
+        .mockResolvedValue({
+          kind: 'text',
+          content: 'done',
+          model: 'test-model',
+        });
+
+      const res = await request(server)
+        .post('/core/conversation')
+        .send({ message: 'do the thing' })
+        .expect(200);
+      expect((res.body as ConversationResponse).status).toBe('ok');
+
+      // Round 1: the tool was not offered.
+      const firstTools = (
+        chatWithTools.mock.calls[0][0] as ToolRequest
+      ).tools.map((t) => t.name);
+      expect(firstTools).not.toContain('session.search');
+      // Round 2: the meta-tool pull reinjected it; the call then executed
+      // through the normal authorization path (validation + allowedTools).
+      const secondTools = (
+        chatWithTools.mock.calls[1][0] as ToolRequest
+      ).tools.map((t) => t.name);
+      expect(secondTools).toContain('session.search');
     });
   });
 });

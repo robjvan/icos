@@ -129,8 +129,13 @@ export class LlmClient {
     return url.toString();
   }
 
-  async chat(request: LlmChatRequest): Promise<ChatResult> {
-    return this.textResult(await this.complete(request));
+  async chat(
+    request: LlmChatRequest,
+    clientSignal?: AbortSignal,
+  ): Promise<ChatResult> {
+    return this.textResult(
+      await this.complete(request, undefined, clientSignal),
+    );
   }
 
   /**

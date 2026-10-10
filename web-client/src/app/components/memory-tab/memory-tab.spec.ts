@@ -19,7 +19,12 @@ describe('MemoryTab', () => {
         provideRouter([]),
         {
           provide: MemoryCandidateService,
-          useValue: { candidates: () => [], error: () => null, refresh: vi.fn() },
+          useValue: {
+            candidates: () => [],
+            error: () => null,
+            sort: signal('recent'),
+            refresh: vi.fn(),
+          },
         },
         {
           provide: MemoryReviewService,
@@ -80,7 +85,7 @@ describe('MemoryTab', () => {
     expect(component.view()).toBe('beliefs');
   });
 
-  it('should expose the three segments', () => {
-    expect(component.views).toEqual(['review', 'beliefs', 'ledger']);
+  it('should expose the four segments', () => {
+    expect(component.views).toEqual(['review', 'beliefs', 'ledger', 'context']);
   });
 });

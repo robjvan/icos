@@ -16,7 +16,10 @@ describe('MemoryCandidateService', () => {
     await service.refresh();
     expect(service.candidates()).toHaveLength(1);
     expect(service.error()).toBeNull();
-    expect(get).toHaveBeenCalledWith('/core/memory-candidates', { limit: 100 });
+    expect(get).toHaveBeenCalledWith('/core/memory-candidates', {
+      limit: 100,
+      sort: 'recent',
+    });
   });
 
   it('should clear candidates and surface the error on failure', async () => {

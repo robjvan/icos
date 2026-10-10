@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -41,7 +42,10 @@ import { SkillService } from '../skills/skill.service';
 import type { ResolvedTurnSkills } from '../skills/skill.service';
 import type { LoadedSkill, TurnSkillReport } from '../skills/skill.types';
 import { InvalidSearchQueryError } from '../session/session.repository';
-import type { SessionSearchResult } from '../session/session.repository';
+import type {
+  ContextSummary,
+  SessionSearchResult,
+} from '../session/session.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { LedgerError } from '../tools/tool-execution.repository';
 import type {
@@ -49,9 +53,8 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
-import type { ToolDescriptor } from '../tools/tool-registry';
-import { resolveToolPolicy } from '../tools/tool-policy';
-import type { ToolPolicyConfig } from '../tools/tool-policy';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import type { InjectedTools } from '../tools/tool-surface.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -68,6 +71,8 @@ import type {
   RunTermination,
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
+import { ContextBudgetService } from './context-budget.service';
+import { ContextCompactionService } from './context-compaction.service';
 import type { ContextMemory } from './context.builder';
 import { buildAttachmentBand } from './attachments';
 import type { TurnAttachment } from './attachments';
@@ -246,6 +251,9 @@ export class ConversationService {
     private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
     private readonly attachmentImages: AttachmentImageResolver,
+    private readonly surface: ToolSurfaceService,
+    @Optional() private readonly budget?: ContextBudgetService,
+    @Optional() private readonly compaction?: ContextCompactionService,
   ) {}
 
   async converse(
@@ -267,6 +275,7 @@ export class ConversationService {
       };
     }
     const { id } = await this.sessions.resolve(sessionId);
+    this.surface.beginTurn(id);
     const turn = await this.prepareTurn(
       id,
       message,
@@ -285,6 +294,9 @@ export class ConversationService {
     let boundHit = false;
     let deadlineHit = false;
     for (let step = 0; ; step++) {
+      // M20.7.2: recompute per round so a `search_platform_tools` pull lands
+      // on the next proposal round.
+      const { descriptors, allowedTools } = this.roundTools(id, message);
       const requestId = randomUUID();
       const finalAttempt =
         step >= this.config.agentMaxIterations ||
@@ -295,22 +307,16 @@ export class ConversationService {
           this.config.agentMaxTurnDurationMs,
         );
       this.transitionRun(runId, 'reasoning');
-      const context = this.assembleStep(
-        turn,
-        message,
-        turn.descriptors,
-        pairs,
-        {
-          stepsUsed: step,
-          toolCallsUsed: toolSteps,
-          priorActions,
-        },
-      );
+      const context = this.assembleStep(turn, message, descriptors, pairs, {
+        stepsUsed: step,
+        toolCallsUsed: toolSteps,
+        priorActions,
+      });
       let proposal: LlmResult;
       try {
         proposal = await this.llm.chatWithTools({
           messages: context,
-          tools: finalAttempt ? [] : turn.descriptors,
+          tools: finalAttempt ? [] : descriptors,
           ...(finalAttempt ? { toolChoice: 'none' as const } : {}),
           sessionId: id,
         });
@@ -341,7 +347,7 @@ export class ConversationService {
             requestId,
             sessionId: id,
             context,
-            allowedTools: turn.allowedTools,
+            allowedTools,
             proposal,
           },
           // Intermediate steps skip the tools-disabled final call; the
@@ -539,7 +545,6 @@ export class ConversationService {
     }
     // M9h continuation: the resolved observation re-enters bounded
     // planning against the run's remaining budget.
-    const { descriptors, allowedTools } = this.resolveTools();
     const limits = stored.limits;
     const startedAt = Date.now();
     // M9k: split the frozen turn context so the system head rebuilds
@@ -564,6 +569,11 @@ export class ConversationService {
     let lastTool: ToolSummary | undefined = entry.toolSummary;
     let newExecutions = 0;
     for (let step = stored.iterationCount; ; step++) {
+      // M20.7.2: recompute per round so a mid-turn pull is reinjected.
+      const { descriptors, allowedTools } = this.roundTools(
+        record.sessionId,
+        userText,
+      );
       const finalAttempt =
         step >= limits.maxIterations ||
         stored.toolCallCount + newExecutions >= limits.maxToolSteps ||
@@ -806,6 +816,7 @@ export class ConversationService {
       return;
     }
     const { id } = await this.sessions.resolve(sessionId);
+    this.surface.beginTurn(id);
     const turn = await this.prepareTurn(id, message, undefined, attachments);
     const requestId = randomUUID();
     const sink: StreamSink = {
@@ -837,6 +848,9 @@ export class ConversationService {
         let currentRequestId = requestId;
         let lastTool: ToolSummary | undefined;
         for (let step = 0; ; step++) {
+          // M20.7.2: recompute per round so a `search_platform_tools` pull
+          // lands on the next proposal round.
+          const { descriptors, allowedTools } = this.roundTools(id, message);
           const finalAttempt =
             step >= this.config.agentMaxIterations ||
             toolSteps >= this.config.agentMaxToolSteps ||
@@ -846,23 +860,17 @@ export class ConversationService {
               this.config.agentMaxTurnDurationMs,
             );
           this.transitionRun(runId, 'reasoning');
-          const context = this.assembleStep(
-            turn,
-            message,
-            turn.descriptors,
-            pairs,
-            {
-              stepsUsed: step,
-              toolCallsUsed: toolSteps,
-              priorActions,
-            },
-          );
+          const context = this.assembleStep(turn, message, descriptors, pairs, {
+            stepsUsed: step,
+            toolCallsUsed: toolSteps,
+            priorActions,
+          });
           let proposal: LlmResult;
           try {
             proposal = await this.llm.chatStreamWithTools(
               {
                 messages: context,
-                tools: finalAttempt ? [] : turn.descriptors,
+                tools: finalAttempt ? [] : descriptors,
                 ...(finalAttempt ? { toolChoice: 'none' as const } : {}),
                 sessionId: id,
               },
@@ -904,7 +912,7 @@ export class ConversationService {
                 requestId: currentRequestId,
                 sessionId: id,
                 context,
-                allowedTools: turn.allowedTools,
+                allowedTools,
                 proposal,
               },
               { sink, signal: clientSignal, skipFinal: !finalAttempt },
@@ -1142,7 +1150,6 @@ export class ConversationService {
         // M9h continuation: bounded planning over remaining budget.
         // Exactly one terminal done follows; intermediate searches emit
         // progress only.
-        const { descriptors, allowedTools } = this.resolveTools();
         const limits = stored.limits;
         const startedAt = Date.now();
         const sink: StreamSink = {
@@ -1169,6 +1176,11 @@ export class ConversationService {
         let lastTool: ToolSummary | undefined = entry.toolSummary;
         let newExecutions = 0;
         for (let step = stored.iterationCount; ; step++) {
+          // M20.7.2: recompute per round so a mid-turn pull is reinjected.
+          const { descriptors, allowedTools } = this.roundTools(
+            record.sessionId,
+            userText,
+          );
           const finalAttempt =
             step >= limits.maxIterations ||
             stored.toolCallCount + newExecutions >= limits.maxToolSteps ||
@@ -1665,38 +1677,18 @@ export class ConversationService {
     });
   }
 
-  /** Tools offered this turn, after enablement policy (M17a). */
-  private resolveTools(): {
-    descriptors: ToolDescriptor[];
-    allowedTools: string[];
-  } {
-    const { offered } = resolveToolPolicy(
-      this.registry.list(),
-      this.toolPolicy(),
-    );
-    return {
-      descriptors: [...offered],
-      allowedTools: offered.map((descriptor) => descriptor.name),
-    };
+  /**
+   * Tools injected for the current round (M20.7). Delegates to the tool
+   * surface: always-on core ∪ staged pulls ∪ discovered, bounded. Recomputed
+   * per round so a `search_platform_tools` pull is injected on the next round.
+   */
+  private roundTools(sessionId: string, input: string): InjectedTools {
+    return this.surface.injected(sessionId, input);
   }
 
   /** Tools known but disabled by policy; declared in the planning frame. */
   private disabledToolNames(): string[] {
-    const { disabled } = resolveToolPolicy(
-      this.registry.list(),
-      this.toolPolicy(),
-    );
-    return disabled.map((descriptor) => descriptor.name);
-  }
-
-  private toolPolicy(): ToolPolicyConfig {
-    return {
-      enabledToolsets: this.config.toolsEnabledToolsets,
-      disabledToolsets: this.config.toolsDisabledToolsets,
-      enabledTools: this.config.toolsEnabled,
-      disabledTools: this.config.toolsDisabled,
-      toolsetAliases: this.registry.toolsetAliases(),
-    };
+    return this.surface.disabled().map((descriptor) => descriptor.name);
   }
 
   /**
@@ -1742,7 +1734,22 @@ export class ConversationService {
     descriptors: LlmToolRequest['tools'];
     allowedTools: string[];
   }> {
-    const history = await this.sessions.getContextMessages(sessionId);
+    const summary = this.compaction
+      ? await this.compaction.summaryFor(sessionId)
+      : null;
+    const coveredUpto = summary?.coveredUptoMessageId ?? 0;
+    const records = await this.sessions.getMessageRecords(sessionId);
+    // M20.6.2: only turns after the summary's covered range reach the model —
+    // folded turns live in the summary, not twice in context.
+    const history: ChatMessage[] = records
+      .filter(
+        (record) => !record.excludedFromContext && record.id > coveredUpto,
+      )
+      .slice(-this.config.maxHistory)
+      .map((record) => ({
+        role: record.role as ChatMessage['role'],
+        content: record.content,
+      }));
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
     const pairs = this.tools.recentPairs(sessionId, MAX_TOOL_PAIRS);
     const recalled = await this.recallTurn(sessionId, message);
@@ -1766,8 +1773,45 @@ export class ConversationService {
         personaBand,
         sourceBand: sourceBand ?? null,
         attachmentBand,
+        ...(summary ? { summaryBand: summaryBandText(summary) } : {}),
       },
     );
+    // M20.6.2: if the assembled context crosses the budget trigger, fold the
+    // older turns into the summary and rebuild once. Fail-soft.
+    if (this.compaction) {
+      const compacted = await this.compaction.compactIfNeeded(
+        sessionId,
+        textMessages,
+      );
+      if (compacted) {
+        const folded = await this.sessions.getMessageRecords(sessionId);
+        const remaining: ChatMessage[] = folded
+          .filter(
+            (record) =>
+              !record.excludedFromContext &&
+              record.id > compacted.coveredUptoMessageId,
+          )
+          .slice(-this.config.maxHistory)
+          .map((record) => ({
+            role: record.role as ChatMessage['role'],
+            content: record.content,
+          }));
+        const rebuilt = this.prepareMessages(
+          sessionId,
+          remaining,
+          message,
+          skills,
+          {
+            ...recalled.bands,
+            personaBand,
+            sourceBand: sourceBand ?? null,
+            attachmentBand,
+            summaryBand: summaryBandText(compacted),
+          },
+        );
+        textMessages.splice(0, textMessages.length, ...rebuilt);
+      }
+    }
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = this.withTurnImages(
@@ -1779,7 +1823,7 @@ export class ConversationService {
       ...toPairMessages(pairs),
       userMessage,
     ];
-    const { descriptors, allowedTools } = this.resolveTools();
+    const { descriptors, allowedTools } = this.roundTools(sessionId, message);
     // Split the static system head (prompt plus catalog) from the rest
     // so M9k rebuilds the planning frame every proposal round instead
     // of letting step counts go stale.
@@ -2409,6 +2453,11 @@ export class ConversationService {
     return this.sessions.listSessions(options);
   }
 
+  /** Delete a session + transcript; derived memory is left intact (M20i). */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.sessions.deleteSession(sessionId);
+  }
+
   /**
    * Fire-and-forget enrichment: runs after the turn is persisted and the
    * response is on its way. Never blocks conversation, never fails it —
@@ -2502,6 +2551,11 @@ export class ConversationService {
       throw err;
     }
   }
+}
+
+/** The context band carrying a rolling summary (M20.6.2). */
+function summaryBandText(summary: ContextSummary): string {
+  return `<conversation_summary>\n${summary.summary}\n</conversation_summary>`;
 }
 
 /** Ledger pairs become assistant/tool messages with stable durable ids. */

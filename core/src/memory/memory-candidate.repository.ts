@@ -1,6 +1,20 @@
 import type { MemoryCandidate, NewMemoryCandidate } from './memory-candidate';
 
 /**
+ * Ledger ordering (M20g). `recent` is insertion order (the historical
+ * default); the rest rank by a stored signal, newest breaking ties.
+ */
+export type CandidateSort =
+  'recent' | 'confidence' | 'importance' | 'stability';
+
+export const CANDIDATE_SORTS: readonly CandidateSort[] = [
+  'recent',
+  'confidence',
+  'importance',
+  'stability',
+];
+
+/**
  * Evidence-ledger boundary. Persists extraction observations with
  * provenance — it never judges, promotes, or consolidates them.
  * That is future epistemic work.
@@ -15,7 +29,7 @@ export abstract class MemoryCandidateRepository {
 
   abstract listCandidates(
     sessionId?: string,
-    options?: { limit?: number },
+    options?: { limit?: number; sort?: CandidateSort },
   ): Promise<MemoryCandidate[]>;
 
   /** Cheap liveness probe for health checks. */

@@ -1,0 +1,46 @@
+:host {
+  display: block;
+}
+
+.settings {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.settings dt {
+  font-weight: 600;
+}
+
+.settings dd {
+  margin: 0;
+}
+
+.session-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.session-row input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+.summary {
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border-default);
+  border-radius: 0.4rem;
+  padding: 0.75rem;
+  max-height: 24rem;
+  overflow: auto;
+  background: var(--surface-raised, transparent);
+}
+
+.error {
+  color: var(--accent-red, #c0392b);
+}

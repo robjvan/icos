@@ -3,6 +3,9 @@ import { createRequire } from 'node:module';
 import type { CoreConfig } from '../config';
 import { SessionStore } from '../conversation/session.store';
 import type { HistoryMessage } from '../conversation/session.store';
+import type { ContextBudgetService } from '../conversation/context-budget.service';
+import type { ContextCompactionService } from '../conversation/context-compaction.service';
+import type { ToolSurfaceService } from '../tools/tool-surface.service';
 import type { Session } from '../session/session.repository';
 import type {
   CommandContext,
@@ -107,6 +110,12 @@ export interface SessionCommandDeps {
   skills: SkillService;
   /** Current in-flight SSE streams, for `/status` honesty. */
   activeStreams: () => number;
+  /** M20.6 context-budget accounting for `/status` (optional). */
+  budget?: ContextBudgetService;
+  /** M20.6 context compaction for `/compact` (optional). */
+  compaction?: ContextCompactionService;
+  /** M20.7 tool surface for `/status` (optional). */
+  toolSurface?: ToolSurfaceService;
 }
 
 class StatusCommand implements SlashCommandHandler {
@@ -136,10 +145,33 @@ class StatusCommand implements SlashCommandHandler {
       const inContext = history.filter((m) => !m.excludedFromContext);
       const windowed = inContext.slice(-config.maxHistory);
       const display = prefs.get(session.id);
+      const { budget, compaction, toolSurface } = this.deps;
+      const summary = compaction
+        ? await compaction.summaryFor(session.id)
+        : null;
       lines.push(
         `Session: ${session.id}`,
         ...(session.title ? [`Title: ${session.title}`] : []),
         `Messages: ${history.length} (context window: ${windowed.length}/${config.maxHistory})`,
+        ...(budget
+          ? [
+              `Context: ~${budget.estimate(
+                inContext.map((m) => ({ role: m.role, content: m.content })),
+              )} tokens · window ${budget.contextWindow} · usable ${budget.usableTokens} · compact at ${budget.triggerTokens}${budget.enabled ? '' : ' (disabled)'}`,
+            ]
+          : []),
+        ...(compaction
+          ? [
+              summary
+                ? `Summary: ~${summary.tokenEstimate} tokens · covers up to message ${summary.coveredUptoMessageId} · updated ${summary.updatedAt}`
+                : 'Summary: none (not compacted)',
+            ]
+          : []),
+        ...(toolSurface
+          ? [
+              `Tools: ${toolSurface.universe().length} enabled · discovery ${toolSurface.discoveryEnabled ? 'on' : 'off'} · max ${toolSurface.bounds().maxPerTurn}/turn`,
+            ]
+          : []),
         `Created: ${session.createdAt} · Updated: ${session.updatedAt}`,
         `Streaming: ${activeStreams() > 0 ? `${activeStreams()} active` : 'idle'}`,
         `Display: thinking=${display.showThinking ? 'on' : 'off'}, timestamps=${display.showTimestamps ? 'on' : 'off'}`,
@@ -151,6 +183,37 @@ class StatusCommand implements SlashCommandHandler {
         messageCount: history.length,
         contextWindowUsed: windowed.length,
         contextWindowLimit: config.maxHistory,
+        ...(budget
+          ? {
+              contextEstimate: budget.estimate(
+                inContext.map((m) => ({ role: m.role, content: m.content })),
+              ),
+              contextWindow: budget.contextWindow,
+              contextUsable: budget.usableTokens,
+              contextTrigger: budget.triggerTokens,
+              compactionEnabled: budget.enabled,
+            }
+          : {}),
+        ...(compaction
+          ? {
+              contextSummary: summary
+                ? {
+                    tokenEstimate: summary.tokenEstimate,
+                    coveredUptoMessageId: summary.coveredUptoMessageId,
+                    updatedAt: summary.updatedAt,
+                  }
+                : null,
+            }
+          : {}),
+        ...(toolSurface
+          ? {
+              tools: {
+                enabled: toolSurface.universe().length,
+                discoveryEnabled: toolSurface.discoveryEnabled,
+                bounds: toolSurface.bounds(),
+              },
+            }
+          : {}),
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         display,
@@ -284,6 +347,43 @@ class UndoCommand implements SlashCommandHandler {
   }
 }
 
+class CompactCommand implements SlashCommandHandler {
+  readonly name = 'compact';
+  readonly description =
+    'Summarize older turns into a rolling summary to free context (M20.6).';
+  constructor(private readonly deps: SessionCommandDeps) {}
+
+  async execute(context: CommandContext): Promise<CommandResult> {
+    const sessionId = requireSessionId(context, 'compact');
+    const { compaction } = this.deps;
+    if (!compaction) {
+      throw new BadRequestException('Context compaction is unavailable.');
+    }
+    const hadSummary = (await compaction.summaryFor(sessionId)) !== null;
+    const result = await compaction.compact(sessionId);
+    if (!result) {
+      return {
+        kind: 'message',
+        text: 'Nothing to compact yet — the conversation is shorter than the keep-recent floor.',
+        data: { compacted: false },
+      };
+    }
+    return {
+      kind: 'data',
+      text:
+        `Compacted ${result.summarizedMessages} older message(s) into the rolling ` +
+        `summary (~${result.tokenEstimate} tokens). The transcript is unchanged.`,
+      data: {
+        compacted: true,
+        summarizedMessages: result.summarizedMessages,
+        coveredUptoMessageId: result.coveredUptoMessageId,
+        tokenEstimate: result.tokenEstimate,
+        hadSummary,
+      },
+    };
+  }
+}
+
 class ForkCommand implements SlashCommandHandler {
   readonly name = 'fork';
   readonly description =
@@ -317,4 +417,5 @@ export function registerSessionCommands(
   register(new RenameCommand(deps));
   register(new UndoCommand(deps));
   register(new ForkCommand(deps));
+  register(new CompactCommand(deps));
 }

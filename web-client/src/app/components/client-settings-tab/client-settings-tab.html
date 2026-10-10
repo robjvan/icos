@@ -57,5 +57,45 @@
         this browser only.
       </dd>
     </div>
+    <div>
+      <dt><label for="context-target">Context compaction</label></dt>
+      <dd>
+        <button
+          type="button"
+          (click)="toggleEnabled()"
+          [disabled]="contextBusy() || contextSettings() === null"
+        >
+          {{ contextSettings()?.enabled ? 'Enabled' : 'Disabled' }}
+        </button>
+      </dd>
+      @if (contextSettings(); as ctx) {
+        <dd>
+          Target {{ (ctx.target * 100).toFixed(0) }}% · compact at
+          <span class="mono">{{ ctx.triggerTokens.toLocaleString('en-US') }}</span>
+          tokens (window {{ ctx.contextWindow.toLocaleString('en-US') }}, usable
+          {{ ctx.usableTokens.toLocaleString('en-US') }})
+          <input
+            id="context-target"
+            type="range"
+            min="0.5"
+            max="0.95"
+            step="0.05"
+            [value]="ctx.target"
+            (change)="onTargetInput($event)"
+            [disabled]="contextBusy()"
+          />
+        </dd>
+      } @else {
+        <dd class="hint">Loading context settings…</dd>
+      }
+      @if (contextError() !== null) {
+        <dd class="error" role="alert">{{ contextError() }}</dd>
+      }
+      <dd class="hint">
+        Global. When the assembled context crosses the target fraction of the
+        usable budget, older turns are folded into a rolling summary. Written
+        via <span class="mono">PUT /core/context</span> (admin only).
+      </dd>
+    </div>
   </dl>
 </section>

@@ -1,7 +1,7 @@
 <section class="tab-pane" aria-label="Skills">
   <div class="tab-pane-header">
     <h1>Skills</h1>
-    <span class="badge">read-only · filesystem is the writer</span>
+    <span class="badge">filesystem-backed</span>
     <span class="grow"></span>
     <button type="button" (click)="refresh()">Refresh</button>
   </div>
@@ -18,7 +18,12 @@
     />
   }
 
-  <form class="discover" [formGroup]="searchForm" (ngSubmit)="discover()" aria-label="Discover skills">
+  <form
+    class="discover"
+    [formGroup]="searchForm"
+    (ngSubmit)="submitDiscover()"
+    aria-label="Discover skills"
+  >
     <svg lucideSearch [size]="14" aria-hidden="true"></svg>
     <input
       type="search"
@@ -26,52 +31,150 @@
       placeholder="Discover skills..."
       autocomplete="off"
       aria-label="Discover skills"
+      (input)="onQueryInput()"
     />
     <button type="submit">Discover</button>
   </form>
 
-  @if (matches().length > 0) {
-    <ul class="match-list" aria-label="Discovery matches">
+  @if (!catalogVisible()) {
+    <ul class="skill-list" aria-label="Discovery matches">
       @for (match of matches(); track match.name) {
-        <li>
-          <button type="button" (click)="openSkill(match.name)">
-            {{ match.name }} <span class="mono score">{{ match.score }}</span>
+        <li class="skill-row">
+          <button type="button" class="skill-main" (click)="openSkill(match.name)">
+            <span class="name">{{ match.name }}</span>
           </button>
+          <span class="row-actions">
+            <button
+              type="button"
+              class="icon-action"
+              (click)="openEdit(match.name)"
+              [attr.aria-label]="'Edit ' + match.name"
+            >
+              <svg lucidePencil [size]="15" aria-hidden="true"></svg>
+            </button>
+            <button
+              type="button"
+              class="icon-action danger"
+              (click)="confirmDelete(match.name)"
+              [attr.aria-label]="'Delete ' + match.name"
+            >
+              <svg lucideTrash2 [size]="15" aria-hidden="true"></svg>
+            </button>
+          </span>
         </li>
+      } @empty {
+        <li class="empty">No skills match “{{ query() }}”.</li>
+      }
+    </ul>
+  } @else {
+    <ul class="skill-list" aria-label="Skill catalog">
+      @for (skill of skills(); track skill.name) {
+        <li class="skill-row">
+          <button type="button" class="skill-main" (click)="openSkill(skill.name)">
+            <span class="name">{{ skill.name }}</span>
+            <span class="version mono">{{ skill.version }}</span>
+            <span class="description">{{ skill.description }}</span>
+          </button>
+          <span class="row-actions">
+            <button
+              type="button"
+              class="icon-action"
+              (click)="openEdit(skill.name)"
+              [attr.aria-label]="'Edit ' + skill.name"
+            >
+              <svg lucidePencil [size]="15" aria-hidden="true"></svg>
+            </button>
+            <button
+              type="button"
+              class="icon-action danger"
+              (click)="confirmDelete(skill.name)"
+              [attr.aria-label]="'Delete ' + skill.name"
+            >
+              <svg lucideTrash2 [size]="15" aria-hidden="true"></svg>
+            </button>
+          </span>
+        </li>
+      } @empty {
+        @if (error() === null) {
+          <li class="empty">No skills in the catalog.</li>
+        }
       }
     </ul>
   }
 
-  <ul class="skill-list" aria-label="Skill catalog">
-    @for (skill of skills(); track skill.name) {
-      <li>
-        <button type="button" (click)="openSkill(skill.name)">
-          <span class="name">{{ skill.name }}</span>
-          <span class="version mono">{{ skill.version }}</span>
-          <span class="description">{{ skill.description }}</span>
-        </button>
-      </li>
-    } @empty {
-      @if (error() === null) {
-        <li class="empty">No skills in the catalog.</li>
-      }
-    }
-  </ul>
-
   @if (skippedCount() > 0) {
     <p class="skipped">{{ skippedCount() }} skill(s) skipped by server validation.</p>
   }
+</section>
 
-  @if (detail() !== null) {
-    <article class="skill-detail" [attr.aria-label]="'Skill ' + detail()!.name">
-      <div class="skill-detail-header">
+@if (mode() !== 'closed' && detail() !== null) {
+  <div class="modal-backdrop" (click)="close()">
+    <div
+      #skillDialog
+      class="modal skill-modal"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-label]="'Skill ' + detail()!.name"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="skill-modal-head">
         <h3>{{ detail()!.name }}</h3>
         <span class="mono version">{{ detail()!.version }}</span>
         <span class="grow"></span>
-        <button type="button" (click)="closeSkill()">Close</button>
+        @if (mode() === 'view') {
+          <button type="button" (click)="startEdit()">Edit</button>
+          <button type="button" class="danger" (click)="confirmDelete(detail()!.name)">
+            Delete
+          </button>
+        }
+        <button type="button" class="modal-close" (click)="close()">Close</button>
       </div>
-      <p class="description">{{ detail()!.description }}</p>
-      <pre class="body">{{ detail()!.body }}</pre>
-    </article>
-  }
-</section>
+
+      @if (mode() === 'view') {
+        <p class="description">{{ detail()!.description }}</p>
+        <pre class="body">{{ detail()!.body }}</pre>
+      } @else {
+        <form [formGroup]="editForm" (ngSubmit)="save()" class="edit-form">
+          <label class="field">
+            <span>Description</span>
+            <input formControlName="description" maxlength="500" />
+          </label>
+          <label class="field">
+            <span>Body</span>
+            <textarea formControlName="body" rows="14" spellcheck="false"></textarea>
+          </label>
+          <div class="edit-actions">
+            <button type="submit" class="primary" [disabled]="saving() || editForm.invalid">
+              {{ saving() ? 'Saving…' : 'Save' }}
+            </button>
+            <button type="button" (click)="cancelEdit()">Cancel</button>
+          </div>
+        </form>
+      }
+    </div>
+  </div>
+}
+
+@if (pendingDelete() !== null) {
+  <div class="modal-backdrop" (click)="cancelDelete()">
+    <div
+      #confirmDialog
+      class="modal confirm"
+      role="alertdialog"
+      aria-modal="true"
+      tabindex="-1"
+      aria-label="Confirm delete"
+      (click)="$event.stopPropagation()"
+    >
+      <h3>Delete skill “{{ pendingDelete() }}”?</h3>
+      <p class="description">
+        This removes the skill directory from disk. It cannot be undone.
+      </p>
+      <div class="edit-actions">
+        <button type="button" class="danger" (click)="doDelete()">Delete</button>
+        <button type="button" (click)="cancelDelete()">Cancel</button>
+      </div>
+    </div>
+  </div>
+}

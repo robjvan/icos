@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { SkillService } from './skill.service';
@@ -110,6 +111,30 @@ export class SkillsController {
       body:
         dto.body?.trim() ||
         'TODO: describe the procedure this skill should follow.',
+    });
+    return {
+      name: skill.name,
+      description: skill.description,
+      version: skill.version,
+    };
+  }
+
+  @Put(':name')
+  async update(
+    @Param('name') name: string,
+    @Body() dto: { description?: string; body?: string },
+  ): Promise<{ name: string; description: string; version: string }> {
+    const description = dto?.description?.trim();
+    if (!description) {
+      throw new BadRequestException('description is required');
+    }
+    if (typeof dto?.body !== 'string' || dto.body.trim() === '') {
+      throw new BadRequestException('body is required');
+    }
+    const skill = await this.skills.updateSkill({
+      name,
+      description,
+      body: dto.body,
     });
     return {
       name: skill.name,

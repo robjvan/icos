@@ -6,11 +6,41 @@
       <span class="badge-warn">showing {{ review.items().length }} of {{ review.total() }}</span>
     }
     <span class="grow"></span>
+    @if (openCount() > 0) {
+      <button
+        type="button"
+        (click)="requestBulk('approve')"
+        [disabled]="review.bulkBusy() !== null"
+      >
+        {{ review.bulkBusy() === 'approve' ? 'Approving…' : 'Approve all' }}
+      </button>
+      <button
+        type="button"
+        class="reject"
+        (click)="requestBulk('reject')"
+        [disabled]="review.bulkBusy() !== null"
+      >
+        {{ review.bulkBusy() === 'reject' ? 'Rejecting…' : 'Reject all' }}
+      </button>
+    }
     <button type="button" (click)="runSweep()" [disabled]="review.runningSweep()">
       {{ review.runningSweep() ? 'Running…' : 'Run promotions' }}
     </button>
     <button type="button" (click)="load()">Refresh</button>
   </div>
+
+  @if (pendingBulk() !== null) {
+    <div class="bulk-confirm" role="alertdialog" aria-label="Confirm bulk decision">
+      <span>
+        {{ pendingBulk() === 'approve' ? 'Approve' : 'Reject' }}
+        <strong>{{ openCount() }}</strong> open promotion(s)? This affects every row below.
+      </span>
+      <button type="button" class="reject" (click)="confirmBulk()">
+        {{ pendingBulk() === 'approve' ? 'Approve all' : 'Reject all' }}
+      </button>
+      <button type="button" (click)="cancelBulk()">Cancel</button>
+    </div>
+  }
 
   @if (review.lastSummary() !== null) {
     <p class="summary" role="status">

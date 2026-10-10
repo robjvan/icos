@@ -41,6 +41,7 @@ describe('MemoryReviewQueue', () => {
     total: () => number;
     showResolved: () => boolean;
     busyId: () => string | null;
+    bulkBusy: () => 'approve' | 'reject' | null;
     runningSweep: () => boolean;
     error: () => string | null;
     lastSummary: () => null;
@@ -48,6 +49,7 @@ describe('MemoryReviewQueue', () => {
     refresh: ReturnType<typeof vi.fn>;
     approve: ReturnType<typeof vi.fn>;
     reject: ReturnType<typeof vi.fn>;
+    bulkResolve: ReturnType<typeof vi.fn>;
     runPromotions: ReturnType<typeof vi.fn>;
     setShowResolved: ReturnType<typeof vi.fn>;
   };
@@ -58,6 +60,7 @@ describe('MemoryReviewQueue', () => {
       total: () => 1,
       showResolved: () => false,
       busyId: () => null,
+      bulkBusy: () => null,
       runningSweep: () => false,
       error: () => null,
       lastSummary: () => null,
@@ -65,6 +68,7 @@ describe('MemoryReviewQueue', () => {
       refresh: vi.fn().mockResolvedValue(undefined),
       approve: vi.fn().mockResolvedValue(undefined),
       reject: vi.fn().mockResolvedValue(undefined),
+      bulkResolve: vi.fn().mockResolvedValue(undefined),
       runPromotions: vi.fn().mockResolvedValue(undefined),
       setShowResolved: vi.fn(),
     };

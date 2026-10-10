@@ -5,6 +5,7 @@ import type { CoreConfig } from '../config';
 import type { ChatMessage } from '../llm/llm.client';
 import { SessionRepository } from '../session/session.repository';
 import type {
+  ContextSummary,
   MessageRecord,
   Session,
   SessionSearchResult,
@@ -85,6 +86,31 @@ export class SessionStore {
 
   async renameSession(sessionId: string, title: string): Promise<void> {
     await this.repository.renameSession(sessionId, title);
+  }
+
+  /** Delete a session + transcript; derived memory is left intact (M20i). */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.repository.deleteSession(sessionId);
+  }
+
+  /** Rolling conversation summary for a session (M20.6.2), or null. */
+  async getContextSummary(sessionId: string): Promise<ContextSummary | null> {
+    return this.repository.getContextSummary(sessionId);
+  }
+
+  /** Full message records (with ids) — used by context compaction (M20.6.2). */
+  async getMessageRecords(sessionId: string): Promise<MessageRecord[]> {
+    return this.repository.getMessageRecords(sessionId);
+  }
+
+  /** Insert or replace a session's rolling summary (M20.6.2). */
+  async upsertContextSummary(input: {
+    sessionId: string;
+    summary: string;
+    coveredUptoMessageId: number;
+    tokenEstimate: number;
+  }): Promise<ContextSummary> {
+    return this.repository.upsertContextSummary(input);
   }
 
   async excludeLastTurn(sessionId: string): Promise<number[] | null> {

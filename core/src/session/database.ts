@@ -225,6 +225,18 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_due
 ON cron_jobs(enabled, next_run_at);
+
+-- M20.6.2: rolling conversation summary (context compaction). One row per
+-- session; covered_upto_message_id is the re-trigger guard (never re-summarize
+-- the same range). Session-scoped derived context — deleted with the session.
+CREATE TABLE IF NOT EXISTS context_summaries (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    summary TEXT NOT NULL,
+    covered_upto_message_id INTEGER NOT NULL,
+    token_estimate INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 `;
 
 /**
@@ -804,6 +816,7 @@ const SCHEMAS: Record<
       'agent_runs',
       'session_todos',
       'cron_jobs',
+      'context_summaries',
     ],
     triggers: [
       'messages_ai',

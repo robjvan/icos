@@ -1,4 +1,11 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 import {
   ListSessionsQueryDto,
@@ -31,5 +38,21 @@ export class SessionsController {
       sessionId: query.sessionId,
     });
     return { results };
+  }
+
+  /**
+   * Delete a session and its transcript. Memory derived from the session
+   * (candidates, beliefs, promotions) is deliberately kept — delete it
+   * separately (M20i).
+   */
+  @Delete(':id')
+  async remove(
+    @Param('id') id: string,
+  ): Promise<{ deleted: true; id: string }> {
+    const removed = await this.conversation.deleteSession(id);
+    if (!removed) {
+      throw new NotFoundException(`Unknown session "${id}"`);
+    }
+    return { deleted: true, id };
   }
 }

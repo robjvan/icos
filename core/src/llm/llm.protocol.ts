@@ -60,6 +60,7 @@ const ALIASES: Readonly<Record<ToolName, string>> = {
   web_search: 'web_search',
   web_extract: 'web_extract',
   skills_list: 'skills_list',
+  search_platform_tools: 'search_platform_tools',
   skill_view: 'skill_view',
   todo: 'todo',
   memory: 'memory',

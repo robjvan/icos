@@ -43,6 +43,26 @@ export function searchProposal(
   };
 }
 
+export function searchPlatformToolsProposal(
+  query = 'read file',
+): Extract<LlmResult, { kind: 'tool_calls' }> {
+  const args = { query };
+  return {
+    kind: 'tool_calls',
+    content: null,
+    model: 'm',
+    toolCalls: [
+      {
+        id: 'model-call-1',
+        name: 'search_platform_tools',
+        version: 1,
+        rawArguments: JSON.stringify(args),
+        args,
+      },
+    ],
+  };
+}
+
 export function renameProposal(
   title = 'New title',
 ): Extract<LlmResult, { kind: 'tool_calls' }> {

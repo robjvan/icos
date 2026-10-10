@@ -78,6 +78,18 @@ export interface CoreConfig {
   llmHeaders?: Record<string, string>;
   userAgent?: string;
   llmTimeoutMs: number;
+  /** M20.6: model context window (tokens) and tokens reserved for the reply. */
+  llmContextWindow?: number;
+  llmMaxOutputTokens?: number;
+  /** M20.6: automatic context compaction and its trigger fraction (0–1). */
+  contextCompactionEnabled?: boolean;
+  contextCompactionTarget?: number;
+  /** Bound on the memory-role summarizer attempt (ms) before falling back. */
+  contextCompactionTimeoutMs?: number;
+  /** M20.6: best-effort provider context-window probe (default off). */
+  contextWindowAutodetect?: boolean;
+  /** M20.6: persisted context-settings override file (target/enabled). */
+  contextSettingsPath?: string;
   systemPrompt: string;
   maxHistory: number;
   sessionDbPath: string;
@@ -351,11 +363,25 @@ export interface CoreConfig {
   toolsDisabledToolsets?: string[];
   toolsEnabled?: string[];
   toolsDisabled?: string[];
+  /** M20.7 tool discovery: inject only a bounded, relevant subset per turn. */
+  toolsDiscoveryEnabled?: boolean;
+  /** Tool names always injected regardless of discovery (the core). */
+  toolsAlwaysOn?: string[];
+  /** Per-turn injected-schema cap (always-on + discovered). */
+  toolsMaxPerTurn?: number;
+  /** Discovery result cap. */
+  toolsDiscoveryLimit?: number;
+  /** `search_platform_tools` result cap. */
+  toolsPullMaxResults?: number;
+  /** `search_platform_tools` attempts allowed per turn. */
+  toolsPullMaxPerTurn?: number;
   /**
    * Filesystem root the file tools may read/search/write (M17b). A path that
    * resolves outside this root is refused. Default `~/.icos/workspace`.
    */
   toolsWorkspaceRoot?: string;
+  /** M20f: persisted global per-tool auto-approve overrides. */
+  toolPrefsPath?: string;
   /**
    * SearXNG base URL for `web_search` (M17b). No API key; the instance must
    * expose the JSON format. Unset leaves web_search unavailable.
@@ -478,6 +504,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     llmHeaders: parseHeaders(env.LLM_HEADERS, 'LLM_HEADERS'),
     userAgent: (env.LLM_USER_AGENT ?? '').trim() || undefined,
     llmTimeoutMs: parsePositiveInt(env.LLM_TIMEOUT_MS, 60000, 'LLM_TIMEOUT_MS'),
+    llmContextWindow: parsePositiveInt(
+      env.LLM_CONTEXT_WINDOW,
+      1_000_000,
+      'LLM_CONTEXT_WINDOW',
+    ),
+    llmMaxOutputTokens: parsePositiveInt(
+      env.LLM_MAX_OUTPUT_TOKENS,
+      8192,
+      'LLM_MAX_OUTPUT_TOKENS',
+    ),
+    contextCompactionEnabled: parseBoolean(
+      env.CONTEXT_COMPACTION_ENABLED,
+      true,
+    ),
+    contextCompactionTarget: parseScore(
+      env.CONTEXT_COMPACTION_TARGET,
+      0.8,
+      'CONTEXT_COMPACTION_TARGET',
+    ),
+    contextCompactionTimeoutMs: parsePositiveInt(
+      env.CONTEXT_COMPACTION_TIMEOUT_MS,
+      20000,
+      'CONTEXT_COMPACTION_TIMEOUT_MS',
+    ),
+    contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, false),
+    contextSettingsPath: resolvePath(
+      env.CONTEXT_SETTINGS_PATH,
+      '~/.icos/context-settings.json',
+    ),
     systemPrompt:
       (env.SYSTEM_PROMPT ?? 'You are Isabel, a helpful assistant.').trim() ||
       'You are Isabel, a helpful assistant.',
@@ -820,10 +875,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     toolsDisabledToolsets: parseCsv(env.TOOLS_DISABLED_TOOLSETS),
     toolsEnabled: parseCsv(env.TOOLS_ENABLED),
     toolsDisabled: parseCsv(env.TOOLS_DISABLED),
+    toolsDiscoveryEnabled: parseBoolean(env.TOOLS_DISCOVERY_ENABLED, true),
+    toolsAlwaysOn: parseCsvWithDefault(
+      env.TOOLS_ALWAYS_ON,
+      DEFAULT_TOOLS_ALWAYS_ON,
+    ),
+    toolsMaxPerTurn: parsePositiveInt(
+      env.TOOLS_MAX_PER_TURN,
+      12,
+      'TOOLS_MAX_PER_TURN',
+    ),
+    toolsDiscoveryLimit: parsePositiveInt(
+      env.TOOLS_DISCOVERY_LIMIT,
+      8,
+      'TOOLS_DISCOVERY_LIMIT',
+    ),
+    toolsPullMaxResults: parsePositiveInt(
+      env.TOOLS_PULL_MAX_RESULTS,
+      5,
+      'TOOLS_PULL_MAX_RESULTS',
+    ),
+    toolsPullMaxPerTurn: parseNonNegativeInt(
+      env.TOOLS_PULL_MAX_PER_TURN,
+      2,
+      'TOOLS_PULL_MAX_PER_TURN',
+    ),
     toolsWorkspaceRoot: resolvePath(
       env.TOOLS_WORKSPACE_ROOT,
       '~/.icos/workspace',
     ),
+    toolPrefsPath: resolvePath(env.TOOL_PREFS_PATH, '~/.icos/tool-prefs.json'),
     searxngBaseUrl: (env.SEARXNG_BASE_URL ?? '').trim() || undefined,
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(
@@ -911,6 +992,25 @@ function parseCsv(raw: string | undefined): string[] {
     ),
   ];
 }
+
+/** CSV with a compiled-in default: unset ⇒ default; explicit empty ⇒ []. */
+function parseCsvWithDefault(
+  raw: string | undefined,
+  defaults: readonly string[],
+): string[] {
+  if (raw === undefined) return [...defaults];
+  return parseCsv(raw);
+}
+
+/**
+ * Always-injected tools (M20.7): the discovery meta-tool plus a short core
+ * that is relevant on essentially every turn. Everything else is discovered.
+ */
+const DEFAULT_TOOLS_ALWAYS_ON = [
+  'search_platform_tools',
+  'memory',
+  'todo',
+] as const;
 
 /**
  * Default browser origins allowed in local development: the bundled

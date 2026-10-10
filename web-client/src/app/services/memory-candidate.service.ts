@@ -1,6 +1,10 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { MEMORY_CANDIDATES_ENDPOINT } from '../../constants';
-import type { ListCandidatesResponse, MemoryCandidate } from '../models/memory-candidate';
+import type {
+  CandidateSort,
+  ListCandidatesResponse,
+  MemoryCandidate,
+} from '../models/memory-candidate';
 import { CoreApiService } from './core-api.service';
 
 const CANDIDATE_LIST_LIMIT = 100;
@@ -15,6 +19,8 @@ export class MemoryCandidateService {
 
   readonly candidates = signal<readonly MemoryCandidate[]>([]);
   readonly error = signal<string | null>(null);
+  /** Ledger ordering (M20g). */
+  readonly sort = signal<CandidateSort>('recent');
 
   async refresh(sessionId?: string): Promise<void> {
     this.error.set(null);
@@ -22,6 +28,7 @@ export class MemoryCandidateService {
       const data = await this.api.get<ListCandidatesResponse>(MEMORY_CANDIDATES_ENDPOINT, {
         ...(sessionId ? { sessionId } : {}),
         limit: CANDIDATE_LIST_LIMIT,
+        sort: this.sort(),
       });
       this.candidates.set(data.candidates);
     } catch (error) {

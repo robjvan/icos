@@ -33,13 +33,18 @@ describe('NavTabsComponent', () => {
     expect(component.tabs.map((tab) => tab.path)).toContain('identity');
   });
 
-  it('should toggle the theme label with the current theme', () => {
+  it('does not duplicate the theme or settings controls in the topbar (M20c)', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
+    // Theme lives in the footer status bar only.
     const themeButton = [...compiled.querySelectorAll('button')].find((button) =>
-      button.getAttribute('aria-label')?.includes('theme'),
+      button.getAttribute('aria-label')?.toLowerCase().includes('theme'),
     );
-    expect(themeButton?.getAttribute('aria-label')).toContain('theme');
+    expect(themeButton).toBeUndefined();
+    // Settings live in the Client tab only — no cog shortcut in the topbar.
+    expect(compiled.querySelector('a[aria-label="Client settings"]')).toBeNull();
+    // The About button remains.
+    expect(compiled.querySelector('button[aria-label="About ICOS"]')).not.toBeNull();
   });
 
   it('should open and close the about dialog', () => {

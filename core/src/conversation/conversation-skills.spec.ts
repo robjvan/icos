@@ -22,6 +22,8 @@ import { RecallTraceStore } from '../memory/recall-trace.store';
 import { SKILL_FILE } from '../skills/skill-loader';
 import { SkillService } from '../skills/skill.service';
 import { ToolRegistry } from '../tools/tool-registry';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { ToolPullStore } from '../tools/tool-pull.store';
 import { ConversationService } from './conversation.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import {
@@ -95,6 +97,8 @@ function testConfig(
     realtimeEnabled: false,
     realtimeHeartbeatMs: 30000,
     realtimeAllowedOrigins: ['*'],
+    // These specs assert the full tool offer; discovery has its own suite.
+    toolsDiscoveryEnabled: false,
     ...overrides,
   };
 }
@@ -176,6 +180,7 @@ async function setup(
     {
       resolve: () => Promise.resolve({ parts: [], description: null }),
     } as unknown as AttachmentImageResolver,
+    new ToolSurfaceService(config, new ToolRegistry(), new ToolPullStore()),
   );
   return {
     service,

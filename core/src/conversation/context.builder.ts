@@ -58,6 +58,11 @@ export interface ContextMemory {
   memoryBand: string | null;
   /** Labeled corpus slot (absence declared, never silent). */
   kbBand: string | null;
+  /**
+   * M20.6.2 rolling conversation summary. Pushed immediately before history so
+   * the model reads it as "what came before". Absent = no compaction yet.
+   */
+  summaryBand?: string | null;
 }
 
 export function buildContext(
@@ -107,6 +112,9 @@ export function buildContext(
   }
   if (memory?.kbBand) {
     messages.push({ role: 'system', content: memory.kbBand });
+  }
+  if (memory?.summaryBand) {
+    messages.push({ role: 'system', content: memory.summaryBand });
   }
   messages.push(...history.slice(-maxHistory));
   messages.push({ role: 'user', content: input });

@@ -3,6 +3,7 @@
 import type { ChatMessage } from '../llm/llm.client';
 import { SessionRepository } from '../session/session.repository';
 import type {
+  ContextSummary,
   MessageRecord,
   Session,
   SessionSearchResult,
@@ -22,6 +23,7 @@ export class FakeSessionRepository extends SessionRepository {
     { createdAt: string; updatedAt: string; title?: string }
   >();
   private readonly records: MessageRecord[] = [];
+  private readonly summaries = new Map<string, ContextSummary>();
   private nextId = 1;
 
   async createSession(id: string): Promise<void> {
@@ -129,6 +131,39 @@ export class FakeSessionRepository extends SessionRepository {
     if (trimmed) session.title = trimmed;
     else delete session.title;
     session.updatedAt = new Date().toISOString();
+  }
+
+  async deleteSession(id: string): Promise<boolean> {
+    if (!this.sessions.has(id)) return false;
+    this.sessions.delete(id);
+    for (let i = this.records.length - 1; i >= 0; i--) {
+      if (this.records[i].sessionId === id) this.records.splice(i, 1);
+    }
+    return true;
+  }
+
+  async getContextSummary(sessionId: string): Promise<ContextSummary | null> {
+    return this.summaries.get(sessionId) ?? null;
+  }
+
+  async upsertContextSummary(input: {
+    sessionId: string;
+    summary: string;
+    coveredUptoMessageId: number;
+    tokenEstimate: number;
+  }): Promise<ContextSummary> {
+    const now = new Date().toISOString();
+    const existing = this.summaries.get(input.sessionId);
+    const stored: ContextSummary = {
+      sessionId: input.sessionId,
+      summary: input.summary,
+      coveredUptoMessageId: input.coveredUptoMessageId,
+      tokenEstimate: input.tokenEstimate,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.summaries.set(input.sessionId, stored);
+    return stored;
   }
 
   async ping(): Promise<void> {
