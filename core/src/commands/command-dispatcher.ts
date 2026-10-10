@@ -64,6 +64,7 @@ export class CommandDispatcher {
       activeStreams: () => CommandDispatcher.activeStreams,
       ...(budget ? { budget } : {}),
       ...(compaction ? { compaction } : {}),
+      ...(toolSurface ? { toolSurface } : {}),
     });
     registerRuntimeCommands(register, {
       sessions,

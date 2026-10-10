@@ -5,6 +5,7 @@ import { SessionStore } from '../conversation/session.store';
 import type { HistoryMessage } from '../conversation/session.store';
 import type { ContextBudgetService } from '../conversation/context-budget.service';
 import type { ContextCompactionService } from '../conversation/context-compaction.service';
+import type { ToolSurfaceService } from '../tools/tool-surface.service';
 import type { Session } from '../session/session.repository';
 import type {
   CommandContext,
@@ -113,6 +114,8 @@ export interface SessionCommandDeps {
   budget?: ContextBudgetService;
   /** M20.6 context compaction for `/compact` (optional). */
   compaction?: ContextCompactionService;
+  /** M20.7 tool surface for `/status` (optional). */
+  toolSurface?: ToolSurfaceService;
 }
 
 class StatusCommand implements SlashCommandHandler {
@@ -142,7 +145,7 @@ class StatusCommand implements SlashCommandHandler {
       const inContext = history.filter((m) => !m.excludedFromContext);
       const windowed = inContext.slice(-config.maxHistory);
       const display = prefs.get(session.id);
-      const { budget, compaction } = this.deps;
+      const { budget, compaction, toolSurface } = this.deps;
       const summary = compaction
         ? await compaction.summaryFor(session.id)
         : null;
@@ -162,6 +165,11 @@ class StatusCommand implements SlashCommandHandler {
               summary
                 ? `Summary: ~${summary.tokenEstimate} tokens · covers up to message ${summary.coveredUptoMessageId} · updated ${summary.updatedAt}`
                 : 'Summary: none (not compacted)',
+            ]
+          : []),
+        ...(toolSurface
+          ? [
+              `Tools: ${toolSurface.universe().length} enabled · discovery ${toolSurface.discoveryEnabled ? 'on' : 'off'} · max ${toolSurface.bounds().maxPerTurn}/turn`,
             ]
           : []),
         `Created: ${session.createdAt} · Updated: ${session.updatedAt}`,
@@ -195,6 +203,15 @@ class StatusCommand implements SlashCommandHandler {
                     updatedAt: summary.updatedAt,
                   }
                 : null,
+            }
+          : {}),
+        ...(toolSurface
+          ? {
+              tools: {
+                enabled: toolSurface.universe().length,
+                discoveryEnabled: toolSurface.discoveryEnabled,
+                bounds: toolSurface.bounds(),
+              },
             }
           : {}),
         createdAt: session.createdAt,
