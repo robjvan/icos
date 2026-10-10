@@ -8,9 +8,10 @@ verified, and why it matters. No hand-waving._
 > how it works, and how we know it works. Where something is partial or not
 > built, it says so.
 >
-> **Snapshot:** through milestone **M15.5** (2026-10-03), immediately after the
-> full-platform "roundup" verification pass
-> (`.reference/plans/evidence/roundup-testing/roundup-m15.5-evidence.md`).
+> **Snapshot:** through milestone **M20** (2026-10-10). The M15.5 full-platform
+> "roundup" pass lives at
+> `.reference/plans/evidence/roundup-testing/roundup-m15.5-evidence.md`; M16–M20
+> evidence is under `.reference/plans/evidence/`.
 
 ---
 
@@ -44,18 +45,25 @@ ICOS (**I**SABEL **C**ognitive **O**perating **S**ystem) is a **from-scratch
 runtime for an AI agent that can remember things reliably.**
 
 It is not a wrapper around an existing agent framework, and it is not a
-chatbot product. It is a small, deliberately-built system that answers one
+chatbot product. It is a small, deliberately-built system that investigates one
 research question:
 
-> **What is the minimum architecture that gives an agent persistent memory,
-> useful knowledge, and meaningful agency?**
+> **How can we engineer artificial cognitive systems that are useful,
+> epistemically accountable, and honest about the limits of their own
+> knowledge?**
 
 The design philosophy is "start small and add capability deliberately." Every
 capability has to justify the complexity it adds, and every milestone has a
-written question, an implementation, and committed evidence.
+written question, an implementation, and committed evidence. Transparency and
+honesty are related but distinct: making the internals inspectable does not, by
+itself, make the conclusions correct — so ICOS also works on mechanisms for
+tracing evidence, representing uncertainty, reviewing memory, and examining
+failures. This is a research direction, not a solved problem.
 
-**Status: Built & verified** (the conversation loop through M15.5 is complete;
-the next chapter, connecting to the outside world, has not started).
+**Status: Built & verified** through M20 (the conversation loop, the memory and
+persona layers, external channels, a broad tool surface, dynamic MCP toolsets,
+and a full web client are all implemented; see the milestone evidence under
+`.reference/plans/evidence/`).
 
 ---
 
@@ -82,13 +90,17 @@ layer uses the one below it.
         │               → recall back into the next conversation
         │
         ▼
+  REACHING OUT       external channels (Discord, email) · MCP tool servers
+        │            a broad tool surface · a skill library · a web client
+        │
+        ▼
   STAYING HONEST     persona (who it is) · drift detection (is it changing?)
                      hallucination checks (is it making things up?) · safety
 ```
 
 Each layer is described in its own section below.
 
-**Status: Built & verified.** All five layers exist. The live system boots in
+**Status: Built & verified.** All layers exist. The live system boots in
 Docker and reports itself healthy; the web client and the API both work.
 
 ---
@@ -289,8 +301,12 @@ with the verifier tier recorded. **Not built:** _blocking_ pre-send mitigation
 | **Approvals & clarifications** | Human checkpoints.                                | Structured requests with explicit states (`pending → approved / rejected / expired / cancelled`). **Model text can never approve anything.**                                                | Keeps a human in control of consequential actions. |
 
 **Status: Built & verified.** Skills, tools, the loop, and approvals all have
-unit and end-to-end coverage. The built-in tool set is intentionally small;
-more tools arrive via MCP or the documented authoring blueprint.
+unit and end-to-end coverage. There are 26 native tools plus everything MCP
+servers contribute; to keep each request small, ICOS injects only a bounded,
+relevant subset per turn — a small always-on core plus tools discovered from
+the message, with a `search_platform_tools` meta-tool and `/tools pull` to
+reach the rest. Discovery only narrows what the model is _shown_, never what
+the operator allows, and calls still approve normally.
 
 ---
 
@@ -302,6 +318,10 @@ more tools arrive via MCP or the documented authoring blueprint.
   catalog reloaded **without a restart**, and each server reports its health.
   Spawned servers get a **minimal environment** — only the variables they
   explicitly reference — so they can't read your other secrets.
+- **External channels (M16).** Discord and email are first-class: inbound
+  messages become turns, outbound sends are approval-gated, and Discord
+  registers native slash commands. Sending is a normal tool (`channel.send`)
+  with its own allowlists.
 - **Providers (the model boundary).** ICOS never hard-codes a model vendor.
   Everything speaks the OpenAI-compatible interface, and a runtime **provider
   registry** lets you add providers and choose which model serves which role
@@ -316,13 +336,16 @@ MCP path was additionally exercised against a real external server in M13).
 
 ## 12. Running and managing it
 
-- **Web client.** An Angular app with real management surfaces: chat, memory
-  review, beliefs, the **identity/persona** tab, **MCP** servers, **Models**
-  (providers), **Server settings** (secrets + security posture). Several other
-  tabs are honest placeholders that render a visible **"server unimplemented"**
-  marker (with a milestone pointer) instead of fake data: tools, agents,
-  comms, sensors, files, cron, and knowledge-base — and, UI-only, the skills
-  and metrics tabs (their _backends_ exist; only the browser tab doesn't yet).
+- **Web client (M20).** An Angular app with real management surfaces: chat
+  (streaming), **Memory** (review queue, beliefs, ledger, and a **Context**
+  segment showing the token budget and the rolling summary), **Skills**
+  (view / edit / delete), **Tools** (inventory + global auto-approve +
+  discovery state), **Cron**, the **identity/persona** tab, **MCP** servers,
+  **Models** (providers), **Server settings** (secrets + security posture),
+  and **Client settings** (theme, health poll, and the global context target).
+  The remaining tabs — agents, files, knowledge-base, sensors, metrics, and
+  comms — are honest placeholders that render a visible **"server
+  unimplemented"** marker (with a milestone pointer) instead of fake data.
 - **Security.** Loopback-only by default; authentication on by default with a
   bootstrap token; signed sessions with CSRF protection; an **encrypted
   secret vault** (AES-256-GCM, write-only — values are never returned by any
@@ -350,16 +373,17 @@ At this snapshot the numbers are:
 
 | Check                    | Result                                             |
 | ------------------------ | -------------------------------------------------- |
-| Runtime unit tests       | **994 passing** (+1 optional live test)            |
-| Runtime end-to-end tests | **93 passing**                                     |
-| Web-client tests         | **185 passing**                                    |
+| Runtime unit tests       | **1234 passing** (+1 optional live test)           |
+| Runtime end-to-end tests | **68 passing**                                     |
+| Web-client tests         | **200 passing**                                    |
+| Runtime coverage         | functions **81.3%**, lines **80.5%**               |
 | Type-check / lint        | clean (both packages)                              |
 | Docker stack             | core + web client **healthy**                      |
 | Live model check         | hallucination verifier answered a real local model |
 
-This report itself is the product of that habit: a full-platform **roundup**
-re-checked every claim in these docs against the running system and fixed the
-places where the documentation had drifted from reality.
+This report itself is the product of that habit: the M15.5 full-platform
+**roundup** re-checked every claim in these docs against the running system, and
+the M20 pass brought the test counts and the milestone status current again.
 
 ---
 
@@ -375,13 +399,18 @@ places where the documentation had drifted from reality.
 | Drift detection                                       | Built (advisory semantic signal; structural deterministic) |
 | Hallucination mitigation                              | Built & verified (audit is post-turn, not blocking)        |
 | Skills, tools, agent loop, approvals                  | Built & verified                                           |
+| Dynamic MCP toolsets                                  | Built & verified (M19)                                     |
+| External channels (Discord, email)                    | Built & verified (M16); SMS not built                      |
+| Web client (management surfaces)                      | Built & verified (M20); a few tabs remain placeholders     |
+| Context budget + automatic compaction                 | Built & verified (M20.6)                                   |
+| Per-turn tool discovery                               | Built & verified (M20.7)                                   |
 | MCP client, provider registry                         | Built & verified (DMR path still "in testing")             |
 | Security (auth, vault, CORS, posture)                 | Built & verified                                           |
 | Docker launch path                                    | Built & verified                                           |
 | Core signing / tamper-authentication                  | **Not built** (future hardening)                           |
-| External channels (Discord, email, SMS)               | **Not built** (M16)                                        |
-| Autonomous action selection                           | **Not built** (M17)                                        |
-| Sensors, subagents, reactionary events                | **Not built** (M18–M20)                                    |
+| Subagents                                             | **Not built** (M21)                                        |
+| Autonomous action selection                           | **Not built** (M22)                                        |
+| Sensors, reactionary events                           | **Not built** (M24–M25)                                    |
 
 ---
 
