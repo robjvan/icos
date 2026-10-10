@@ -20,6 +20,7 @@ export const TOOLS_ENDPOINT = '/core/tools';
 export const CRON_ENDPOINT = '/core/cron';
 export const HEALTH_ENDPOINT = '/core/health';
 export const PERSONA_ENDPOINT = '/core/persona';
+export const CONTEXT_ENDPOINT = '/core/context';
 
 // Management surfaces (security S5).
 export const MCP_ENDPOINT = '/core/mcp';

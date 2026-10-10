@@ -1,0 +1,75 @@
+<section class="context-panel" aria-label="Context">
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <h2>Budget</h2>
+  @if (settings(); as s) {
+    <dl class="settings">
+      <div>
+        <dt>Compaction</dt>
+        <dd>{{ s.enabled ? 'Enabled' : 'Disabled' }}</dd>
+      </div>
+      <div>
+        <dt>Context window</dt>
+        <dd class="mono">{{ format(s.contextWindow) }} tokens</dd>
+      </div>
+      <div>
+        <dt>Usable budget</dt>
+        <dd class="mono">{{ format(s.usableTokens) }} tokens</dd>
+        <dd class="hint">
+          window − {{ format(s.maxOutputTokens) }} reserved for the reply
+        </dd>
+      </div>
+      <div>
+        <dt>Compact at</dt>
+        <dd class="mono">{{ format(s.triggerTokens) }} tokens</dd>
+        <dd class="hint">
+          target {{ (s.target * 100).toFixed(0) }}% of the usable budget
+        </dd>
+      </div>
+    </dl>
+  } @else {
+    <p class="hint">Loading…</p>
+  }
+
+  <h2>Rolling summary</h2>
+  <div class="session-row">
+    <input
+      type="text"
+      [value]="sessionId()"
+      (input)="onSessionInput($event)"
+      placeholder="Session id"
+      autocomplete="off"
+      aria-label="Session id"
+    />
+    <button type="button" (click)="refresh()" [disabled]="busy()">Load</button>
+    <button type="button" (click)="useCurrentSession()" [disabled]="busy()">
+      Use current session
+    </button>
+  </div>
+
+  @if (summary(); as s) {
+    <dl class="settings">
+      <div>
+        <dt>Covers up to</dt>
+        <dd>message #{{ s.coveredUptoMessageId }}</dd>
+      </div>
+      <div>
+        <dt>Summary size</dt>
+        <dd class="mono">~{{ format(s.tokenEstimate) }} tokens</dd>
+      </div>
+      <div>
+        <dt>Updated</dt>
+        <dd>{{ s.updatedAt }}</dd>
+      </div>
+    </dl>
+    <pre class="summary">{{ s.summary }}</pre>
+  } @else {
+    <p class="hint">
+      No summary for this session yet. Older turns are folded automatically when
+      the context crosses the trigger, or on demand with
+      <span class="mono">/compact</span>.
+    </p>
+  }
+</section>

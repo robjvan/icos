@@ -85,7 +85,7 @@ describe('MemoryTab', () => {
     expect(component.view()).toBe('beliefs');
   });
 
-  it('should expose the three segments', () => {
-    expect(component.views).toEqual(['review', 'beliefs', 'ledger']);
+  it('should expose the four segments', () => {
+    expect(component.views).toEqual(['review', 'beliefs', 'ledger', 'context']);
   });
 });

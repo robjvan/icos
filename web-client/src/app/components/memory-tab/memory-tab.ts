@@ -15,13 +15,24 @@ import { MemoryReviewService } from '../../services/memory-review.service';
 import type { CandidateSort } from '../../models/memory-candidate';
 import { ClaimList } from '../claim-list/claim-list';
 import { MemoryReviewQueue } from '../memory-review-queue/memory-review-queue';
+import { ContextPanel } from '../context-panel/context-panel';
 
-export type MemoryView = 'review' | 'beliefs' | 'ledger';
+export type MemoryView = 'review' | 'beliefs' | 'ledger' | 'context';
 
-const VIEWS: readonly MemoryView[] = ['review', 'beliefs', 'ledger'];
+const VIEWS: readonly MemoryView[] = [
+  'review',
+  'beliefs',
+  'ledger',
+  'context',
+];
 
 function parseView(raw: string | null): MemoryView | null {
-  return raw === 'review' || raw === 'beliefs' || raw === 'ledger' ? raw : null;
+  return raw === 'review' ||
+    raw === 'beliefs' ||
+    raw === 'ledger' ||
+    raw === 'context'
+    ? raw
+    : null;
 }
 
 /**
@@ -40,6 +51,7 @@ function parseView(raw: string | null): MemoryView | null {
     LucideSearch,
     ClaimList,
     MemoryReviewQueue,
+    ContextPanel,
   ],
   templateUrl: './memory-tab.html',
   styleUrl: './memory-tab.css',
