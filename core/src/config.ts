@@ -78,6 +78,14 @@ export interface CoreConfig {
   llmHeaders?: Record<string, string>;
   userAgent?: string;
   llmTimeoutMs: number;
+  /** M20.6: model context window (tokens) and tokens reserved for the reply. */
+  llmContextWindow?: number;
+  llmMaxOutputTokens?: number;
+  /** M20.6: automatic context compaction and its trigger fraction (0–1). */
+  contextCompactionEnabled?: boolean;
+  contextCompactionTarget?: number;
+  /** M20.6: best-effort provider context-window probe (default off). */
+  contextWindowAutodetect?: boolean;
   systemPrompt: string;
   maxHistory: number;
   sessionDbPath: string;
@@ -480,6 +488,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     llmHeaders: parseHeaders(env.LLM_HEADERS, 'LLM_HEADERS'),
     userAgent: (env.LLM_USER_AGENT ?? '').trim() || undefined,
     llmTimeoutMs: parsePositiveInt(env.LLM_TIMEOUT_MS, 60000, 'LLM_TIMEOUT_MS'),
+    llmContextWindow: parsePositiveInt(
+      env.LLM_CONTEXT_WINDOW,
+      1_000_000,
+      'LLM_CONTEXT_WINDOW',
+    ),
+    llmMaxOutputTokens: parsePositiveInt(
+      env.LLM_MAX_OUTPUT_TOKENS,
+      8192,
+      'LLM_MAX_OUTPUT_TOKENS',
+    ),
+    contextCompactionEnabled: parseBoolean(
+      env.CONTEXT_COMPACTION_ENABLED,
+      true,
+    ),
+    contextCompactionTarget: parseScore(
+      env.CONTEXT_COMPACTION_TARGET,
+      0.8,
+      'CONTEXT_COMPACTION_TARGET',
+    ),
+    contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, false),
     systemPrompt:
       (env.SYSTEM_PROMPT ?? 'You are Isabel, a helpful assistant.').trim() ||
       'You are Isabel, a helpful assistant.',

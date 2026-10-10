@@ -111,6 +111,7 @@ import { HealthService } from '../health/health.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
+import { ContextBudgetService } from './context-budget.service';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -343,6 +344,7 @@ const toolExecutionServiceProvider = {
     HallucinationMitigationService,
     HallucinationGuardService,
     ConversationService,
+    ContextBudgetService,
     SessionStore,
   ],
   exports: [ConversationService, ApprovalService, CommandDispatcher],

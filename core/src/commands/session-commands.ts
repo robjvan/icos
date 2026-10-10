@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import type { CoreConfig } from '../config';
 import { SessionStore } from '../conversation/session.store';
 import type { HistoryMessage } from '../conversation/session.store';
+import type { ContextBudgetService } from '../conversation/context-budget.service';
 import type { Session } from '../session/session.repository';
 import type {
   CommandContext,
@@ -107,6 +108,8 @@ export interface SessionCommandDeps {
   skills: SkillService;
   /** Current in-flight SSE streams, for `/status` honesty. */
   activeStreams: () => number;
+  /** M20.6 context-budget accounting for `/status` (optional). */
+  budget?: ContextBudgetService;
 }
 
 class StatusCommand implements SlashCommandHandler {
@@ -136,10 +139,18 @@ class StatusCommand implements SlashCommandHandler {
       const inContext = history.filter((m) => !m.excludedFromContext);
       const windowed = inContext.slice(-config.maxHistory);
       const display = prefs.get(session.id);
+      const { budget } = this.deps;
       lines.push(
         `Session: ${session.id}`,
         ...(session.title ? [`Title: ${session.title}`] : []),
         `Messages: ${history.length} (context window: ${windowed.length}/${config.maxHistory})`,
+        ...(budget
+          ? [
+              `Context: ~${budget.estimate(
+                inContext.map((m) => ({ role: m.role, content: m.content })),
+              )} tokens · window ${budget.contextWindow} · usable ${budget.usableTokens} · compact at ${budget.triggerTokens}${budget.enabled ? '' : ' (disabled)'}`,
+            ]
+          : []),
         `Created: ${session.createdAt} · Updated: ${session.updatedAt}`,
         `Streaming: ${activeStreams() > 0 ? `${activeStreams()} active` : 'idle'}`,
         `Display: thinking=${display.showThinking ? 'on' : 'off'}, timestamps=${display.showTimestamps ? 'on' : 'off'}`,
@@ -151,6 +162,17 @@ class StatusCommand implements SlashCommandHandler {
         messageCount: history.length,
         contextWindowUsed: windowed.length,
         contextWindowLimit: config.maxHistory,
+        ...(budget
+          ? {
+              contextEstimate: budget.estimate(
+                inContext.map((m) => ({ role: m.role, content: m.content })),
+              ),
+              contextWindow: budget.contextWindow,
+              contextUsable: budget.usableTokens,
+              contextTrigger: budget.triggerTokens,
+              compactionEnabled: budget.enabled,
+            }
+          : {}),
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         display,
