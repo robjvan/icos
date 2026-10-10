@@ -83,6 +83,7 @@ export class ContextCompactionService {
     const prior = existing ? `Existing summary:\n${existing.summary}\n\n` : '';
     const summary = (
       await this.summarizeWithFallback({
+        sessionId,
         messages: [
           { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
           {
@@ -152,8 +153,13 @@ export class ContextCompactionService {
     request: LlmChatRequest,
   ): Promise<string> {
     if (this.memoryLlm) {
+      // Bound the memory-role attempt: a cold local model must not stall
+      // compaction for the full endpoint timeout — fall back instead.
+      const signal = AbortSignal.timeout(
+        this.config.contextCompactionTimeoutMs ?? 20_000,
+      );
       try {
-        return (await this.memoryLlm.chat(request)).content;
+        return (await this.memoryLlm.chat(request, signal)).content;
       } catch (err) {
         this.logger.warn(
           `Memory-role summarizer failed (${

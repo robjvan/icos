@@ -84,6 +84,8 @@ export interface CoreConfig {
   /** M20.6: automatic context compaction and its trigger fraction (0–1). */
   contextCompactionEnabled?: boolean;
   contextCompactionTarget?: number;
+  /** Bound on the memory-role summarizer attempt (ms) before falling back. */
+  contextCompactionTimeoutMs?: number;
   /** M20.6: best-effort provider context-window probe (default off). */
   contextWindowAutodetect?: boolean;
   /** M20.6: persisted context-settings override file (target/enabled). */
@@ -508,6 +510,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.CONTEXT_COMPACTION_TARGET,
       0.8,
       'CONTEXT_COMPACTION_TARGET',
+    ),
+    contextCompactionTimeoutMs: parsePositiveInt(
+      env.CONTEXT_COMPACTION_TIMEOUT_MS,
+      20000,
+      'CONTEXT_COMPACTION_TIMEOUT_MS',
     ),
     contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, false),
     contextSettingsPath: resolvePath(

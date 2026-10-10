@@ -77,7 +77,10 @@ describe('ContextCompactionService', () => {
     await seed('s1', 20);
     const result = await withMemory.compact('s1');
     expect(result).not.toBeNull();
-    expect(memoryChat).toHaveBeenCalled();
+    expect(memoryChat).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(AbortSignal),
+    );
     expect(chat).toHaveBeenCalled(); // conversation model served the summary
   });
 
