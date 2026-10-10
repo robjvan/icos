@@ -160,6 +160,9 @@ review boundary).
 
 ## M20.5 — Discord native commands (EXP-2)
 
+> **Done** (2026-10-10). Commits `6ff5c53` + `b93a858`. See
+> `evidence/milestone-20/m20.5-discord-commands-evidence.md`.
+
 **Covers:** M20k. Source: `.reference/notes/discord-slash-commands.md`.
 
 Register ICOS's internal command registry as Discord **application commands**
