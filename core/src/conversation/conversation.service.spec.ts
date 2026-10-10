@@ -253,6 +253,8 @@ function setup(
     ping: jest.fn(() => Promise.resolve()),
   } as unknown as MemoryCandidateRepository;
   const prefs = new DisplayPreferenceStore();
+  const pulls = new ToolPullStore();
+  const surface = new ToolSurfaceService(config, registry, pulls);
   const host = {
     collect: jest.fn(() =>
       Promise.resolve({
@@ -366,7 +368,7 @@ function setup(
       {
         resolve: () => Promise.resolve({ parts: [], description: null }),
       } as unknown as AttachmentImageResolver,
-      new ToolSurfaceService(config, registry, new ToolPullStore()),
+      surface,
     ),
     repository,
     chatWithTools,
@@ -380,6 +382,8 @@ function setup(
     rankMock,
     traces,
     recordAccessed,
+    surface,
+    pulls,
   };
 }
 
@@ -411,6 +415,7 @@ describe('ConversationService', () => {
       'process_start',
       'read_file',
       'search_files',
+      'search_platform_tools',
       'session.rename',
       'session.search',
       'skill_manage',
@@ -445,6 +450,7 @@ describe('ConversationService', () => {
       'web_search',
       'web_extract',
       'skills_list',
+      'search_platform_tools',
       'skill_view',
       'todo',
       'memory',
@@ -1142,6 +1148,7 @@ describe('ConversationService', () => {
         'process_start',
         'read_file',
         'search_files',
+        'search_platform_tools',
         'session.rename',
         'session.search',
         'skill_manage',
@@ -1172,6 +1179,7 @@ describe('ConversationService', () => {
         'web_search',
         'web_extract',
         'skills_list',
+        'search_platform_tools',
         'skill_view',
         'todo',
         'memory',
@@ -3008,5 +3016,33 @@ describe('ConversationService tool discovery (M20.7.1)', () => {
 
     const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
     expect(names.length).toBe(allToolNames().length);
+  });
+
+  it('reinjects a tool staged mid-turn on the next proposal round', async () => {
+    let round = 0;
+    const { service, chatWithTools, surface } = setup(
+      testConfig({ toolsDiscoveryEnabled: true }),
+      (request) => {
+        round += 1;
+        if (round === 1) {
+          // The real staging happens in the execution service's meta-tool
+          // handler; here we drive the surface directly to prove the loop
+          // reinjects on the next round.
+          surface.stagePullNow(request.sessionId ?? '', ['read_file']);
+          return Promise.resolve(searchProposal());
+        }
+        return Promise.resolve(textProposal('done'));
+      },
+      undefined,
+      undefined,
+      (input) => Promise.resolve(searchRecord(input, 'found')),
+    );
+
+    await service.converse('do something');
+
+    const first = chatWithTools.mock.calls[0][0];
+    expect(first.tools.map((t) => t.name)).not.toContain('read_file');
+    const second = chatWithTools.mock.calls[1][0];
+    expect(second.tools.map((t) => t.name)).toContain('read_file');
   });
 });

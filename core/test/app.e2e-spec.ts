@@ -173,6 +173,7 @@ describe('Conversation (e2e)', () => {
       dir: join(dir, 'auth-unused'),
       enabled: false,
     },
+    configOverrides: Record<string, unknown> = {},
   ): Promise<INestApplication<App>> {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CoreModule],
@@ -263,6 +264,7 @@ describe('Conversation (e2e)', () => {
         // Existing e2e asserts the full tool offer; discovery is covered by
         // its own e2e (M20.7.2).
         toolsDiscoveryEnabled: false,
+        ...configOverrides,
       })
       .overrideProvider(LlmClient)
       .useValue({ chatWithTools, chatStreamWithTools, chat })
@@ -1770,7 +1772,7 @@ describe('Conversation (e2e)', () => {
         ),
       );
       expect(chained).toBeDefined();
-      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(25);
+      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(26);
       const toolMessage = (
         chained?.[0] as {
           messages: { role: string; callId?: string; content: string }[];
@@ -2745,6 +2747,83 @@ describe('Conversation (e2e)', () => {
         .get(`/core/conversation/${sessionId}`)
         .expect(200);
       expect((after.body as HistoryResponse).messages.length).toBe(beforeCount);
+    });
+  });
+
+  describe('Tool discovery (e2e)', () => {
+    interface ToolRequest {
+      tools: { name: string }[];
+    }
+
+    it('discovers a tool absent from the initial offer and executes it', async () => {
+      await app?.close();
+      app = await createApp(
+        join(dir, 'disc-sessions.sqlite'),
+        join(dir, 'disc-memories.sqlite'),
+        undefined,
+        undefined,
+        {
+          toolsDiscoveryEnabled: true,
+          toolsAlwaysOn: ['search_platform_tools'],
+          toolsMaxPerTurn: 3,
+        },
+      );
+      const server = app.getHttpServer();
+      chatWithTools.mockReset();
+      chatWithTools
+        .mockResolvedValueOnce({
+          kind: 'tool_calls',
+          content: null,
+          model: 'test-model',
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'search_platform_tools',
+              version: 1,
+              rawArguments: JSON.stringify({
+                query: 'search the session transcript',
+              }),
+              args: { query: 'search the session transcript' },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          kind: 'tool_calls',
+          content: null,
+          model: 'test-model',
+          toolCalls: [
+            {
+              id: 'c2',
+              name: 'session.search',
+              version: 1,
+              rawArguments: JSON.stringify({ query: 'hello' }),
+              args: { query: 'hello' },
+            },
+          ],
+        })
+        .mockResolvedValue({
+          kind: 'text',
+          content: 'done',
+          model: 'test-model',
+        });
+
+      const res = await request(server)
+        .post('/core/conversation')
+        .send({ message: 'do the thing' })
+        .expect(200);
+      expect((res.body as ConversationResponse).status).toBe('ok');
+
+      // Round 1: the tool was not offered.
+      const firstTools = (
+        chatWithTools.mock.calls[0][0] as ToolRequest
+      ).tools.map((t) => t.name);
+      expect(firstTools).not.toContain('session.search');
+      // Round 2: the meta-tool pull reinjected it; the call then executed
+      // through the normal authorization path (validation + allowedTools).
+      const secondTools = (
+        chatWithTools.mock.calls[1][0] as ToolRequest
+      ).tools.map((t) => t.name);
+      expect(secondTools).toContain('session.search');
     });
   });
 });

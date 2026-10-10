@@ -146,6 +146,7 @@ const toolExecutionServiceProvider = {
     rpcTokens: ToolRpcTokens,
     browser: BrowserService,
     toolPrefs: ToolPrefsService,
+    surface: ToolSurfaceService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -177,6 +178,7 @@ const toolExecutionServiceProvider = {
       rpcTokens,
       browser,
       toolPrefs,
+      surface,
     ),
   inject: [
     ToolExecutionRepository,
@@ -203,6 +205,7 @@ const toolExecutionServiceProvider = {
     ToolRpcTokens,
     BrowserService,
     ToolPrefsService,
+    ToolSurfaceService,
   ],
 };
 

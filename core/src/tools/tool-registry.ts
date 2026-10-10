@@ -16,6 +16,7 @@ export type ToolName =
   | 'web_search'
   | 'web_extract'
   | 'skills_list'
+  | 'search_platform_tools'
   | 'skill_view'
   | 'todo'
   | 'memory'
@@ -73,6 +74,11 @@ export interface ToolDescriptor {
 export interface SessionSearchArgs {
   readonly query: string;
   readonly limit: number;
+}
+
+/** `search_platform_tools` args (M20.7.2): what the model wants to do. */
+export interface SearchPlatformToolsArgs {
+  readonly query: string;
 }
 
 export interface SessionRenameArgs {
@@ -301,6 +307,10 @@ export type ValidatedToolRequest = {
   | { readonly name: 'web_search'; readonly args: WebSearchArgs }
   | { readonly name: 'web_extract'; readonly args: WebExtractArgs }
   | { readonly name: 'skills_list'; readonly args: Record<string, never> }
+  | {
+      readonly name: 'search_platform_tools';
+      readonly args: SearchPlatformToolsArgs;
+    }
   | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
   | { readonly name: 'todo'; readonly args: TodoArgs }
   | { readonly name: 'memory'; readonly args: MemoryArgs }
@@ -638,6 +648,20 @@ const SKILLS_LIST_SCHEMA = deepFreeze({
   additionalProperties: false,
   required: [],
   properties: {},
+} as const);
+
+const SEARCH_PLATFORM_TOOLS_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['query'],
+  properties: {
+    query: {
+      type: 'string',
+      description:
+        'What you want to do (e.g. "create a github issue"). Matching tool ' +
+        'schemas are injected on your next step.',
+    },
+  },
 } as const);
 
 const SKILL_VIEW_SCHEMA = deepFreeze({
@@ -1113,6 +1137,17 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'skills',
     argsSchema: SKILLS_LIST_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'search_platform_tools',
+    version: 1,
+    description:
+      'Discover tools that are not currently offered. Describe what you want ' +
+      'to do; matching tool schemas are injected on your next step, then call ' +
+      'them normally.',
+    approval: 'none',
+    toolset: 'tools',
+    argsSchema: SEARCH_PLATFORM_TOOLS_SCHEMA,
   }),
   Object.freeze({
     name: 'skill_view',
@@ -1652,6 +1687,20 @@ function validateSkillViewArgs(
     return name;
   }
   return { ok: true, value: Object.freeze({ name: name.value }) };
+}
+
+function validateSearchPlatformToolsArgs(
+  args: Record<string, unknown>,
+): ParseResult<SearchPlatformToolsArgs> {
+  const unknownField = rejectUnknownFields(args, ['query']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const query = validText(ownValue(args, 'query'), 'query', MAX_ID_LENGTH);
+  if (!query.ok) {
+    return query;
+  }
+  return { ok: true, value: Object.freeze({ query: query.value }) };
 }
 
 function validateTodoArgs(
@@ -2670,6 +2719,20 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'skills_list',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'search_platform_tools') {
+      const result = validateSearchPlatformToolsArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'search_platform_tools',
           ...base,
           args: result.value,
         }),

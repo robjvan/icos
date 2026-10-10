@@ -44,6 +44,28 @@ export class ToolSurfaceService {
     return resolveToolPolicy(this.registry.list(), this.policy()).offered;
   }
 
+  /** Whether bounded per-turn discovery is on. */
+  get discoveryEnabled(): boolean {
+    return this.config.toolsDiscoveryEnabled !== false;
+  }
+
+  /** The resolved discovery bounds (for `/status` / `/tools`). */
+  bounds(): {
+    maxPerTurn: number;
+    discoveryLimit: number;
+    pullMaxResults: number;
+    pullMaxPerTurn: number;
+    alwaysOn: readonly string[];
+  } {
+    return {
+      maxPerTurn: this.config.toolsMaxPerTurn ?? 12,
+      discoveryLimit: this.config.toolsDiscoveryLimit ?? 8,
+      pullMaxResults: this.config.toolsPullMaxResults ?? 5,
+      pullMaxPerTurn: this.config.toolsPullMaxPerTurn ?? 2,
+      alwaysOn: this.config.toolsAlwaysOn ?? [],
+    };
+  }
+
   /** Known-but-disabled tools (declared in the planning frame). */
   disabled(): readonly ToolDescriptor[] {
     return resolveToolPolicy(this.registry.list(), this.policy()).disabled;

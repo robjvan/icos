@@ -32,6 +32,7 @@ import type { CronService } from '../cron/cron.service';
 import type { CronJob } from '../cron/cron-job.repository';
 import type { ToolRpcTokens } from './tool-rpc.tokens';
 import type { ToolPrefsService } from './tool-prefs.service';
+import type { ToolSurfaceService } from './tool-surface.service';
 import type { ToolDescriptor } from './tool-registry';
 import type { BrowserService } from '../browser/browser.service';
 import type { BrowserAction } from '../browser/browser.service';
@@ -73,6 +74,7 @@ import type {
   ProcessStartArgs,
   ReadFileArgs,
   SearchFilesArgs,
+  SearchPlatformToolsArgs,
   SkillManageArgs,
   SkillViewArgs,
   TerminalArgs,
@@ -417,6 +419,7 @@ export class ToolExecutionService {
     private readonly rpcTokens?: ToolRpcTokens,
     private readonly browser?: BrowserService,
     private readonly toolPrefs?: ToolPrefsService,
+    private readonly surface?: ToolSurfaceService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -740,6 +743,13 @@ export class ToolExecutionService {
         return this.nativeWebExtract(args as unknown as WebExtractArgs);
       case 'skills_list':
         return Promise.resolve(this.nativeSkillsList());
+      case 'search_platform_tools':
+        return Promise.resolve(
+          this.nativeSearchPlatformTools(
+            args as unknown as SearchPlatformToolsArgs,
+            sessionId,
+          ),
+        );
       case 'skill_view':
         return this.nativeSkillView(args as unknown as SkillViewArgs);
       case 'todo':
@@ -949,6 +959,43 @@ export class ToolExecutionService {
     if (!this.skills) throw new Error('skills_unavailable');
     return {
       skills: this.skills.listDescriptors().map(skillView),
+    };
+  }
+
+  /**
+   * M20.7.2 discovery meta-tool. Resolves the query against the operator's
+   * policy universe and stages matches for injection on the next round. Bounded
+   * by the per-turn pull budget. Staging is discoverability, not authorization
+   * — the staged tools still validate + approve normally.
+   */
+  private nativeSearchPlatformTools(
+    args: SearchPlatformToolsArgs,
+    sessionId: string,
+  ): unknown {
+    const surface = this.surface;
+    if (!surface) throw new Error('tools_unavailable');
+    if (!surface.canPull(sessionId)) {
+      return {
+        query: args.query,
+        found: [],
+        note: 'Discovery budget reached for this turn; use the tools already offered.',
+      };
+    }
+    const matches = surface.discover(args.query);
+    surface.recordPull(sessionId);
+    const names = matches.map((match) => match.tool.name);
+    surface.stagePullNow(sessionId, names);
+    return {
+      query: args.query,
+      found: matches.map((match) => ({
+        name: match.tool.name,
+        toolset: match.tool.toolset,
+        description: match.tool.description,
+      })),
+      note:
+        names.length > 0
+          ? 'These tools are now available; call them on your next step.'
+          : 'No matching tools. Try different words, or proceed with what you have.',
     };
   }
 

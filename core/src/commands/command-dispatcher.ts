@@ -19,6 +19,8 @@ import { HostHealthProvider } from './host-health';
 import { registerRuntimeCommands } from './runtime-commands';
 import { registerSessionCommands } from './session-commands';
 import { registerSkillCommands } from '../skills/command-adapter';
+import { registerToolCommands } from '../tools/tool-commands';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { SkillSeedService } from '../skills/skill-seed.service';
 import { ContextBudgetService } from '../conversation/context-budget.service';
 import { ContextCompactionService } from '../conversation/context-compaction.service';
@@ -49,6 +51,7 @@ export class CommandDispatcher {
     private readonly seed?: SkillSeedService,
     private readonly budget?: ContextBudgetService,
     private readonly compaction?: ContextCompactionService,
+    private readonly toolSurface?: ToolSurfaceService,
   ) {
     const register = (handler: SlashCommandHandler): void => {
       this.registry.register(handler);
@@ -70,6 +73,9 @@ export class CommandDispatcher {
       host,
     });
     registerSkillCommands(register, { skills, config, seed });
+    if (toolSurface) {
+      registerToolCommands(register, { surface: toolSurface });
+    }
   }
 
   /** In-flight SSE streams; maintained by `ConversationService`. */
