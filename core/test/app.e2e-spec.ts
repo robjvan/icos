@@ -260,6 +260,9 @@ describe('Conversation (e2e)', () => {
         contextCompactionEnabled: true,
         contextCompactionTarget: 0.8,
         contextSettingsPath: join(dir, 'context-settings.json'),
+        // Existing e2e asserts the full tool offer; discovery is covered by
+        // its own e2e (M20.7.2).
+        toolsDiscoveryEnabled: false,
       })
       .overrideProvider(LlmClient)
       .useValue({ chatWithTools, chatStreamWithTools, chat })

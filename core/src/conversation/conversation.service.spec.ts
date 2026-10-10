@@ -128,6 +128,14 @@ function testConfig(overrides: Partial<CoreConfig> = {}): CoreConfig {
     realtimeEnabled: false,
     realtimeHeartbeatMs: 30000,
     realtimeAllowedOrigins: ['*'],
+    // These specs assert the full tool offer; M20.7 discovery has its own
+    // suite (conversation.tools-discovery.spec.ts) with it enabled.
+    toolsDiscoveryEnabled: false,
+    toolsAlwaysOn: ['search_platform_tools', 'memory', 'todo'],
+    toolsMaxPerTurn: 12,
+    toolsDiscoveryLimit: 8,
+    toolsPullMaxResults: 5,
+    toolsPullMaxPerTurn: 2,
     ...overrides,
   };
 }
@@ -2945,5 +2953,57 @@ describe('ConversationService', () => {
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ type: 'error' });
     });
+  });
+});
+
+describe('ConversationService tool discovery (M20.7.1)', () => {
+  const allToolNames = (): string[] =>
+    new ToolRegistry().list().map((tool) => tool.name);
+
+  it('injects always-on plus discovered tools, not the whole catalog', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true }),
+    );
+
+    await service.converse('please read the config file');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names).toContain('memory'); // always-on core
+    expect(names).toContain('read_file'); // discovered from the message
+    expect(names).not.toContain('discord_admin'); // irrelevant, not injected
+    expect(names.length).toBeLessThan(allToolNames().length);
+  });
+
+  it('never injects a policy-disabled tool, even when the message matches', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true, toolsDisabled: ['read_file'] }),
+    );
+
+    await service.converse('read the file');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names).not.toContain('read_file');
+  });
+
+  it('honours the per-turn injection budget', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: true, toolsMaxPerTurn: 4 }),
+    );
+
+    await service.converse('read write search web file terminal memory');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names.length).toBeLessThanOrEqual(4);
+  });
+
+  it('injects the whole policy set when discovery is disabled', async () => {
+    const { service, chatWithTools } = setup(
+      testConfig({ toolsDiscoveryEnabled: false }),
+    );
+
+    await service.converse('hello');
+
+    const names = chatWithTools.mock.calls[0][0].tools.map((t) => t.name);
+    expect(names.length).toBe(allToolNames().length);
   });
 });

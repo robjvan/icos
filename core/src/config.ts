@@ -363,6 +363,18 @@ export interface CoreConfig {
   toolsDisabledToolsets?: string[];
   toolsEnabled?: string[];
   toolsDisabled?: string[];
+  /** M20.7 tool discovery: inject only a bounded, relevant subset per turn. */
+  toolsDiscoveryEnabled?: boolean;
+  /** Tool names always injected regardless of discovery (the core). */
+  toolsAlwaysOn?: string[];
+  /** Per-turn injected-schema cap (always-on + discovered). */
+  toolsMaxPerTurn?: number;
+  /** Discovery result cap. */
+  toolsDiscoveryLimit?: number;
+  /** `search_platform_tools` result cap. */
+  toolsPullMaxResults?: number;
+  /** `search_platform_tools` attempts allowed per turn. */
+  toolsPullMaxPerTurn?: number;
   /**
    * Filesystem root the file tools may read/search/write (M17b). A path that
    * resolves outside this root is refused. Default `~/.icos/workspace`.
@@ -863,6 +875,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     toolsDisabledToolsets: parseCsv(env.TOOLS_DISABLED_TOOLSETS),
     toolsEnabled: parseCsv(env.TOOLS_ENABLED),
     toolsDisabled: parseCsv(env.TOOLS_DISABLED),
+    toolsDiscoveryEnabled: parseBoolean(env.TOOLS_DISCOVERY_ENABLED, true),
+    toolsAlwaysOn: parseCsvWithDefault(
+      env.TOOLS_ALWAYS_ON,
+      DEFAULT_TOOLS_ALWAYS_ON,
+    ),
+    toolsMaxPerTurn: parsePositiveInt(
+      env.TOOLS_MAX_PER_TURN,
+      12,
+      'TOOLS_MAX_PER_TURN',
+    ),
+    toolsDiscoveryLimit: parsePositiveInt(
+      env.TOOLS_DISCOVERY_LIMIT,
+      8,
+      'TOOLS_DISCOVERY_LIMIT',
+    ),
+    toolsPullMaxResults: parsePositiveInt(
+      env.TOOLS_PULL_MAX_RESULTS,
+      5,
+      'TOOLS_PULL_MAX_RESULTS',
+    ),
+    toolsPullMaxPerTurn: parseNonNegativeInt(
+      env.TOOLS_PULL_MAX_PER_TURN,
+      2,
+      'TOOLS_PULL_MAX_PER_TURN',
+    ),
     toolsWorkspaceRoot: resolvePath(
       env.TOOLS_WORKSPACE_ROOT,
       '~/.icos/workspace',
@@ -955,6 +992,25 @@ function parseCsv(raw: string | undefined): string[] {
     ),
   ];
 }
+
+/** CSV with a compiled-in default: unset ⇒ default; explicit empty ⇒ []. */
+function parseCsvWithDefault(
+  raw: string | undefined,
+  defaults: readonly string[],
+): string[] {
+  if (raw === undefined) return [...defaults];
+  return parseCsv(raw);
+}
+
+/**
+ * Always-injected tools (M20.7): the discovery meta-tool plus a short core
+ * that is relevant on essentially every turn. Everything else is discovered.
+ */
+const DEFAULT_TOOLS_ALWAYS_ON = [
+  'search_platform_tools',
+  'memory',
+  'todo',
+] as const;
 
 /**
  * Default browser origins allowed in local development: the bundled

@@ -95,6 +95,8 @@ function testConfig(
     realtimeEnabled: false,
     realtimeHeartbeatMs: 30000,
     realtimeAllowedOrigins: ['*'],
+    // These specs assert the full tool offer; discovery has its own suite.
+    toolsDiscoveryEnabled: false,
     ...overrides,
   };
 }

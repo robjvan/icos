@@ -56,6 +56,11 @@ import { ToolRegistry } from '../tools/tool-registry';
 import type { ToolDescriptor } from '../tools/tool-registry';
 import { resolveToolPolicy } from '../tools/tool-policy';
 import type { ToolPolicyConfig } from '../tools/tool-policy';
+import { discoverTools } from '../tools/tool-discovery';
+import {
+  TopBudgetedToolSelector,
+  type ToolSelector,
+} from '../tools/tool-selector';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -230,6 +235,8 @@ const RECALL_K = 10;
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
+  /** M20.7.1 tool selection seam (deterministic top-budgeted by default). */
+  private readonly toolSelector: ToolSelector = new TopBudgetedToolSelector();
 
   constructor(
     private readonly sessions: SessionStore,
@@ -547,7 +554,7 @@ export class ConversationService {
     }
     // M9h continuation: the resolved observation re-enters bounded
     // planning against the run's remaining budget.
-    const { descriptors, allowedTools } = this.resolveTools();
+    const { descriptors, allowedTools } = this.resolveTools(userText);
     const limits = stored.limits;
     const startedAt = Date.now();
     // M9k: split the frozen turn context so the system head rebuilds
@@ -1150,7 +1157,7 @@ export class ConversationService {
         // M9h continuation: bounded planning over remaining budget.
         // Exactly one terminal done follows; intermediate searches emit
         // progress only.
-        const { descriptors, allowedTools } = this.resolveTools();
+        const { descriptors, allowedTools } = this.resolveTools(userText);
         const limits = stored.limits;
         const startedAt = Date.now();
         const sink: StreamSink = {
@@ -1673,8 +1680,15 @@ export class ConversationService {
     });
   }
 
-  /** Tools offered this turn, after enablement policy (M17a). */
-  private resolveTools(): {
+  /**
+   * Tools injected this turn (M17a policy → M20.7 discovery). The operator
+   * policy defines the universe; discovery narrows the **injected** set to a
+   * bounded, relevant subset. `allowedTools` is the injected set — the model
+   * can only call what it is shown, which is a restriction *within* the
+   * operator policy, never an expansion of it. With discovery disabled, every
+   * policy-enabled tool is injected (pre-M20.7 behaviour).
+   */
+  private resolveTools(input = ''): {
     descriptors: ToolDescriptor[];
     allowedTools: string[];
   } {
@@ -1682,9 +1696,44 @@ export class ConversationService {
       this.registry.list(),
       this.toolPolicy(),
     );
+    if (this.config.toolsDiscoveryEnabled === false) {
+      return {
+        descriptors: [...offered],
+        allowedTools: offered.map((descriptor) => descriptor.name),
+      };
+    }
+    const byName = new Map(
+      offered.map((descriptor) => [descriptor.name, descriptor]),
+    );
+    const selected: ToolDescriptor[] = [];
+    const seen = new Set<string>();
+    for (const name of this.config.toolsAlwaysOn ?? []) {
+      const descriptor = byName.get(name);
+      if (descriptor && !seen.has(name)) {
+        seen.add(name);
+        selected.push(descriptor);
+      }
+    }
+    const budget = Math.max(
+      0,
+      (this.config.toolsMaxPerTurn ?? 12) - selected.length,
+    );
+    const matches = discoverTools(
+      offered,
+      input,
+      this.config.toolsDiscoveryLimit ?? 8,
+    );
+    for (const descriptor of this.toolSelector.select(matches, {
+      maxTools: budget,
+    })) {
+      if (!seen.has(descriptor.name)) {
+        seen.add(descriptor.name);
+        selected.push(descriptor);
+      }
+    }
     return {
-      descriptors: [...offered],
-      allowedTools: offered.map((descriptor) => descriptor.name),
+      descriptors: selected,
+      allowedTools: selected.map((descriptor) => descriptor.name),
     };
   }
 
@@ -1839,7 +1888,7 @@ export class ConversationService {
       ...toPairMessages(pairs),
       userMessage,
     ];
-    const { descriptors, allowedTools } = this.resolveTools();
+    const { descriptors, allowedTools } = this.resolveTools(message);
     // Split the static system head (prompt plus catalog) from the rest
     // so M9k rebuilds the planning frame every proposal round instead
     // of letting step counts go stale.
