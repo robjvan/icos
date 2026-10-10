@@ -692,7 +692,7 @@ export class DiscordAdapter
 
     // M20k: native chat-input commands route to the internal dispatcher.
     if (interaction.isChatInputCommand?.()) {
-      this.handleCommandInteraction(interaction);
+      void this.handleCommandInteraction(interaction);
       return;
     }
 
@@ -703,22 +703,35 @@ export class DiscordAdapter
     this.approvalHandler?.({ approvalId, approved: action === 'approve' });
   }
 
-  private handleCommandInteraction(interaction: DiscordInteractionLike): void {
+  private async handleCommandInteraction(
+    interaction: DiscordInteractionLike,
+  ): Promise<void> {
     const handler = this.commandHandler;
     if (!handler || !interaction.commandName) return;
     const guildId = interaction.guildId ?? null;
     const authorId =
       interaction.member?.user?.id ?? interaction.user?.id ?? 'unknown';
     const text = (interaction.options?.getString?.('text') ?? '').trim();
-    // Defer so the command may take a moment; reply via editReply.
-    void interaction.deferReply?.().catch(() => undefined);
+    // Defer FIRST and await it: discord.js rejects editReply/reply until the
+    // interaction is acknowledged. The command runs after the ack.
+    if (interaction.deferReply) {
+      try {
+        await interaction.deferReply();
+      } catch {
+        // Already acknowledged or expired — reply() below will surface it.
+      }
+    }
     const reply = async (content: string): Promise<void> => {
       const payload = { content: content.slice(0, 1900) || '…' };
       if (interaction.editReply) {
-        await interaction.editReply(payload);
-      } else {
-        await interaction.reply?.(payload);
+        try {
+          await interaction.editReply(payload);
+          return;
+        } catch {
+          // Fall through to reply() (covers a failed/absent defer).
+        }
       }
+      await interaction.reply?.(payload);
     };
     handler({
       commandName: interaction.commandName,

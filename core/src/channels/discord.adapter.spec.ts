@@ -636,6 +636,7 @@ describe('splitForDiscord', () => {
       deferReply: async () => undefined,
       editReply: async () => undefined,
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({
       commandName: 'status',
