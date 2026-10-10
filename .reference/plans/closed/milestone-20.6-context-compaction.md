@@ -23,7 +23,8 @@ Keep the result inspectable and never re-trigger on the same oversized range.
 
 So the design is **manual-first, auto-detect best-effort**:
 
-- `LLM_CONTEXT_WINDOW` (manual, default `131072`) — the advertised max.
+- `LLM_CONTEXT_WINDOW` (manual, default `1000000` — 1M-token models) — the
+  advertised max.
 - `LLM_MAX_OUTPUT_TOKENS` (manual, default `8192`) — reserved for the reply.
 - **Usable budget** = `LLM_CONTEXT_WINDOW − LLM_MAX_OUTPUT_TOKENS − safety`
   (the system prompt, tool schemas, and memory bands are then measured against
@@ -79,7 +80,7 @@ trace.
 ### 6. Settings
 - Global: `CONTEXT_COMPACTION_ENABLED` (default true),
   `CONTEXT_COMPACTION_TARGET` (default 0.8, clamped 0.5–0.95),
-  `LLM_CONTEXT_WINDOW`, `LLM_MAX_OUTPUT_TOKENS`.
+  `LLM_CONTEXT_WINDOW` (default 1000000), `LLM_MAX_OUTPUT_TOKENS` (default 8192).
 - Client: a **Client settings** control (target slider + a read-out of the
   resolved window/usable budget), written via a small settings endpoint.
 
