@@ -86,6 +86,11 @@ export class CommandDispatcher {
     return this.registry.commandNames;
   }
 
+  /** Canonical command descriptors for native surfaces (Discord, M20k). */
+  get commandDescriptors(): { name: string; description: string }[] {
+    return this.registry.descriptors();
+  }
+
   /**
    * Parse and run a command. Malformed input, unknown names, and usage
    * errors surface as deterministic HTTP errors (400/404) — never LLM.

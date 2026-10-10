@@ -345,6 +345,6 @@ const toolExecutionServiceProvider = {
     ConversationService,
     SessionStore,
   ],
-  exports: [ConversationService, ApprovalService],
+  exports: [ConversationService, ApprovalService, CommandDispatcher],
 })
 export class ConversationModule {}

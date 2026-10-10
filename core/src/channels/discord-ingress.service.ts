@@ -4,6 +4,8 @@ import type { CoreConfig } from '../config';
 import { ApprovalService } from '../approvals/approval.service';
 import { ConversationService } from '../conversation/conversation.service';
 import type { TurnOutcome } from '../conversation/conversation.service';
+import { CommandDispatcher } from '../commands/command-dispatcher';
+import type { CommandResult } from '../commands/command-result';
 import { ChannelDeliveryService } from './channel-delivery.service';
 import { ChannelRepository } from './channel.repository';
 import type { ChannelMessage } from './channel.types';
@@ -13,7 +15,10 @@ import {
   DEFAULT_STREAM_MARKER,
   parseStream,
 } from './discord.stream';
-import type { DiscordInbound } from './discord.types';
+import type {
+  DiscordCommandInteraction,
+  DiscordInbound,
+} from './discord.types';
 
 /** A short, safe Discord thread name derived from the message text. */
 function threadName(content: string): string {
@@ -39,6 +44,7 @@ export class DiscordIngressService implements OnModuleInit {
     private readonly conversation: ConversationService,
     private readonly delivery: ChannelDeliveryService,
     private readonly approvals: ApprovalService,
+    private readonly commands: CommandDispatcher,
   ) {}
 
   /** approvalId → where its card lives, so a button press can resume. */
@@ -71,6 +77,60 @@ export class DiscordIngressService implements OnModuleInit {
         );
       });
     });
+    // M20k: the internal registry is the single source of truth for the
+    // native command catalog.
+    this.adapter.setCommands(this.commands.commandDescriptors);
+    this.adapter.onCommand((command) => {
+      void this.handleCommand(command).catch((error: unknown) => {
+        this.logger.warn(
+          `Discord command failed: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      });
+    });
+  }
+
+  /** M20k: a native Discord command → dispatch → reply in the channel/DM. */
+  private async handleCommand(
+    command: DiscordCommandInteraction,
+  ): Promise<void> {
+    const key = command.isDm
+      ? `discord:dm:${command.authorId}`
+      : `discord:${command.guildId}:${command.channelId}`;
+    const knownSessionId = await this.repository.findSessionId(key);
+    const raw = `/${command.commandName}${
+      command.text ? ` ${command.text}` : ''
+    }`;
+    let result: CommandResult;
+    try {
+      result = await this.commands.dispatch(raw, knownSessionId ?? undefined);
+    } catch (error) {
+      await command.reply(
+        `⚠️ ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+    // A session-switching command (/new, /fork) rebinds this conversation.
+    if (result.sessionId && result.sessionId !== knownSessionId) {
+      await this.repository
+        .recordMessage({
+          channel: 'discord',
+          direction: 'inbound',
+          conversationKey: key,
+          peerId: command.authorId,
+          sessionId: result.sessionId,
+          body: raw,
+          externalId: `cmd:${command.interactionId}`,
+          provenance: {
+            source: 'discord',
+            authTrust: 'transport',
+            command: command.commandName,
+          },
+        })
+        .catch(() => undefined);
+    }
+    await command.reply(result.text);
   }
 
   /** Whether a normalized message should be answered. */

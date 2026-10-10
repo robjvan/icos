@@ -53,3 +53,23 @@ export interface DiscordInbound {
 }
 
 export type DiscordMessageHandler = (message: DiscordInbound) => void;
+
+/** A normalized Discord chat-input command interaction (M20k). */
+export interface DiscordCommandInteraction {
+  commandName: string;
+  /** Raw argument text from the `text` option ('' when absent). */
+  text: string;
+  channelId: string;
+  /** null for a DM. */
+  guildId: string | null;
+  isDm: boolean;
+  authorId: string;
+  /** Idempotency id (the interaction id). */
+  interactionId: string;
+  /** Reply to the (already deferred) interaction. */
+  reply(content: string): Promise<void>;
+}
+
+export type DiscordCommandHandler = (
+  command: DiscordCommandInteraction,
+) => void;

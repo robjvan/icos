@@ -26,6 +26,7 @@ import type {
   DiscordAdminRequest,
 } from './discord-admin.port';
 import type {
+  DiscordCommandHandler,
   DiscordInbound,
   DiscordMessageHandler,
   DiscordMessageLike,
@@ -83,10 +84,32 @@ export interface DiscordClientLike {
     cache: Map<string, DiscordGuildLike>;
     fetch?(id: string): Promise<DiscordGuildLike | null>;
   };
+  /** Present once logged in; used to register application commands (M20k). */
+  application?: {
+    commands: { set(commands: unknown[]): Promise<unknown> };
+  } | null;
   user?: { tag?: string } | null;
 }
 
 export type DiscordClientFactory = () => Promise<DiscordClientLike>;
+
+/** The slice of a discord.js interaction this adapter reads (M16f/M20k). */
+export interface DiscordInteractionLike {
+  id?: string;
+  isButton?: () => boolean;
+  isChatInputCommand?: () => boolean;
+  customId?: string;
+  commandName?: string;
+  channelId?: string;
+  guildId?: string | null;
+  user?: { id?: string };
+  member?: { user?: { id?: string } };
+  options?: { getString?(name: string): string | null };
+  deferUpdate?: () => Promise<void>;
+  deferReply?: (options?: unknown) => Promise<void>;
+  editReply?: (payload: unknown) => Promise<unknown>;
+  reply?: (payload: unknown) => Promise<unknown>;
+}
 
 const INTENT_NAMES = [
   'Guilds',
@@ -177,6 +200,9 @@ export class DiscordAdapter
     null;
   private readyHandler: (() => void) | null = null;
   private shutdownHandler: (() => Promise<void>) | null = null;
+  /** Native command registration (M20k). */
+  private commands: { name: string; description: string }[] = [];
+  private commandHandler: DiscordCommandHandler | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -260,6 +286,20 @@ export class DiscordAdapter
     handler: (decision: { approvalId: string; approved: boolean }) => void,
   ): void {
     this.approvalHandler = handler;
+  }
+
+  /**
+   * Set the native command catalog (M20k) — registered with Discord on ready.
+   * Called before login; the definitions come from the internal registry, so
+   * Discord is never a second source of truth.
+   */
+  setCommands(commands: { name: string; description: string }[]): void {
+    this.commands = commands;
+  }
+
+  /** Register the chat-input command handler (M20k). */
+  onCommand(handler: DiscordCommandHandler): void {
+    this.commandHandler = handler;
   }
 
   /**
@@ -629,6 +669,7 @@ export class DiscordAdapter
         (readyClient as { user?: { id?: string } } | null)?.user?.id ?? null;
       this.logger.log(`Discord ready${tag ? `: ${tag}` : ''}`);
       this.notifyReady();
+      void this.registerCommands(client);
     });
     client.on('error', (error: unknown) => {
       this.logger.error(
@@ -643,16 +684,81 @@ export class DiscordAdapter
 
   private handleInteraction(raw: unknown): void {
     if (raw === null || typeof raw !== 'object') return;
-    const interaction = raw as {
-      isButton?: () => boolean;
-      customId?: string;
-      deferUpdate?: () => Promise<void>;
-    };
+    const interaction = raw as DiscordInteractionLike;
+
+    // M20k: native chat-input commands route to the internal dispatcher.
+    if (interaction.isChatInputCommand?.()) {
+      this.handleCommandInteraction(interaction);
+      return;
+    }
+
     if (!interaction.isButton?.()) return;
     const [action, approvalId] = (interaction.customId ?? '').split(':');
     if ((action !== 'approve' && action !== 'reject') || !approvalId) return;
     void interaction.deferUpdate?.();
     this.approvalHandler?.({ approvalId, approved: action === 'approve' });
+  }
+
+  private handleCommandInteraction(interaction: DiscordInteractionLike): void {
+    const handler = this.commandHandler;
+    if (!handler || !interaction.commandName) return;
+    const guildId = interaction.guildId ?? null;
+    const authorId =
+      interaction.member?.user?.id ?? interaction.user?.id ?? 'unknown';
+    const text = (interaction.options?.getString?.('text') ?? '').trim();
+    // Defer so the command may take a moment; reply via editReply.
+    void interaction.deferReply?.().catch(() => undefined);
+    const reply = async (content: string): Promise<void> => {
+      const payload = { content: content.slice(0, 1900) || '…' };
+      if (interaction.editReply) {
+        await interaction.editReply(payload);
+      } else {
+        await interaction.reply?.(payload);
+      }
+    };
+    handler({
+      commandName: interaction.commandName,
+      text,
+      channelId: interaction.channelId ?? '',
+      guildId,
+      isDm: guildId === null,
+      authorId,
+      interactionId: interaction.id ?? '',
+      reply,
+    });
+  }
+
+  /**
+   * Register the internal command catalog as Discord application commands
+   * (M20k). Overwrites the app's command set, so stale commands are cleared.
+   */
+  private async registerCommands(client: DiscordClientLike): Promise<void> {
+    if (this.commands.length === 0) return;
+    const application = client.application;
+    if (!application?.commands?.set) return;
+    try {
+      await application.commands.set(
+        this.commands.map((command) => ({
+          name: command.name,
+          description: command.description.slice(0, 100),
+          options: [
+            {
+              type: 3, // STRING
+              name: 'text',
+              description: 'Optional arguments for the command.',
+              required: false,
+            },
+          ],
+        })),
+      );
+      this.logger.log(`Registered ${this.commands.length} Discord commands`);
+    } catch (error) {
+      this.logger.warn(
+        `Discord command registration failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private handleRaw(raw: unknown): void {

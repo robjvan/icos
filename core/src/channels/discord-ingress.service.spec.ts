@@ -11,6 +11,7 @@ import type {
 } from '../conversation/conversation.service';
 import type { TurnAttachment } from '../conversation/attachments';
 import type { ApprovalService } from '../approvals/approval.service';
+import type { CommandDispatcher } from '../commands/command-dispatcher';
 import { ChannelDatabaseService } from './channel-database.service';
 import type { ChannelDeliveryService } from './channel-delivery.service';
 import type { DiscordAdapter } from './discord.adapter';
@@ -53,6 +54,8 @@ function inbound(overrides: Partial<DiscordInbound> = {}): DiscordInbound {
 
 class FakeAdapter {
   handler: DiscordMessageHandler | null = null;
+  registeredCommands: { name: string; description: string }[] = [];
+  commandHandler: ((command: unknown) => void) | null = null;
   readonly typing: string[] = [];
   readonly sent: { key: string; body: string }[] = [];
   readonly edited: { key: string; id: string; body: string }[] = [];
@@ -100,6 +103,12 @@ class FakeAdapter {
     handler: (decision: { approvalId: string; approved: boolean }) => void,
   ): void {
     this.decisionHandler = handler;
+  }
+  setCommands(commands: { name: string; description: string }[]): void {
+    this.registeredCommands = commands;
+  }
+  onCommand(handler: (command: unknown) => void): void {
+    this.commandHandler = handler;
   }
   async postApproval(
     conversationKey: string,
@@ -151,6 +160,10 @@ describe('DiscordIngressService', () => {
     approve: jest.Mock;
     reject: jest.Mock;
   };
+  let dispatcher: {
+    commandDescriptors: { name: string; description: string }[];
+    dispatch: jest.Mock;
+  };
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'icos-ingress-'));
@@ -162,6 +175,10 @@ describe('DiscordIngressService', () => {
       get: jest.fn(() => Promise.resolve({ description: 'a description' })),
       approve: jest.fn(() => Promise.resolve(undefined)),
       reject: jest.fn(() => Promise.resolve(undefined)),
+    };
+    dispatcher = {
+      commandDescriptors: [{ name: 'status', description: 'Show status.' }],
+      dispatch: jest.fn(async () => ({ kind: 'message', text: 'status ok' })),
     };
   });
 
@@ -183,6 +200,7 @@ describe('DiscordIngressService', () => {
         runOnce: jest.fn(async () => 0),
       } as unknown as ChannelDeliveryService,
       approvals as unknown as ApprovalService,
+      dispatcher as unknown as CommandDispatcher,
     );
 
   describe('accept policy', () => {
@@ -517,5 +535,31 @@ describe('DiscordIngressService', () => {
     expect(resumeTurn).toHaveBeenCalledWith('req-1', 'sess-new');
     expect(adapter.editedCards[0]?.content).toContain('Approved');
     expect(await repository.listDeliveries('pending')).toHaveLength(1);
+  });
+
+  it('registers the command catalog and dispatches a native command (M20k)', async () => {
+    const service = build(testConfig(dir), fakeConversation().service);
+    service.onModuleInit();
+    expect(adapter.registeredCommands).toEqual([
+      { name: 'status', description: 'Show status.' },
+    ]);
+
+    const replies: string[] = [];
+    adapter.commandHandler?.({
+      commandName: 'status',
+      text: '',
+      channelId: 'c1',
+      guildId: 'g1',
+      isDm: false,
+      authorId: 'u1',
+      interactionId: 'i1',
+      reply: async (content: string) => {
+        replies.push(content);
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dispatcher.dispatch).toHaveBeenCalledWith('/status', undefined);
+    expect(replies).toEqual(['status ok']);
   });
 });
