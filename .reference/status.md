@@ -1,10 +1,16 @@
 # ICOS v3 Status Tracking
 
-> _Updated Oct 3, 2026_
+> _Updated Oct 10, 2026_
+
+Source of truth is the repository itself: milestone plans and their acceptance
+criteria under `.reference/plans/` (completed plans in `.reference/plans/closed/`,
+verification in `.reference/plans/evidence/`). A milestone is only marked complete
+when its formal exit criteria are met and evidence is committed — a plan existing,
+or most tasks being checked, is not completion.
 
 ## Implemented
 
-> _See `full-roadmap-extended.md` for full details._
+> _Full roadmap detail in [`plans/full-roadmap-extended.md`](plans/full-roadmap-extended.md)._
 
 ### Phase 1 - Foundation
 
@@ -34,17 +40,33 @@
 
 ---
 
-## Planned
-
-> _See `full-roadmap-extended.md` for full details._
-
 ### Phase 3 - Environment & Agency
 
-- [x] M16: External communication integrations
+- [x] M16: External communication integrations (Discord + email)
+      — [plan](plans/closed/milestone-16-external-comms.md),
+      [evidence](plans/evidence/milestone-16/)
 - [x] M17: Tools Expansion
+      — [plan](plans/closed/milestone-17-tools-expansion.md),
+      [evidence](plans/evidence/milestone-17/)
 - [x] M18: Skills Adoption
-- [ ] M19: Dynamic MCP Server toolsets
-- [ ] M20: Web client catchup Work
+      — [plan](plans/closed/milestone-18-skills-adoption.md),
+      [evidence](plans/evidence/milestone-18/)
+- [x] M19: Dynamic MCP Server toolsets
+      — [plan](plans/closed/milestone-19-mcp-toolsets.md),
+      [evidence](plans/evidence/milestone-19/)
+- [x] M20: Web client catch-up work (incl. Discord slash commands, automatic
+      context compaction, tools out of context)
+      — [plan](plans/closed/milestone-20-web-client-catchup.md),
+      [evidence](plans/evidence/milestone-20/)
+
+---
+
+## Planned
+
+> _Full roadmap detail in [`plans/full-roadmap-extended.md`](plans/full-roadmap-extended.md)._
+
+### Phase 3 - Environment & Agency (remaining)
+
 - [ ] M21: Subagent support
 - [ ] M22: Autonomous agency and action execution
 - [ ] M23: Knowledge-base stewardship
@@ -92,6 +114,7 @@
 
 - [ ] M33: Distributed ICOS
 - [ ] M39: ICOS Ecosystem
+- [ ] M20o: Temporary scratchpad (memory-layer patch; pairs with M29/M34)
 - [ ] Episodic consolidation
 - [ ] Knowledge-source synchronization
 

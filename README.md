@@ -10,18 +10,18 @@
 
 ![LatestRelease](https://img.shields.io/github/v/release/robjvan/icos?include_prereleases)
 
-![Tests](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
-![Tests](https://img.shields.io/badge/Functions%20Coverage-84.7-green?logo=jest)
-![Tests](https://img.shields.io/badge/Lines%20Coverage-82.9-green?logo=jest)
+![TestsGreen](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
+![FunctionsTestCoverage](https://img.shields.io/badge/Functions%20Coverage-81.3-green?logo=jest)
+![LinesTestCoverage](https://img.shields.io/badge/Lines%20Coverage-80.5-green?logo=jest)
 
-![Tests](https://img.shields.io/badge/Unit%20Tests-994-green?logo=jest)
-![Tests](https://img.shields.io/badge/E2E%20Tests-93-green?logo=jest)
-![Tests](https://img.shields.io/badge/Web%20Tests-185-green?logo=jest)
+![Tests](https://img.shields.io/badge/Unit%20Tests-1234-green?logo=jest)
+![Tests](https://img.shields.io/badge/E2E%20Tests-68-green?logo=jest)
+![Tests](https://img.shields.io/badge/Web%20Tests-200-green?logo=jest)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.x-red)
 ![NPM](https://img.shields.io/badge/npm-11.x-CB0200?logo=npm&logoColor=CB0200)
-![NestJS](https://img.shields.io/badge/NestJS-11.0.1-EA2F59?logo=nestjs&logoColor=EA2F59)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-blue?logo=typescript)
+![NestJS](https://img.shields.io/badge/NestJS-11.2.3-EA2F59?logo=nestjs&logoColor=EA2F59)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9.x-blue?logo=typescript)
 ![Angular](https://img.shields.io/badge/Angular-21.x-DD0031?logo=angular&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
@@ -53,7 +53,7 @@
 
 **ICOS** (**I**SABEL **C**ognitive **O**perating **S**ystem) is a from-scratch cognitive agent runtime built to investigate a simple question:
 
-> **What is the minimum architecture required to give an agent persistent memory, useful knowledge, and meaningful agency?**
+> **How can we engineer artificial cognitive systems that are useful, epistemically accountable, and honest about the limits of their own knowledge?**
 
 ICOS is not a wrapper around an existing agent framework.
 
@@ -63,7 +63,8 @@ The agent loop, interaction layer, model boundary, session persistence, memory s
 
 The goal is not to reproduce a biological model of cognition. Instead, ICOS is an experimental platform for identifying which architectural mechanisms actually produce useful changes in agent behaviour.
 
-> **Trying it out?** Start with **[USAGE.md](USAGE.md)** (setup, configuration,
+> **Trying it out?** Start with **[docs/usage.md](docs/usage.md)** (setup,
+> configuration,
 > and running the stack). Before exposing it beyond your machine, read
 > **[docs/security.md](docs/security.md).** To understand what the platform
 > actually does — feature by feature, and how each is verified — read
@@ -139,7 +140,8 @@ It exists primarily as a controlled environment for experimenting with agent arc
 
 ## Current Status
 
-**M1–M19 are complete, and the security-hardening milestone (S1–S6) is complete.**
+**M1–M20 are complete, and the security-hardening milestone (S1–S6) is
+complete.** The latest release (**v0.6**) carries M17–M20.
 
 The current system provides:
 
@@ -187,13 +189,17 @@ The current system provides:
   vault) — managed from the web client (MCP servers, providers, secrets)
 - External channels (Discord + email): inbound turns, outbound sends,
   attachments, approval cards, and status/presence
-- An expanded tool surface (25 native tools): files, web search/extract,
+- An expanded tool surface (26 native tools): files, web search/extract,
   skills (view/list/manage), todo, memory (beliefs / ranked recall /
   persona / candidates), clarify (park/resume), vision_analyze, image
   generation, terminal, background processes, Discord info/moderation,
-  a durable cron scheduler, execute_code (with a tool-RPC bridge), and a
-  headless browser — plus attachment vision and a generic native
-  approval path
+  a durable cron scheduler, execute_code (with a tool-RPC bridge), a
+  headless browser, and a tool-discovery meta-tool (`search_platform_tools`)
+  — plus attachment vision and a generic native approval path
+- A caught-up web client (M20): real Skills / Tools / Cron surfaces, session
+  delete, bulk memory decisions, Discord native slash commands, a configurable
+  context budget with automatic compaction (and a manual `/compact`), and
+  per-turn tool discovery that keeps the injected schema set bounded
 
 Development is active and the architecture is expected to change substantially as new capabilities are introduced.
 
@@ -257,13 +263,13 @@ Sessions["<b>Sessions</b><br/>SQLite / FTS5<br/>conversation"]
 
 LLM["<b>LLM Boundary</b><br/>provider-independent"]
 
-Capabilities["<b>Capabilities</b><br/>skills / tools /<br/>external actions"]
+Capabilities["<b>Capabilities</b><br/>skills / tools /<br/>MCP / channels"]
 
 Provider["<b>Model Provider</b>"]
 
 Evidence["<b>Evidence / Activity</b><br/>conversation / actions<br/>observations"]
 
-MemCandidates["<b>Memory Candidates</b><br/>evidence / claims<br/>experimental"]
+MemCandidates["<b>Memory Candidates</b><br/>evidence / claims<br/>provenance-tracked"]
 
 EpistemicMem["<b>Epistemic Memory</b><br/>(M10 → M12)<br/>knowledge / retrieval<br/>revision / evolution"]
 
@@ -280,12 +286,13 @@ Capabilities --> Evidence
 
 Evidence --> MemCandidates
 MemCandidates --> EpistemicMem
-
-%% Experimental / planned components
-style EpistemicMem stroke-dasharray: 5 5
 ```
 
-Some components shown above represent planned capabilities rather than fully implemented subsystems. The architecture grows as each milestone provides a reason to introduce the next layer.
+Everything shown above is implemented. M16–M20 extended the **Capabilities**
+layer (external channels, a broader tool surface, a skill library, dynamic MCP
+toolsets) and the **Interaction** layer (a full web client, context budgeting).
+The architecture grows only as each milestone provides a reason to introduce
+the next layer.
 
 ---
 
@@ -294,20 +301,52 @@ Some components shown above represent planned capabilities rather than fully imp
 The project is organized around the runtime, the web client, and the
 experimental evidence behind each milestone.
 
-```text
-core/                   # ICOS runtime (NestJS)
-web-client/             # Angular web client
-docker-compose.yml      # Supported launch path (core service)
-docker-compose-dmr.yml  # DMR override: models served in-stack (see bin/dmr)
-bin/dmr                 # Shorthand for the DMR variant
-docs/                   # User-facing docs (security, blueprints, sample skills)
-.reference/             # Plans, evidence, and planning notes
-ARCHITECTURE.md         # Plain-English architecture and feature guide
-INDEX.md                # Full repository map
-USAGE.md                # Setup, configuration, and operation
+```shell
+icos/   # Root of project.
+├── .reference/             # Reference files - plans, legacy code, etc.
+│     ├── notes/            # Subsystem planning notes.
+│     ├── plans/            # Implementation plans.
+│     │     ├── closed/     # Plan files that have been completed.
+│     │     └── evidence/   # Evidence files captured after each milestone.
+│     │
+│     └── status.md         # Live project status tracking.
+│
+├── bin/            # Launch script helper files.
+│     ├── dmr       # Compose override shorthand for the DMR variant.
+│     └── verifier  # Starts the local Jev-style claims verifier (macOS/MLX).
+│
+├── core/                   # Core subsystem.
+│     ├── ...               # Other miscellaneous project files.
+│     ├── src/              # Project files.
+│     ├── test/             # Project test files.
+│     ├── Dockerfile        # Server image for compose.
+│     ├── .dmr.env.sample   # Runtime configuration template for using Docker Model Runner.
+│     └── .env.sample       # Authoritative runtime configuration template.
+│
+├── docs/                       # User-facing documents.
+│     ├── usage.md              # Setup, configuration, and operation.
+│     ├── releases.md           # Release history and milestone changelog.
+│     ├── model-lineups.md      # Which models to run, and the memory budget.
+│     ├── security.md           # Exposure, TLS, auth, and secrets.
+│     ├── skill-blueprint.md    # Template for new skill creation.
+│     └── tool-blueprint.md     # Template for new tool creation.
+│
+├── web-client/         # Web-based frontend client.
+│     ├── ...           # Other miscellaneous project files.
+│     ├── public/       # Public asset files (images, etc.).
+│     ├── src/          # Project files.
+│     └── Dockerfile    # Web client image for compose.
+│
+├── .gitignore              # Files to avoid committing to Git.
+├── AGENTS.md               # Project-level Agent rules.
+├── ARCHITECTURE.md         # Plain-English architecture and feature guide.
+├── COMMERCIAL-LICENSE.md   # Commercial use license.
+├── docker-compose-dmr.yml  # Compose configuration for adding DMR.
+├── docker-compose.yml      # Core Compose configuration.
+├── INDEX.md                # Project index.
+├── LICENSE.md              # Non-commercial use license.
+└── README.md               # Project-level README document.
 ```
-
-See **[INDEX.md](INDEX.md)** for the complete annotated map.
 
 As the project grows, this section will be expanded to document significant architectural boundaries and development conventions.
 
