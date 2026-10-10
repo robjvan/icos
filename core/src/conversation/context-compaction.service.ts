@@ -68,10 +68,11 @@ export class ContextCompactionService {
     const existing = await this.sessions.getContextSummary(sessionId);
     const coveredUpto = existing?.coveredUptoMessageId ?? 0;
     const foldable = records.filter((record) => record.id > coveredUpto);
-    const toFold = foldable.slice(
-      0,
-      Math.max(0, foldable.length - KEEP_RECENT_MESSAGES),
-    );
+    // Never split a turn: end the fold at a user-message boundary (turns start
+    // with a user message), so tool-call/result sequences stay whole.
+    let end = Math.max(0, foldable.length - KEEP_RECENT_MESSAGES);
+    while (end > 0 && foldable[end].role !== 'user') end -= 1;
+    const toFold = foldable.slice(0, end);
     if (toFold.length === 0) return null;
 
     const transcript = toFold

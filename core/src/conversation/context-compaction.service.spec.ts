@@ -59,6 +59,12 @@ describe('ContextCompactionService', () => {
     expect(chat).toHaveBeenCalledTimes(1);
   });
 
+  it('never splits a turn — folds to a user-message boundary', async () => {
+    await seed('s1', 19); // naive boundary lands on an assistant message
+    const result = await service.compact('s1');
+    expect(result?.summarizedMessages).toBe(10); // walked back to the user turn
+  });
+
   it('returns null when the conversation is shorter than the keep floor', async () => {
     await seed('s1', 5);
     expect(await service.compact('s1')).toBeNull();
