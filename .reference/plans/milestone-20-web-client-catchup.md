@@ -82,6 +82,9 @@ overflow pages scroll.
 
 ## M20.2 — Skills & Tools surfaces
 
+> **Done** (2026-10-09). Commits: `96cc548` (M20e) + `3ee72a7` (M20f). See
+> `evidence/milestone-20/m20.2-skills-tools-evidence.md`.
+
 **Covers:** M20e (skills modal + discover), M20f (tools inventory +
 auto-approve).
 
