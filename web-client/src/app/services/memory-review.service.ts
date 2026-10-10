@@ -38,6 +38,7 @@ export class MemoryReviewService {
   readonly total = signal(0);
   readonly showResolved = signal(false);
   readonly busyId = signal<string | null>(null);
+  readonly bulkBusy = signal<'approve' | 'reject' | null>(null);
   readonly runningSweep = signal(false);
   readonly error = signal<string | null>(null);
   readonly lastSummary = signal<SweepSummary | null>(null);
@@ -123,6 +124,34 @@ export class MemoryReviewService {
       }
     } finally {
       this.busyId.set(null);
+    }
+    await this.refresh();
+  }
+
+  /**
+   * Bulk approve/reject every open promotion (M20j). Approve runs one sweep
+   * server-side; both re-fetch afterwards. Bounded server-side by the queue
+   * limit.
+   */
+  async bulkResolve(decision: 'approve' | 'reject'): Promise<void> {
+    if (this.bulkBusy() !== null) {
+      return;
+    }
+    this.bulkBusy.set(decision);
+    this.error.set(null);
+    try {
+      const result = await this.api.post<{
+        applied: number;
+        failed: number;
+        summary?: SweepSummary;
+      }>(`${PROMOTIONS_ENDPOINT}/bulk`, { decision });
+      if (result.summary) {
+        this.lastSummary.set(result.summary);
+      }
+    } catch (error) {
+      this.error.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.bulkBusy.set(null);
     }
     await this.refresh();
   }

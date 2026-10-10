@@ -216,6 +216,28 @@ export class SqliteSessionRepository extends SessionRepository {
       .run(nowIso(), trimmed ? trimmed : null, id);
   }
 
+  /**
+   * Delete a session, its transcript, and its session-scoped operational
+   * rows. Memory derived from the session is NOT touched (M20i): the
+   * `memory_candidates`, `claims`, `promotion_journal`, `claim_history`,
+   * `source_reliability`, and `persona_*` tables carry no FK to `sessions`.
+   *
+   * `tool_requests` is the only RESTRICT blocker; clearing it lets the
+   * `sessions` delete cascade approvals/clarifications/agent runs/todos/
+   * messages (and their events + FTS rows) and SET NULL on `cron_jobs`.
+   */
+  async deleteSession(id: string): Promise<boolean> {
+    if (!(await this.getSession(id))) return false;
+    const remove = this.database.transaction(() => {
+      this.database
+        .prepare('DELETE FROM tool_requests WHERE session_id = ?')
+        .run(id);
+      this.database.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    });
+    remove();
+    return true;
+  }
+
   async ping(): Promise<void> {
     this.database.prepare('SELECT 1').get();
   }

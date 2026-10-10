@@ -55,6 +55,8 @@ export class MemoryReviewQueue implements OnInit {
 
   readonly openCount = computed(() => this.review.pendingCount());
   readonly truncated = computed(() => this.review.total() > this.review.items().length);
+  /** Inline confirm for a bulk decision (M20j). */
+  readonly pendingBulk = signal<'approve' | 'reject' | null>(null);
 
   ngOnInit(): void {
     void this.load();
@@ -67,6 +69,22 @@ export class MemoryReviewQueue implements OnInit {
 
   toggleResolved(show: boolean): void {
     this.review.setShowResolved(show);
+  }
+
+  requestBulk(decision: 'approve' | 'reject'): void {
+    this.pendingBulk.set(decision);
+  }
+
+  cancelBulk(): void {
+    this.pendingBulk.set(null);
+  }
+
+  confirmBulk(): void {
+    const decision = this.pendingBulk();
+    this.pendingBulk.set(null);
+    if (decision) {
+      void this.review.bulkResolve(decision);
+    }
   }
 
   stateOf(item: PromotionQueueItem): ReturnType<typeof reviewState> {

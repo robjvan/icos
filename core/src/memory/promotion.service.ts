@@ -595,6 +595,47 @@ export class PromotionService implements OnModuleInit {
   }
 
   /**
+   * Approve or reject every open promotion's approval at once (M20j),
+   * resolving each approval's owning session server-side (the queue is
+   * global). Approve runs a single sweep afterwards. Bounded by the queue
+   * limit; per-item failures are counted, never thrown.
+   */
+  async bulkResolve(decision: 'approve' | 'reject'): Promise<{
+    applied: number;
+    failed: number;
+    summary?: SweepSummary;
+  }> {
+    const open = await this.listPending();
+    let applied = 0;
+    let failed = 0;
+    for (const entry of open) {
+      if (!entry.approvalId) continue;
+      const approval = await this.approvals.getApproval(entry.approvalId);
+      if (!approval || approval.status !== 'pending') continue;
+      try {
+        if (decision === 'approve') {
+          await this.approvalService.approve(
+            entry.approvalId,
+            approval.sessionId,
+          );
+        } else {
+          await this.approvalService.reject(
+            entry.approvalId,
+            approval.sessionId,
+          );
+        }
+        applied += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    if (decision === 'reject') {
+      return { applied, failed };
+    }
+    return { applied, failed, summary: await this.sweep() };
+  }
+
+  /**
    * Journal rows in the requested states (default: all), in the
    * repository's rowid order, bounded by the limit. Each row carries
    * its approval state; auto-promoted rows (no approval) report null.

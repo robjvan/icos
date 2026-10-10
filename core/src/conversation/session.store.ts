@@ -87,6 +87,11 @@ export class SessionStore {
     await this.repository.renameSession(sessionId, title);
   }
 
+  /** Delete a session + transcript; derived memory is left intact (M20i). */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.repository.deleteSession(sessionId);
+  }
+
   async excludeLastTurn(sessionId: string): Promise<number[] | null> {
     return this.repository.excludeLastTurn(sessionId);
   }

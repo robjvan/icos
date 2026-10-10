@@ -1,4 +1,12 @@
-import { Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { JOURNAL_STATES } from '../memory/promotion';
 import type { JournalState } from '../memory/promotion';
 import { PromotionService } from '../memory/promotion.service';
@@ -23,6 +31,19 @@ export class PromotionsController {
   @HttpCode(200)
   async run(): Promise<RunPromotionsResponseDto> {
     return { summary: await this.promotion.sweep() };
+  }
+
+  /**
+   * Bulk approve/reject every open promotion (M20j). Approve runs a single
+   * sweep afterwards. Returns per-item applied/failed counts.
+   */
+  @Post('bulk')
+  @HttpCode(200)
+  async bulk(@Body() dto: { decision?: 'approve' | 'reject' }) {
+    if (dto?.decision !== 'approve' && dto?.decision !== 'reject') {
+      throw new BadRequestException('decision must be "approve" or "reject"');
+    }
+    return this.promotion.bulkResolve(dto.decision);
   }
 
   @Get('pending')

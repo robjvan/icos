@@ -105,6 +105,37 @@ describe('SqliteSessionRepository', () => {
     ]);
   });
 
+  it('deletes a session + transcript but leaves the memory DB untouched (M20i)', async () => {
+    const repository = openRepo();
+    await repository.createSession('s1');
+    await repository.appendMessage('s1', { role: 'user', content: 'hello' });
+
+    // A tool request is the RESTRICT blocker the delete must clear first.
+    const db = new Database(join(dir, 'core.sqlite'));
+    db.pragma('foreign_keys = ON');
+    db.prepare(
+      `INSERT INTO tool_requests
+         (request_id, session_id, input_json, state, validation_json, final_state, final_json)
+       VALUES ('r1', 's1', '{}', 'closed', '{}', 'not_required', '{}')`,
+    ).run();
+    db.close();
+
+    expect(await repository.deleteSession('s1')).toBe(true);
+    expect(await repository.getSession('s1')).toBeNull();
+    expect(await repository.getMessages('s1')).toEqual([]);
+    expect(await repository.deleteSession('missing')).toBe(false);
+
+    const after = new Database(join(dir, 'core.sqlite'));
+    const tools = after
+      .prepare('SELECT request_id FROM tool_requests WHERE session_id = ?')
+      .all('s1') as { request_id: string }[];
+    after.close();
+    expect(tools).toEqual([]);
+    // Derived memory (candidates, claims, promotions, evidence) lives in the
+    // separate memory DB and carries no FK to sessions, so it is untouched by
+    // design — the operator deletes it separately.
+  });
+
   it('keeps sessions isolated', async () => {
     const repository = openRepo();
     await repository.createSession('s1');

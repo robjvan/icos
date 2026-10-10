@@ -5,9 +5,10 @@ import {
   ElementRef,
   OnInit,
   inject,
+  signal,
   viewChild,
 } from '@angular/core';
-import { LucidePlus } from '@lucide/angular';
+import { LucidePlus, LucideTrash2 } from '@lucide/angular';
 import { ApprovalCard } from '../approval-card/approval-card';
 import { Composer } from '../composer/composer';
 import { MessageList } from '../message-list/message-list';
@@ -23,7 +24,15 @@ import { RealtimeService } from '../../services/realtime.service';
  */
 @Component({
   selector: 'app-chat-ui-component',
-  imports: [SessionSidebar, MessageList, ApprovalCard, QuestionCard, Composer, LucidePlus],
+  imports: [
+    SessionSidebar,
+    MessageList,
+    ApprovalCard,
+    QuestionCard,
+    Composer,
+    LucidePlus,
+    LucideTrash2,
+  ],
   templateUrl: './chat-ui-component.html',
   styleUrl: './chat-ui-component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -34,6 +43,8 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
   private readonly composer = viewChild(Composer);
   private pinnedToBottom = true;
+  /** Inline confirm for the deliberate, open-session-only delete (M20i). */
+  readonly pendingDelete = signal(false);
 
   ngOnInit(): void {
     void this.store.refreshSessions();
@@ -66,6 +77,23 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
     this.store.newSession();
     this.realtime.trackSession(null);
     this.focusComposer();
+  }
+
+  requestDeleteSession(): void {
+    this.pendingDelete.set(true);
+  }
+
+  cancelDeleteSession(): void {
+    this.pendingDelete.set(false);
+  }
+
+  confirmDeleteSession(): void {
+    const id = this.store.sessionId();
+    this.pendingDelete.set(false);
+    if (!id) {
+      return;
+    }
+    void this.store.deleteSession(id);
   }
 
   sendMessage(submission: ComposerSubmission): void {

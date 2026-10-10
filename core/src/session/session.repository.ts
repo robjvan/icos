@@ -94,6 +94,15 @@ export abstract class SessionRepository {
   /** Set the explicit session title. Empty/blank clears it. */
   abstract renameSession(id: string, title: string): Promise<void>;
 
+  /**
+   * Delete a session and its transcript + session-scoped operational rows
+   * (messages, approvals, clarifications, tool requests, agent runs, todos).
+   * Memory derived from the session (candidates, claims, promotions, source
+   * evidence, persona) is deliberately **left intact** — the operator must
+   * delete that separately (M20i). Returns false when the session is unknown.
+   */
+  abstract deleteSession(id: string): Promise<boolean>;
+
   /** Cheap liveness probe for health checks. */
   abstract ping(): Promise<void>;
 

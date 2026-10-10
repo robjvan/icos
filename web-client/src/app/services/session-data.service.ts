@@ -47,6 +47,11 @@ export class SessionService {
   async history(sessionId: string): Promise<ConversationHistoryResponse> {
     return this.api.get<ConversationHistoryResponse>(`${CONVERSATION_ENDPOINT}/${sessionId}`);
   }
+
+  /** Delete a session + its transcript. Derived memory is kept (M20i). */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.api.delete(`${SESSIONS_ENDPOINT}/${encodeURIComponent(sessionId)}`);
+  }
 }
 
 /** Pending approvals + approve/reject/cancel. Auxiliary surface (see above). */

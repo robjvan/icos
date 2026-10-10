@@ -2409,6 +2409,11 @@ export class ConversationService {
     return this.sessions.listSessions(options);
   }
 
+  /** Delete a session + transcript; derived memory is left intact (M20i). */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.sessions.deleteSession(sessionId);
+  }
+
   /**
    * Fire-and-forget enrichment: runs after the turn is persisted and the
    * response is on its way. Never blocks conversation, never fails it —

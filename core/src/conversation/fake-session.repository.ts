@@ -131,6 +131,15 @@ export class FakeSessionRepository extends SessionRepository {
     session.updatedAt = new Date().toISOString();
   }
 
+  async deleteSession(id: string): Promise<boolean> {
+    if (!this.sessions.has(id)) return false;
+    this.sessions.delete(id);
+    for (let i = this.records.length - 1; i >= 0; i--) {
+      if (this.records[i].sessionId === id) this.records.splice(i, 1);
+    }
+    return true;
+  }
+
   async ping(): Promise<void> {
     // In-memory: always alive.
   }
