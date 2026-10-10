@@ -137,6 +137,9 @@ schedules, no secret leakage in prompts).
 
 ## M20.4 — Destructive & bulk actions
 
+> **Done** (2026-10-10). Commit `c0f049f`. See
+> `evidence/milestone-20/m20.4-destructive-bulk-evidence.md`.
+
 **Covers:** M20i (session delete), M20j (bulk approve/reject).
 
 - **Session delete (i):** add `DELETE /core/sessions/:id` (backend; cascade the
