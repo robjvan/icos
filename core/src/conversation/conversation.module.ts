@@ -114,6 +114,8 @@ import { ConversationService } from './conversation.service';
 import { ContextBudgetService } from './context-budget.service';
 import { ContextCompactionService } from './context-compaction.service';
 import { ContextController } from './context.controller';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { ToolPullStore } from '../tools/tool-pull.store';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -349,6 +351,8 @@ const toolExecutionServiceProvider = {
     ConversationService,
     ContextBudgetService,
     ContextCompactionService,
+    ToolSurfaceService,
+    ToolPullStore,
     SessionStore,
   ],
   exports: [ConversationService, ApprovalService, CommandDispatcher],

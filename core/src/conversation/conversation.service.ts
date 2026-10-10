@@ -53,14 +53,8 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
-import type { ToolDescriptor } from '../tools/tool-registry';
-import { resolveToolPolicy } from '../tools/tool-policy';
-import type { ToolPolicyConfig } from '../tools/tool-policy';
-import { discoverTools } from '../tools/tool-discovery';
-import {
-  TopBudgetedToolSelector,
-  type ToolSelector,
-} from '../tools/tool-selector';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import type { InjectedTools } from '../tools/tool-surface.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { observationFromRecord } from '../agent/observation';
@@ -235,8 +229,6 @@ const RECALL_K = 10;
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
-  /** M20.7.1 tool selection seam (deterministic top-budgeted by default). */
-  private readonly toolSelector: ToolSelector = new TopBudgetedToolSelector();
 
   constructor(
     private readonly sessions: SessionStore,
@@ -259,6 +251,7 @@ export class ConversationService {
     private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
     private readonly attachmentImages: AttachmentImageResolver,
+    private readonly surface: ToolSurfaceService,
     @Optional() private readonly budget?: ContextBudgetService,
     @Optional() private readonly compaction?: ContextCompactionService,
   ) {}
@@ -282,6 +275,7 @@ export class ConversationService {
       };
     }
     const { id } = await this.sessions.resolve(sessionId);
+    this.surface.beginTurn(id);
     const turn = await this.prepareTurn(
       id,
       message,
@@ -300,6 +294,9 @@ export class ConversationService {
     let boundHit = false;
     let deadlineHit = false;
     for (let step = 0; ; step++) {
+      // M20.7.2: recompute per round so a `search_platform_tools` pull lands
+      // on the next proposal round.
+      const { descriptors, allowedTools } = this.roundTools(id, message);
       const requestId = randomUUID();
       const finalAttempt =
         step >= this.config.agentMaxIterations ||
@@ -310,22 +307,16 @@ export class ConversationService {
           this.config.agentMaxTurnDurationMs,
         );
       this.transitionRun(runId, 'reasoning');
-      const context = this.assembleStep(
-        turn,
-        message,
-        turn.descriptors,
-        pairs,
-        {
-          stepsUsed: step,
-          toolCallsUsed: toolSteps,
-          priorActions,
-        },
-      );
+      const context = this.assembleStep(turn, message, descriptors, pairs, {
+        stepsUsed: step,
+        toolCallsUsed: toolSteps,
+        priorActions,
+      });
       let proposal: LlmResult;
       try {
         proposal = await this.llm.chatWithTools({
           messages: context,
-          tools: finalAttempt ? [] : turn.descriptors,
+          tools: finalAttempt ? [] : descriptors,
           ...(finalAttempt ? { toolChoice: 'none' as const } : {}),
           sessionId: id,
         });
@@ -356,7 +347,7 @@ export class ConversationService {
             requestId,
             sessionId: id,
             context,
-            allowedTools: turn.allowedTools,
+            allowedTools,
             proposal,
           },
           // Intermediate steps skip the tools-disabled final call; the
@@ -554,7 +545,6 @@ export class ConversationService {
     }
     // M9h continuation: the resolved observation re-enters bounded
     // planning against the run's remaining budget.
-    const { descriptors, allowedTools } = this.resolveTools(userText);
     const limits = stored.limits;
     const startedAt = Date.now();
     // M9k: split the frozen turn context so the system head rebuilds
@@ -579,6 +569,11 @@ export class ConversationService {
     let lastTool: ToolSummary | undefined = entry.toolSummary;
     let newExecutions = 0;
     for (let step = stored.iterationCount; ; step++) {
+      // M20.7.2: recompute per round so a mid-turn pull is reinjected.
+      const { descriptors, allowedTools } = this.roundTools(
+        record.sessionId,
+        userText,
+      );
       const finalAttempt =
         step >= limits.maxIterations ||
         stored.toolCallCount + newExecutions >= limits.maxToolSteps ||
@@ -821,6 +816,7 @@ export class ConversationService {
       return;
     }
     const { id } = await this.sessions.resolve(sessionId);
+    this.surface.beginTurn(id);
     const turn = await this.prepareTurn(id, message, undefined, attachments);
     const requestId = randomUUID();
     const sink: StreamSink = {
@@ -852,6 +848,9 @@ export class ConversationService {
         let currentRequestId = requestId;
         let lastTool: ToolSummary | undefined;
         for (let step = 0; ; step++) {
+          // M20.7.2: recompute per round so a `search_platform_tools` pull
+          // lands on the next proposal round.
+          const { descriptors, allowedTools } = this.roundTools(id, message);
           const finalAttempt =
             step >= this.config.agentMaxIterations ||
             toolSteps >= this.config.agentMaxToolSteps ||
@@ -861,23 +860,17 @@ export class ConversationService {
               this.config.agentMaxTurnDurationMs,
             );
           this.transitionRun(runId, 'reasoning');
-          const context = this.assembleStep(
-            turn,
-            message,
-            turn.descriptors,
-            pairs,
-            {
-              stepsUsed: step,
-              toolCallsUsed: toolSteps,
-              priorActions,
-            },
-          );
+          const context = this.assembleStep(turn, message, descriptors, pairs, {
+            stepsUsed: step,
+            toolCallsUsed: toolSteps,
+            priorActions,
+          });
           let proposal: LlmResult;
           try {
             proposal = await this.llm.chatStreamWithTools(
               {
                 messages: context,
-                tools: finalAttempt ? [] : turn.descriptors,
+                tools: finalAttempt ? [] : descriptors,
                 ...(finalAttempt ? { toolChoice: 'none' as const } : {}),
                 sessionId: id,
               },
@@ -919,7 +912,7 @@ export class ConversationService {
                 requestId: currentRequestId,
                 sessionId: id,
                 context,
-                allowedTools: turn.allowedTools,
+                allowedTools,
                 proposal,
               },
               { sink, signal: clientSignal, skipFinal: !finalAttempt },
@@ -1157,7 +1150,6 @@ export class ConversationService {
         // M9h continuation: bounded planning over remaining budget.
         // Exactly one terminal done follows; intermediate searches emit
         // progress only.
-        const { descriptors, allowedTools } = this.resolveTools(userText);
         const limits = stored.limits;
         const startedAt = Date.now();
         const sink: StreamSink = {
@@ -1184,6 +1176,11 @@ export class ConversationService {
         let lastTool: ToolSummary | undefined = entry.toolSummary;
         let newExecutions = 0;
         for (let step = stored.iterationCount; ; step++) {
+          // M20.7.2: recompute per round so a mid-turn pull is reinjected.
+          const { descriptors, allowedTools } = this.roundTools(
+            record.sessionId,
+            userText,
+          );
           const finalAttempt =
             step >= limits.maxIterations ||
             stored.toolCallCount + newExecutions >= limits.maxToolSteps ||
@@ -1681,79 +1678,17 @@ export class ConversationService {
   }
 
   /**
-   * Tools injected this turn (M17a policy → M20.7 discovery). The operator
-   * policy defines the universe; discovery narrows the **injected** set to a
-   * bounded, relevant subset. `allowedTools` is the injected set — the model
-   * can only call what it is shown, which is a restriction *within* the
-   * operator policy, never an expansion of it. With discovery disabled, every
-   * policy-enabled tool is injected (pre-M20.7 behaviour).
+   * Tools injected for the current round (M20.7). Delegates to the tool
+   * surface: always-on core ∪ staged pulls ∪ discovered, bounded. Recomputed
+   * per round so a `search_platform_tools` pull is injected on the next round.
    */
-  private resolveTools(input = ''): {
-    descriptors: ToolDescriptor[];
-    allowedTools: string[];
-  } {
-    const { offered } = resolveToolPolicy(
-      this.registry.list(),
-      this.toolPolicy(),
-    );
-    if (this.config.toolsDiscoveryEnabled === false) {
-      return {
-        descriptors: [...offered],
-        allowedTools: offered.map((descriptor) => descriptor.name),
-      };
-    }
-    const byName = new Map(
-      offered.map((descriptor) => [descriptor.name, descriptor]),
-    );
-    const selected: ToolDescriptor[] = [];
-    const seen = new Set<string>();
-    for (const name of this.config.toolsAlwaysOn ?? []) {
-      const descriptor = byName.get(name);
-      if (descriptor && !seen.has(name)) {
-        seen.add(name);
-        selected.push(descriptor);
-      }
-    }
-    const budget = Math.max(
-      0,
-      (this.config.toolsMaxPerTurn ?? 12) - selected.length,
-    );
-    const matches = discoverTools(
-      offered,
-      input,
-      this.config.toolsDiscoveryLimit ?? 8,
-    );
-    for (const descriptor of this.toolSelector.select(matches, {
-      maxTools: budget,
-    })) {
-      if (!seen.has(descriptor.name)) {
-        seen.add(descriptor.name);
-        selected.push(descriptor);
-      }
-    }
-    return {
-      descriptors: selected,
-      allowedTools: selected.map((descriptor) => descriptor.name),
-    };
+  private roundTools(sessionId: string, input: string): InjectedTools {
+    return this.surface.injected(sessionId, input);
   }
 
   /** Tools known but disabled by policy; declared in the planning frame. */
   private disabledToolNames(): string[] {
-    const { disabled } = resolveToolPolicy(
-      this.registry.list(),
-      this.toolPolicy(),
-    );
-    return disabled.map((descriptor) => descriptor.name);
-  }
-
-  private toolPolicy(): ToolPolicyConfig {
-    return {
-      enabledToolsets: this.config.toolsEnabledToolsets,
-      disabledToolsets: this.config.toolsDisabledToolsets,
-      enabledTools: this.config.toolsEnabled,
-      disabledTools: this.config.toolsDisabled,
-      toolsetAliases: this.registry.toolsetAliases(),
-    };
+    return this.surface.disabled().map((descriptor) => descriptor.name);
   }
 
   /**
@@ -1888,7 +1823,7 @@ export class ConversationService {
       ...toPairMessages(pairs),
       userMessage,
     ];
-    const { descriptors, allowedTools } = this.resolveTools(message);
+    const { descriptors, allowedTools } = this.roundTools(sessionId, message);
     // Split the static system head (prompt plus catalog) from the rest
     // so M9k rebuilds the planning frame every proposal round instead
     // of letting step counts go stale.

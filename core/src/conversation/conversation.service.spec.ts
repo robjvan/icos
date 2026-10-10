@@ -32,6 +32,8 @@ import type {
 } from '../tools/tool-execution.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
 import { ToolRegistry } from '../tools/tool-registry';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { ToolPullStore } from '../tools/tool-pull.store';
 import { ConversationService } from './conversation.service';
 import { HallucinationGuardService } from '../hallucination/hallucination-guard.service';
 import { PersonaCandidateStager } from '../persona/persona-candidate-stager.service';
@@ -364,6 +366,7 @@ function setup(
       {
         resolve: () => Promise.resolve({ parts: [], description: null }),
       } as unknown as AttachmentImageResolver,
+      new ToolSurfaceService(config, registry, new ToolPullStore()),
     ),
     repository,
     chatWithTools,
