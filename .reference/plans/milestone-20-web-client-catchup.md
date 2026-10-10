@@ -113,6 +113,9 @@ to per-tool, global, persisted).
 
 ## M20.3 — Memory ledger & Cron surfaces
 
+> **Done** (2026-10-10). Commit `7cec6c8`. See
+> `evidence/milestone-20/m20.3-memory-cron-evidence.md`.
+
 **Covers:** M20g (ledger ranking), M20h (cron tab).
 
 - **Ledger ranking (g):** the "ranking unimplemented (M10–M12)" badge is stale —
