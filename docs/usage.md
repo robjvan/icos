@@ -205,13 +205,6 @@ bind the same host ports, so bring one down before starting the other.
 > **DMR status: in testing.** The compose file, model refs, and VRAM behaviour
 > are still being validated. It works; treat sharp edges as expected.
 
-> **Claims verifier (optional).** The hallucination check uses a local
-> Jev-style decision model when one is reachable. On macOS, `bin/verifier`
-> starts it on the host (MLX) and core reaches it at
-> `host.docker.internal:8765` (the default `HALLUCINATION_DECISION_URL`).
-> With none configured, detection falls back to deterministic
-> claim/evidence checks. See [model-lineups.md](model-lineups.md).
-
 ### Docker with your own models
 
 If you already run Ollama, llama.cpp, or a remote provider:
@@ -221,6 +214,66 @@ docker compose up --build -d
 ```
 
 Configure `LLM_*` / `MEMORY_*` in `core/.env` (see [Configure](#configure)).
+
+### The claims verifier (optional)
+
+The hallucination check prefers a **decision model** — a local Jev-style
+server answering `POST /v1/systemone` — and falls back to a generic LLM
+verifier, then to the deterministic claim/evidence checks. It is
+**optional**: with none configured, ICOS still runs, just without the second
+opinion.
+
+Docker on macOS cannot reach Apple's GPU, so the verifier runs on the
+**host** (MLX), not in a container. `bin/verifier` bootstraps its runtime
+once, then serves the 2B model on `127.0.0.1:8765`:
+
+```sh
+bin/verifier                          # serve :8765 (installs the runtime once)
+JEV_STYLE_RELEASE=0.8b bin/verifier   # smaller / faster model
+```
+
+Core (in Docker) reaches it at `host.docker.internal:8765`, which is what
+`core/.env` already sets for `HALLUCINATION_DECISION_URL`. On Linux, either
+point `HALLUCINATION_VERIFIER_PROVIDER` at a model you already run, or leave
+both unset and let the deterministic checks carry the load.
+
+#### Running it alongside the stack
+
+The verifier is a **foreground host process**; the stack runs **detached in
+Docker**. They are independent — the verifier serves the decision model on
+the host, the stack serves the memory model (DMR) plus everything else — so
+there is nothing to chain: start the verifier in one terminal, then bring up
+the stack in another.
+
+```sh
+# terminal 1 — the decision model (leave it running)
+bin/verifier
+
+# terminal 2 — the stack (detached, so this returns)
+bin/dmr up -d --build          # DMR memory model
+# or: docker compose up -d --build
+```
+
+To keep it to one shell, background the verifier first:
+
+```sh
+bin/verifier > ~/.icos/verifier.log 2>&1 &
+bin/dmr up -d --build
+```
+
+It is the **same verifier for both stack variants** — it does not care
+whether the memory model comes from the DMR or your own Ollama. The one
+difference is configuration:
+
+> **DMR variant note.** `core/.dmr.env` (the DMR env file) is a trimmed
+> mirror of `core/.env` and does **not** set `HALLUCINATION_DECISION_URL`, so
+> the DMR path has no decision verifier until you add it. To match the
+> standard path, put `HALLUCINATION_DECISION_URL=http://host.docker.internal:8765`
+> in `core/.dmr.env`.
+
+The verifier is bursty and latency-tolerant: on a discrete GPU, run it
+CPU-side so it never competes with the memory model for VRAM. See
+[model-lineups.md](model-lineups.md) for the backends and the memory budget.
 
 ### Bare metal (local development)
 
