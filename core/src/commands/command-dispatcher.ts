@@ -21,6 +21,7 @@ import { registerSessionCommands } from './session-commands';
 import { registerSkillCommands } from '../skills/command-adapter';
 import { SkillSeedService } from '../skills/skill-seed.service';
 import { ContextBudgetService } from '../conversation/context-budget.service';
+import { ContextCompactionService } from '../conversation/context-compaction.service';
 import { SkillService } from '../skills/skill.service';
 import {
   MalformedSlashCommandError,
@@ -47,6 +48,7 @@ export class CommandDispatcher {
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly seed?: SkillSeedService,
     private readonly budget?: ContextBudgetService,
+    private readonly compaction?: ContextCompactionService,
   ) {
     const register = (handler: SlashCommandHandler): void => {
       this.registry.register(handler);
@@ -58,6 +60,7 @@ export class CommandDispatcher {
       skills,
       activeStreams: () => CommandDispatcher.activeStreams,
       ...(budget ? { budget } : {}),
+      ...(compaction ? { compaction } : {}),
     });
     registerRuntimeCommands(register, {
       sessions,

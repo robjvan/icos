@@ -10,6 +10,7 @@ import {
   SessionRepository,
 } from './session.repository';
 import type {
+  ContextSummary,
   MessageRecord,
   Session,
   SessionSearchResult,
@@ -236,6 +237,66 @@ export class SqliteSessionRepository extends SessionRepository {
     });
     remove();
     return true;
+  }
+
+  async getContextSummary(sessionId: string): Promise<ContextSummary | null> {
+    const row = this.database
+      .prepare(
+        `SELECT session_id, summary, covered_upto_message_id, token_estimate,
+                created_at, updated_at
+           FROM context_summaries WHERE session_id = ?`,
+      )
+      .get(sessionId) as
+      | {
+          session_id: string;
+          summary: string;
+          covered_upto_message_id: number;
+          token_estimate: number;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined;
+    return row
+      ? {
+          sessionId: row.session_id,
+          summary: row.summary,
+          coveredUptoMessageId: row.covered_upto_message_id,
+          tokenEstimate: row.token_estimate,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }
+      : null;
+  }
+
+  async upsertContextSummary(input: {
+    sessionId: string;
+    summary: string;
+    coveredUptoMessageId: number;
+    tokenEstimate: number;
+  }): Promise<ContextSummary> {
+    const now = nowIso();
+    this.database
+      .prepare(
+        `INSERT INTO context_summaries
+           (session_id, summary, covered_upto_message_id, token_estimate, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           summary = excluded.summary,
+           covered_upto_message_id = excluded.covered_upto_message_id,
+           token_estimate = excluded.token_estimate,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.sessionId,
+        input.summary,
+        input.coveredUptoMessageId,
+        input.tokenEstimate,
+        now,
+        now,
+      );
+    const stored = await this.getContextSummary(input.sessionId);
+    if (!stored) throw new Error('context summary write failed');
+    return stored;
   }
 
   async ping(): Promise<void> {

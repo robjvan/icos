@@ -120,6 +120,7 @@ describe('builtin slash commands', () => {
   it('exposes the M6a catalog', () => {
     const { dispatcher } = setup();
     expect(dispatcher.commandNames).toEqual([
+      'compact',
       'export',
       'fork',
       'health',

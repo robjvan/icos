@@ -48,6 +48,17 @@ export class InvalidSearchQueryError extends Error {
   }
 }
 
+/** Rolling conversation summary for a session (M20.6.2 context compaction). */
+export interface ContextSummary {
+  sessionId: string;
+  summary: string;
+  /** Highest message id folded into the summary (the re-trigger guard). */
+  coveredUptoMessageId: number;
+  tokenEstimate: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * Transcript persistence boundary. `ConversationService` (via
  * `SessionStore`) must not know SQL exists. SQLite is the
@@ -93,6 +104,17 @@ export abstract class SessionRepository {
 
   /** Set the explicit session title. Empty/blank clears it. */
   abstract renameSession(id: string, title: string): Promise<void>;
+
+  /** The rolling conversation summary for a session, or null (M20.6.2). */
+  abstract getContextSummary(sessionId: string): Promise<ContextSummary | null>;
+
+  /** Insert or replace a session's rolling summary (M20.6.2). */
+  abstract upsertContextSummary(input: {
+    sessionId: string;
+    summary: string;
+    coveredUptoMessageId: number;
+    tokenEstimate: number;
+  }): Promise<ContextSummary>;
 
   /**
    * Delete a session and its transcript + session-scoped operational rows

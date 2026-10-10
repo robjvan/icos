@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -41,7 +42,10 @@ import { SkillService } from '../skills/skill.service';
 import type { ResolvedTurnSkills } from '../skills/skill.service';
 import type { LoadedSkill, TurnSkillReport } from '../skills/skill.types';
 import { InvalidSearchQueryError } from '../session/session.repository';
-import type { SessionSearchResult } from '../session/session.repository';
+import type {
+  ContextSummary,
+  SessionSearchResult,
+} from '../session/session.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { LedgerError } from '../tools/tool-execution.repository';
 import type {
@@ -68,6 +72,8 @@ import type {
   RunTermination,
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
+import { ContextBudgetService } from './context-budget.service';
+import { ContextCompactionService } from './context-compaction.service';
 import type { ContextMemory } from './context.builder';
 import { buildAttachmentBand } from './attachments';
 import type { TurnAttachment } from './attachments';
@@ -246,6 +252,8 @@ export class ConversationService {
     private readonly hallucinationGuard: HallucinationGuardService,
     private readonly realtime: RealtimePublisher,
     private readonly attachmentImages: AttachmentImageResolver,
+    @Optional() private readonly budget?: ContextBudgetService,
+    @Optional() private readonly compaction?: ContextCompactionService,
   ) {}
 
   async converse(
@@ -1742,7 +1750,22 @@ export class ConversationService {
     descriptors: LlmToolRequest['tools'];
     allowedTools: string[];
   }> {
-    const history = await this.sessions.getContextMessages(sessionId);
+    const summary = this.compaction
+      ? await this.compaction.summaryFor(sessionId)
+      : null;
+    const coveredUpto = summary?.coveredUptoMessageId ?? 0;
+    const records = await this.sessions.getMessageRecords(sessionId);
+    // M20.6.2: only turns after the summary's covered range reach the model —
+    // folded turns live in the summary, not twice in context.
+    const history: ChatMessage[] = records
+      .filter(
+        (record) => !record.excludedFromContext && record.id > coveredUpto,
+      )
+      .slice(-this.config.maxHistory)
+      .map((record) => ({
+        role: record.role as ChatMessage['role'],
+        content: record.content,
+      }));
     const skills = await this.skills.resolveTurnSkills(sessionId, message);
     const pairs = this.tools.recentPairs(sessionId, MAX_TOOL_PAIRS);
     const recalled = await this.recallTurn(sessionId, message);
@@ -1766,8 +1789,45 @@ export class ConversationService {
         personaBand,
         sourceBand: sourceBand ?? null,
         attachmentBand,
+        ...(summary ? { summaryBand: summaryBandText(summary) } : {}),
       },
     );
+    // M20.6.2: if the assembled context crosses the budget trigger, fold the
+    // older turns into the summary and rebuild once. Fail-soft.
+    if (this.compaction) {
+      const compacted = await this.compaction.compactIfNeeded(
+        sessionId,
+        textMessages,
+      );
+      if (compacted) {
+        const folded = await this.sessions.getMessageRecords(sessionId);
+        const remaining: ChatMessage[] = folded
+          .filter(
+            (record) =>
+              !record.excludedFromContext &&
+              record.id > compacted.coveredUptoMessageId,
+          )
+          .slice(-this.config.maxHistory)
+          .map((record) => ({
+            role: record.role as ChatMessage['role'],
+            content: record.content,
+          }));
+        const rebuilt = this.prepareMessages(
+          sessionId,
+          remaining,
+          message,
+          skills,
+          {
+            ...recalled.bands,
+            personaBand,
+            sourceBand: sourceBand ?? null,
+            attachmentBand,
+            summaryBand: summaryBandText(compacted),
+          },
+        );
+        textMessages.splice(0, textMessages.length, ...rebuilt);
+      }
+    }
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = this.withTurnImages(
@@ -2507,6 +2567,11 @@ export class ConversationService {
       throw err;
     }
   }
+}
+
+/** The context band carrying a rolling summary (M20.6.2). */
+function summaryBandText(summary: ContextSummary): string {
+  return `<conversation_summary>\n${summary.summary}\n</conversation_summary>`;
 }
 
 /** Ledger pairs become assistant/tool messages with stable durable ids. */

@@ -4,6 +4,7 @@ import type { CoreConfig } from '../config';
 import { SessionStore } from '../conversation/session.store';
 import type { HistoryMessage } from '../conversation/session.store';
 import type { ContextBudgetService } from '../conversation/context-budget.service';
+import type { ContextCompactionService } from '../conversation/context-compaction.service';
 import type { Session } from '../session/session.repository';
 import type {
   CommandContext,
@@ -110,6 +111,8 @@ export interface SessionCommandDeps {
   activeStreams: () => number;
   /** M20.6 context-budget accounting for `/status` (optional). */
   budget?: ContextBudgetService;
+  /** M20.6 context compaction for `/compact` (optional). */
+  compaction?: ContextCompactionService;
 }
 
 class StatusCommand implements SlashCommandHandler {
@@ -306,6 +309,43 @@ class UndoCommand implements SlashCommandHandler {
   }
 }
 
+class CompactCommand implements SlashCommandHandler {
+  readonly name = 'compact';
+  readonly description =
+    'Summarize older turns into a rolling summary to free context (M20.6).';
+  constructor(private readonly deps: SessionCommandDeps) {}
+
+  async execute(context: CommandContext): Promise<CommandResult> {
+    const sessionId = requireSessionId(context, 'compact');
+    const { compaction } = this.deps;
+    if (!compaction) {
+      throw new BadRequestException('Context compaction is unavailable.');
+    }
+    const hadSummary = (await compaction.summaryFor(sessionId)) !== null;
+    const result = await compaction.compact(sessionId);
+    if (!result) {
+      return {
+        kind: 'message',
+        text: 'Nothing to compact yet — the conversation is shorter than the keep-recent floor.',
+        data: { compacted: false },
+      };
+    }
+    return {
+      kind: 'data',
+      text:
+        `Compacted ${result.summarizedMessages} older message(s) into the rolling ` +
+        `summary (~${result.tokenEstimate} tokens). The transcript is unchanged.`,
+      data: {
+        compacted: true,
+        summarizedMessages: result.summarizedMessages,
+        coveredUptoMessageId: result.coveredUptoMessageId,
+        tokenEstimate: result.tokenEstimate,
+        hadSummary,
+      },
+    };
+  }
+}
+
 class ForkCommand implements SlashCommandHandler {
   readonly name = 'fork';
   readonly description =
@@ -339,4 +379,5 @@ export function registerSessionCommands(
   register(new RenameCommand(deps));
   register(new UndoCommand(deps));
   register(new ForkCommand(deps));
+  register(new CompactCommand(deps));
 }

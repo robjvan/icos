@@ -112,6 +112,7 @@ import { AgentRunRepository } from '../agent/agent-run.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
 import { ContextBudgetService } from './context-budget.service';
+import { ContextCompactionService } from './context-compaction.service';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -345,6 +346,7 @@ const toolExecutionServiceProvider = {
     HallucinationGuardService,
     ConversationService,
     ContextBudgetService,
+    ContextCompactionService,
     SessionStore,
   ],
   exports: [ConversationService, ApprovalService, CommandDispatcher],
