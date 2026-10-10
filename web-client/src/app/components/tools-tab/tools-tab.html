@@ -1,32 +1,47 @@
 <section class="tab-pane" aria-label="Tools">
   <div class="tab-pane-header">
     <h1>Tools</h1>
-    <span class="badge">frontend-only · server unimplemented</span>
+    <span class="badge">server-backed</span>
+    <span class="grow"></span>
+    <button type="button" (click)="refresh()">Refresh</button>
   </div>
+
   <p class="hint">
-    Auto-approve toggles persist to this browser only. Core has no tool-list or auto-approve
-    endpoint yet, so approvals in chat still follow server policy ({{ autoApprovedCount() }} of
-    {{ tools.length }} marked auto-approve locally).
+    Auto-approve is a <strong>global, server-persisted</strong> override: an auto-approved tool
+    runs without pausing for human approval, even if it normally requires it. Currently
+    {{ autoApprovedCount() }} of {{ tools().length }} auto-approved — use deliberately.
   </p>
-  <ul class="tool-list" aria-label="Known tools">
-    @for (tool of tools; track tool.name) {
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <ul class="tool-list" aria-label="Tool inventory">
+    @for (tool of tools(); track tool.name) {
       <li class="tool">
         <div class="tool-header">
           <span class="name mono">{{ tool.name }}</span>
-          <span class="policy">{{ approvalLabel(tool) }}</span>
+          <span class="toolset">{{ tool.toolset }}</span>
+          <span class="policy" [class.auto]="tool.autoApprove">{{ approvalLabel(tool) }}</span>
         </div>
         <p class="description">{{ tool.description }}</p>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            [checked]="isChecked(tool)"
-            #toggleBox
-            (change)="toggle(tool, toggleBox.checked)"
-            [attr.aria-label]="'Auto-approve ' + tool.name"
-          />
-          Auto-approve (frontend-only)
-        </label>
+        @if (tool.approval === 'required') {
+          <label class="toggle">
+            <input
+              type="checkbox"
+              [checked]="tool.autoApprove"
+              [disabled]="saving() === tool.name"
+              (change)="onToggle(tool, $event)"
+              [attr.aria-label]="'Auto-approve ' + tool.name"
+            />
+            Auto-approve
+          </label>
+        }
       </li>
+    } @empty {
+      @if (error() === null) {
+        <li class="empty">No tools.</li>
+      }
     }
   </ul>
 </section>

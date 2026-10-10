@@ -356,6 +356,8 @@ export interface CoreConfig {
    * resolves outside this root is refused. Default `~/.icos/workspace`.
    */
   toolsWorkspaceRoot?: string;
+  /** M20f: persisted global per-tool auto-approve overrides. */
+  toolPrefsPath?: string;
   /**
    * SearXNG base URL for `web_search` (M17b). No API key; the instance must
    * expose the JSON format. Unset leaves web_search unavailable.
@@ -824,6 +826,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.TOOLS_WORKSPACE_ROOT,
       '~/.icos/workspace',
     ),
+    toolPrefsPath: resolvePath(env.TOOL_PREFS_PATH, '~/.icos/tool-prefs.json'),
     searxngBaseUrl: (env.SEARXNG_BASE_URL ?? '').trim() || undefined,
     realtimeEnabled: parseBoolean(env.REALTIME_ENABLED, true),
     realtimeHeartbeatMs: parsePositiveInt(

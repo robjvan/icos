@@ -16,6 +16,7 @@ export const PROMOTIONS_ENDPOINT = '/core/promotions';
 export const CLAIMS_ENDPOINT = '/core/claims';
 export const PROSPECTIVE_ENDPOINT = '/core/prospective';
 export const SKILLS_ENDPOINT = '/core/skills';
+export const TOOLS_ENDPOINT = '/core/tools';
 export const HEALTH_ENDPOINT = '/core/health';
 export const PERSONA_ENDPOINT = '/core/persona';
 

@@ -95,6 +95,8 @@ import { ToolExecutionRepository } from '../tools/tool-execution.repository';
 import { ToolExecutionService } from '../tools/tool-execution.service';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ToolRpcTokens } from '../tools/tool-rpc.tokens';
+import { ToolPrefsService } from '../tools/tool-prefs.service';
+import { ToolInventoryController } from '../tools/tool-inventory.controller';
 import { ToolRpcService } from '../tools/tool-rpc.service';
 import { ToolRpcController } from '../tools/tool-rpc.controller';
 import { CandidatesController } from './candidates.controller';
@@ -137,6 +139,7 @@ const toolExecutionServiceProvider = {
     cron: CronService,
     rpcTokens: ToolRpcTokens,
     browser: BrowserService,
+    toolPrefs: ToolPrefsService,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -167,6 +170,7 @@ const toolExecutionServiceProvider = {
       cron,
       rpcTokens,
       browser,
+      toolPrefs,
     ),
   inject: [
     ToolExecutionRepository,
@@ -192,6 +196,7 @@ const toolExecutionServiceProvider = {
     CronService,
     ToolRpcTokens,
     BrowserService,
+    ToolPrefsService,
   ],
 };
 
@@ -215,6 +220,7 @@ const toolExecutionServiceProvider = {
     ClarificationsController,
     SkillsController,
     ToolRpcController,
+    ToolInventoryController,
     HealthController,
     McpController,
     HallucinationController,
@@ -307,6 +313,7 @@ const toolExecutionServiceProvider = {
     ToolRpcTokens,
     ToolRpcService,
     BrowserService,
+    ToolPrefsService,
     DisplayPreferenceStore,
     HostHealthProvider,
     HealthService,

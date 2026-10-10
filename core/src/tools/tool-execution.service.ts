@@ -31,6 +31,8 @@ import type { DiscordAdminPort } from '../channels/discord-admin.port';
 import type { CronService } from '../cron/cron.service';
 import type { CronJob } from '../cron/cron-job.repository';
 import type { ToolRpcTokens } from './tool-rpc.tokens';
+import type { ToolPrefsService } from './tool-prefs.service';
+import type { ToolDescriptor } from './tool-registry';
 import type { BrowserService } from '../browser/browser.service';
 import type { BrowserAction } from '../browser/browser.service';
 import { BrowserError } from '../browser/browser.service';
@@ -414,6 +416,7 @@ export class ToolExecutionService {
     private readonly cron?: CronService,
     private readonly rpcTokens?: ToolRpcTokens,
     private readonly browser?: BrowserService,
+    private readonly toolPrefs?: ToolPrefsService,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -425,6 +428,18 @@ export class ToolExecutionService {
       this.searchTimeoutMs > 10000
     )
       throw new Error('invalid_search_timeout');
+  }
+
+  /**
+   * Effective approval policy (M20f): a tool that declares `required` still
+   * parks unless the operator has globally auto-approved it. Tools whose
+   * declared policy is `none` are always free.
+   */
+  private approvalRequired(descriptor: ToolDescriptor): boolean {
+    return (
+      descriptor.approval !== 'none' &&
+      this.toolPrefs?.isAutoApproved(descriptor.name) !== true
+    );
   }
 
   async consume(
@@ -462,7 +477,7 @@ export class ToolExecutionService {
       const preview = this.validate(input);
       if (preview.ok && 'request' in preview) {
         const descriptor = this.registry.lookup(preview.request.name);
-        if (descriptor && descriptor.approval !== 'none') {
+        if (descriptor && this.approvalRequired(descriptor)) {
           const request = preview.request;
           const approval = await this.approvalService.create({
             sessionId: input.sessionId,
@@ -601,7 +616,7 @@ export class ToolExecutionService {
     },
   ): Promise<ToolExecutionRecord> {
     const descriptor = this.registry.lookup(request.name);
-    if (!descriptor || descriptor.approval !== 'none') {
+    if (!descriptor || this.approvalRequired(descriptor)) {
       throw new Error('mcp_parking_bypassed');
     }
     const token = this.ledger.claimTool(record.requestId, (saved) =>
@@ -633,7 +648,7 @@ export class ToolExecutionService {
     const descriptor = this.registry.lookup(request.name);
     if (
       !descriptor ||
-      descriptor.approval !== 'none' ||
+      this.approvalRequired(descriptor) ||
       request.name === 'clarify'
     ) {
       throw new Error('native_parking_bypassed');
