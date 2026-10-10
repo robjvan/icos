@@ -20,8 +20,8 @@
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.x-red)
 ![NPM](https://img.shields.io/badge/npm-11.x-CB0200?logo=npm&logoColor=CB0200)
-![NestJS](https://img.shields.io/badge/NestJS-11.0.1-EA2F59?logo=nestjs&logoColor=EA2F59)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-blue?logo=typescript)
+![NestJS](https://img.shields.io/badge/NestJS-11.2.3-EA2F59?logo=nestjs&logoColor=EA2F59)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9.x-blue?logo=typescript)
 ![Angular](https://img.shields.io/badge/Angular-21.x-DD0031?logo=angular&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
