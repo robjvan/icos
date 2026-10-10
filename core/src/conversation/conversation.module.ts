@@ -113,6 +113,7 @@ import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
 import { ContextBudgetService } from './context-budget.service';
 import { ContextCompactionService } from './context-compaction.service';
+import { ContextController } from './context.controller';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -228,6 +229,7 @@ const toolExecutionServiceProvider = {
     McpController,
     HallucinationController,
     CronController,
+    ContextController,
   ],
   providers: [
     coreConfigProvider,

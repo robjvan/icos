@@ -142,7 +142,10 @@ class StatusCommand implements SlashCommandHandler {
       const inContext = history.filter((m) => !m.excludedFromContext);
       const windowed = inContext.slice(-config.maxHistory);
       const display = prefs.get(session.id);
-      const { budget } = this.deps;
+      const { budget, compaction } = this.deps;
+      const summary = compaction
+        ? await compaction.summaryFor(session.id)
+        : null;
       lines.push(
         `Session: ${session.id}`,
         ...(session.title ? [`Title: ${session.title}`] : []),
@@ -152,6 +155,13 @@ class StatusCommand implements SlashCommandHandler {
               `Context: ~${budget.estimate(
                 inContext.map((m) => ({ role: m.role, content: m.content })),
               )} tokens · window ${budget.contextWindow} · usable ${budget.usableTokens} · compact at ${budget.triggerTokens}${budget.enabled ? '' : ' (disabled)'}`,
+            ]
+          : []),
+        ...(compaction
+          ? [
+              summary
+                ? `Summary: ~${summary.tokenEstimate} tokens · covers up to message ${summary.coveredUptoMessageId} · updated ${summary.updatedAt}`
+                : 'Summary: none (not compacted)',
             ]
           : []),
         `Created: ${session.createdAt} · Updated: ${session.updatedAt}`,
@@ -174,6 +184,17 @@ class StatusCommand implements SlashCommandHandler {
               contextUsable: budget.usableTokens,
               contextTrigger: budget.triggerTokens,
               compactionEnabled: budget.enabled,
+            }
+          : {}),
+        ...(compaction
+          ? {
+              contextSummary: summary
+                ? {
+                    tokenEstimate: summary.tokenEstimate,
+                    coveredUptoMessageId: summary.coveredUptoMessageId,
+                    updatedAt: summary.updatedAt,
+                  }
+                : null,
             }
           : {}),
         createdAt: session.createdAt,

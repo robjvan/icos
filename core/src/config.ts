@@ -86,6 +86,8 @@ export interface CoreConfig {
   contextCompactionTarget?: number;
   /** M20.6: best-effort provider context-window probe (default off). */
   contextWindowAutodetect?: boolean;
+  /** M20.6: persisted context-settings override file (target/enabled). */
+  contextSettingsPath?: string;
   systemPrompt: string;
   maxHistory: number;
   sessionDbPath: string;
@@ -508,6 +510,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       'CONTEXT_COMPACTION_TARGET',
     ),
     contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, false),
+    contextSettingsPath: resolvePath(
+      env.CONTEXT_SETTINGS_PATH,
+      '~/.icos/context-settings.json',
+    ),
     systemPrompt:
       (env.SYSTEM_PROMPT ?? 'You are Isabel, a helpful assistant.').trim() ||
       'You are Isabel, a helpful assistant.',
