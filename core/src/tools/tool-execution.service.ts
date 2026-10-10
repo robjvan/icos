@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { ApprovalRepository } from '../approvals/approval.repository';
 import { ApprovalService } from '../approvals/approval.service';
 import type { SessionStore } from '../conversation/session.store';
@@ -381,6 +381,7 @@ function imageMimeForPath(file: string): string | undefined {
 
 @Injectable()
 export class ToolExecutionService {
+  private readonly logger = new Logger(ToolExecutionService.name);
   private readonly searchTimeoutMs: number;
   private readonly workspaceRoot: string;
   private readonly searxngBaseUrl: string | undefined;
@@ -985,6 +986,9 @@ export class ToolExecutionService {
     surface.recordPull(sessionId);
     const names = matches.map((match) => match.tool.name);
     surface.stagePullNow(sessionId, names);
+    this.logger.log(
+      `search_platform_tools("${args.query}") -> ${names.join(', ') || 'none'}`,
+    );
     return {
       query: args.query,
       found: matches.map((match) => ({
