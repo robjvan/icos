@@ -111,10 +111,12 @@ window because the hard cap and the per-message bound remain.
 - **Live:** a long conversation compacts once; `/status` (and the client) show
   the summary + before/after estimates; the transcript still shows every turn.
 
-## Open questions
+## Decisions (confirmed 2026-10-10)
 
-1. **Summarizer model:** the **memory** role (cheap/fast, already configured) or
-   the conversation model? (Recommend: memory role, fallback conversation.)
-2. **Target setting:** global config only, or a per-session override too?
-3. **Surface:** a new "Context" segment in the Memory tab, or fold into
-   `/status` + the Client settings read-out?
+1. **Summarizer model:** the **memory** role when configured, falling back to the
+   conversation model. (Operator left this to the recommendation.)
+2. **Target setting:** **global only** — `CONTEXT_COMPACTION_TARGET` (default
+   0.8) in config + the Client settings tab.
+3. **Surface:** a new **"Context" segment** in the Memory tab (summary text +
+   before/after estimates), plus the numbers in `/status` and the Client
+   settings read-out.
