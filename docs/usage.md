@@ -261,6 +261,18 @@ bin/verifier > ~/.icos/verifier.log 2>&1 &
 bin/dmr up -d --build
 ```
 
+Or let **`bin/stack`** do both — it starts the verifier (keeping its pid),
+brings up the stack, and waits for core to be healthy:
+
+```sh
+bin/stack up              # verifier + DMR stack (the default)
+bin/stack up --standard   # verifier + plain compose (host Ollama)
+bin/stack up --no-verifier  # stack only
+bin/stack status          # what is up
+bin/stack logs core       # follow a service
+bin/stack down            # stop the stack and the verifier
+```
+
 It is the **same verifier for both stack variants** — it does not care
 whether the memory model comes from the DMR or your own Ollama. The one
 difference is configuration:

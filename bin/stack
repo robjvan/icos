@@ -1,0 +1,163 @@
+#!/bin/sh
+# One-command stack: the local Jev-style claims verifier (host process) plus
+# the ICOS compose stack (Docker Model Runner variant by default).
+#
+# The verifier runs on the HOST — Docker on macOS cannot reach Apple's GPU, so
+# a containerised Jev would be CPU-only and slow — while the stack runs
+# detached in Docker. This helper starts both and keeps the verifier's pid so
+# it can be stopped again. See docs/usage.md and docs/model-lineups.md.
+#
+# Usage:
+#   bin/stack up [--standard] [--build] [--no-verifier]
+#   bin/stack down
+#   bin/stack status
+#   bin/stack logs [service]
+#
+#   --standard      use plain docker-compose.yml (host Ollama) instead of DMR
+#   --build         rebuild images on `up`
+#   --no-verifier   bring up the stack only
+set -e
+cd "$(dirname "$0")/.."
+
+VERIFIER_PID="${HOME}/.icos/verifier/verifier.pid"
+VERIFIER_LOG="${HOME}/.icos/verifier/verifier.log"
+VERIFIER_PORT=8765
+HEALTH_TIMEOUT_S=300
+
+STANDARD=0
+BUILD=0
+VERIFIER=1
+
+compose() {
+  if [ "$STANDARD" = "1" ]; then
+    docker compose "$@"
+  else
+    docker compose -f docker-compose.yml -f docker-compose-dmr.yml "$@"
+  fi
+}
+
+verifier_pid() {
+  [ -f "$VERIFIER_PID" ] && cat "$VERIFIER_PID" 2>/dev/null || true
+}
+
+verifier_running() {
+  pid="$(verifier_pid)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+verifier_port_open() {
+  nc -z 127.0.0.1 "$VERIFIER_PORT" >/dev/null 2>&1
+}
+
+start_verifier() {
+  if verifier_running; then
+    echo "bin/stack: verifier already running (pid $(verifier_pid))"
+    return
+  fi
+  if verifier_port_open; then
+    echo "bin/stack: port ${VERIFIER_PORT} already serving — assuming a verifier is up, not starting another."
+    return
+  fi
+  mkdir -p "$(dirname "$VERIFIER_LOG")"
+  echo "bin/stack: starting the claims verifier (first run installs its runtime; log: ${VERIFIER_LOG})"
+  # bin/verifier execs into jev-style, so $! is the serving process.
+  bin/verifier >"$VERIFIER_LOG" 2>&1 &
+  echo $! >"$VERIFIER_PID"
+  echo "bin/stack: verifier pid $(verifier_pid) — give it a moment, then check 'bin/stack status'."
+}
+
+stop_verifier() {
+  if verifier_running; then
+    pid="$(verifier_pid)"
+    kill "$pid" 2>/dev/null || true
+    echo "bin/stack: stopped the verifier (pid ${pid})"
+  fi
+  rm -f "$VERIFIER_PID"
+}
+
+wait_healthy() {
+  printf 'bin/stack: waiting for core to be healthy'
+  i=0
+  while [ "$i" -lt "$HEALTH_TIMEOUT_S" ]; do
+    id="$(compose ps -q core 2>/dev/null || true)"
+    if [ -n "$id" ] && [ "$(docker inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null)" = "healthy" ]; then
+      echo " — up."
+      return 0
+    fi
+    printf '.'
+    i=$((i + 2))
+    sleep 2
+  done
+  echo " — not healthy after ${HEALTH_TIMEOUT_S}s (check: bin/stack logs core)."
+  return 1
+}
+
+cmd_up() {
+  if [ "$VERIFIER" = "1" ]; then
+    start_verifier
+  fi
+  if [ "$BUILD" = "1" ]; then
+    compose up -d --build
+  else
+    compose up -d
+  fi
+  wait_healthy || true
+  echo
+  echo "bin/stack: web client  http://localhost:4200"
+  echo "bin/stack: core API    http://localhost:3000"
+  echo "bin/stack: verifier    http://host.docker.internal:${VERIFIER_PORT} (host 127.0.0.1:${VERIFIER_PORT})"
+  echo "bin/stack: stop with   bin/stack down"
+}
+
+cmd_down() {
+  compose down
+  stop_verifier
+  echo "bin/stack: stack down."
+}
+
+cmd_status() {
+  if verifier_running; then
+    echo "verifier: running (pid $(verifier_pid))"
+  elif verifier_port_open; then
+    echo "verifier: port ${VERIFIER_PORT} serving (started outside bin/stack)"
+  else
+    echo "verifier: not running"
+  fi
+  echo
+  compose ps || echo "bin/stack: docker compose unavailable (is the Docker daemon running?)"
+}
+
+cmd_logs() {
+  compose logs -f "$@"
+}
+
+# ---- parse ----------------------------------------------------------------
+CMD="up"
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    up | down | status | logs)
+      CMD="$1"
+      shift
+      ;;
+  esac
+fi
+
+# Flags apply to `up`; `logs [service]` passes its args straight through.
+if [ "$CMD" = "up" ]; then
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --standard) STANDARD=1 ;;
+      --build) BUILD=1 ;;
+      --no-verifier) VERIFIER=0 ;;
+      *) echo "bin/stack: unknown option '$1'" >&2; exit 2 ;;
+    esac
+    shift
+  done
+fi
+
+case "$CMD" in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  status) cmd_status ;;
+  logs) cmd_logs "$@" ;;
+esac
