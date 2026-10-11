@@ -12,6 +12,7 @@ icos/   # Root of project.
 │
 ├── bin/            # Launch script helper files.
 │     ├── dmr       # Compose override shorthand for the DMR variant.
+│     ├── stack     # One command: the claims verifier + the stack.
 │     └── verifier  # Starts the local Jev-style claims verifier (macOS/MLX).
 │
 ├── core/                   # Core subsystem.
