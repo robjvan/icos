@@ -206,22 +206,22 @@
 
 - [x] **M19: Dynamic MCP Server toolsets**
 
-- [ ] **M20: Web/Client Surface Catch-Up**
+- [x] **M20: Web/Client Surface Catch-Up**
   - Discord EXP-2 (Discord slash commands)
 
-- [ ] **M21: Subagent Support**
-  - [ ] Subagent lifecycle
-  - [ ] Task delegation protocol
-  - [ ] Subagent capability / tool boundaries
-  - [ ] Parent → child context transfer
-  - [ ] Child → parent result / evidence transfer
-  - [ ] Shared vs isolated memory
+- [x] **M21: Subagent Support**
+  - [x] Subagent lifecycle
+  - [x] Task delegation protocol
+  - [x] Subagent capability / tool boundaries
+  - [x] Parent → child context transfer
+  - [x] Child → parent result / evidence transfer
+  - [x] Shared vs isolated memory
   - [ ] Subagent permissions and trust levels
-  - [ ] Resource / token / time budgets
-  - [ ] Nested delegation?
-  - [ ] Parallel subagents?
-  - [ ] Subagent failure / cancellation / timeout
-  - [ ] Result verification and provenance
+  - [x] Resource / token / time budgets
+  - [x] Nested delegation?
+  - [x] Parallel subagents?
+  - [x] Subagent failure / cancellation / timeout
+  - [x] Result verification and provenance
 
 - [ ] **M22: Autonomous Agency and Action Execution**
   - [ ] Action registry
@@ -267,7 +267,7 @@
   - [ ] Sensor abstraction layer
   - [ ] Microphone / audio input
   - [ ] Brio / camera input
-  - [ ] Sensor box / environmental telemetry
+  - [ ] Sensor box / environmental telemetry (optional DHT11)
   - [ ] Event-driven sensory observations
   - [ ] Multimodal observation representation
   - [ ] Sensor provenance and timestamps
