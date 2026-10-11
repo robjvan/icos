@@ -999,7 +999,7 @@ export class ToolExecutionService {
         note: 'Discovery budget reached for this turn; use the tools already offered.',
       };
     }
-    const matches = surface.discover(args.query);
+    const matches = surface.discover(args.query, undefined, sessionId);
     surface.recordPull(sessionId);
     const names = matches.map((match) => match.tool.name);
     surface.stagePullNow(sessionId, names);
@@ -1035,6 +1035,8 @@ export class ToolExecutionService {
       parentSessionId: sessionId,
       goal: args.goal,
       ...(args.context !== undefined ? { context: args.context } : {}),
+      ...(args.toolsets !== undefined ? { toolsets: args.toolsets } : {}),
+      ...(args.tools !== undefined ? { tools: args.tools } : {}),
     });
     if (!result.spawned) {
       return { spawned: false, reason: result.reason };
