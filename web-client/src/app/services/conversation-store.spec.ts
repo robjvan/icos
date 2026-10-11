@@ -147,6 +147,47 @@ describe('ConversationStore', () => {
     expect(streams.resumeTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('should resume a detached park via the approval request id', async () => {
+    store.sessionId.set('s1');
+    const approvals = TestBed.inject(ApprovalService) as unknown as {
+      resolve: ReturnType<typeof vi.fn>;
+      detail: ReturnType<typeof vi.fn>;
+    };
+    approvals.resolve = vi.fn().mockResolvedValue({});
+    approvals.detail = vi.fn().mockResolvedValue({
+      id: 'ax',
+      sessionId: 'child-9',
+      requestId: 'req-detached',
+      action: 'terminal',
+      description: '',
+      status: 'approved',
+      createdAt: 't',
+      updatedAt: 't',
+    });
+    streams.resumeTurn.mockImplementation(
+      (_requestId: string, _session: string, callbacks: StreamCallbacks) => {
+        callbacks.onEvent({
+          type: 'done',
+          reply: 'detached result',
+          model: 'm',
+          requestId: 'req-detached',
+          status: 'ok',
+        });
+        return Promise.resolve();
+      },
+    );
+
+    // No parked entry (this client never saw the turn) — the request id
+    // on the approval itself is the resume handle.
+    expect(store.hasPendingResume('ax')).toBe(false);
+    await store.resolveApproval('ax', 'approve');
+    expect(streams.resumeTurn).toHaveBeenCalledWith(
+      'req-detached',
+      'child-9',
+      expect.objectContaining({ onEvent: expect.any(Function) }),
+    );
+  });
+
   it('should schedule bounded processing polls with resume-stream', () => {
     store.sessionId.set('s1');
     store.scheduleProcessingPoll('r2', 's1', 1);

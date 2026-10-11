@@ -435,8 +435,9 @@ and bounds; `/tools status` reports the same.
 The model can peel work off into an **isolated child session** that runs
 detached in the background, using the `delegate_task` tool. The child gets a
 fresh transcript (only the goal plus whatever explicit context the parent
-provides — never the parent's transcript), its own iteration budget, and a
-narrowed toolset; it returns only a bounded summary. The parent turn never
+provides — never the parent's transcript), its own iteration budget, and by
+default the same tools the operator policy allows (minus delegation itself);
+it returns only a bounded summary. The parent turn never
 blocks — it gets a `task_id` back immediately.
 
 - `delegate_status <task-id>` — poll state and summary. Never blocks; poll
@@ -465,6 +466,12 @@ refused, not queued). When a child finishes, its summary also arrives in the
 parent's context automatically the next turn, so polling is a choice, not a
 requirement. A restart fails in-flight delegations honestly rather than
 resuming them.
+
+A child parked on an approval-gated tool waits like any parked turn — but no
+client holds its resume handle, so the approval itself carries it: approve
+(or reject) from the queue or a card, and the turn resumes from the approval
+alone. The parked child shows as `awaiting_approval` until then; cancelling
+the delegation meanwhile terminates instead of resuming.
 
 Tuning: `SUBAGENTS_ENABLED=false` disables spawning entirely;
 `SUBAGENT_MAX_CONCURRENT` (default 4), `SUBAGENT_MAX_ITERATIONS` /

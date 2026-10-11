@@ -118,6 +118,24 @@ describe('SqliteApprovalRepository', () => {
     expect(await repository.getApproval('missing')).toBeNull();
   });
 
+  it('carries the parking request id when given', async () => {
+    const repository = await setup();
+    const withRequest = await repository.createApproval({
+      sessionId: 's1',
+      action: 'terminal',
+      requestId: 'req-9',
+    });
+    expect(withRequest.requestId).toBe('req-9');
+    expect((await repository.getApproval(withRequest.id))?.requestId).toBe(
+      'req-9',
+    );
+    const without = await repository.createApproval({
+      sessionId: 's1',
+      action: 'other',
+    });
+    expect(without).not.toHaveProperty('requestId');
+  });
+
   it('lists with session and status filters', async () => {
     const repository = await setup();
     const pending = await repository.createApproval({

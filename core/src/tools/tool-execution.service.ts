@@ -491,6 +491,7 @@ export class ToolExecutionService {
             sessionId: input.sessionId,
             action: approvalActionFor(request),
             description: approvalDescriptionFor(request),
+            requestId: input.requestId,
           });
           parkedApprovalId = approval.id;
         } else if (

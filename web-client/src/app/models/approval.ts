@@ -17,6 +17,8 @@ export interface Approval {
     readonly goal: string;
     readonly parentSessionId: string;
   };
+  /** The tool-round request that parked on this approval, if a tool parked it. */
+  readonly requestId?: string;
 }
 
 export interface ListApprovalsResponse {

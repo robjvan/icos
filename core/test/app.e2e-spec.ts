@@ -2905,10 +2905,15 @@ describe('Conversation (e2e)', () => {
      * it saw, polls at most once per turn, and only proposes offered tools —
      * the same discipline a real model follows.
      */
-    function routeParentChild(): void {
+    function routeParentChild(options?: {
+      goal?: string;
+      childFirst?: () => MockLlmResult;
+      childText?: string;
+    }): void {
       let knownTaskId: string | undefined;
       let lastUserSeen: string | undefined;
       let statusProposedThisTurn = false;
+      let childCalls = 0;
       chatWithTools.mockImplementation((request: unknown) => {
         const req = request as {
           sessionId?: string;
@@ -2921,7 +2926,13 @@ describe('Conversation (e2e)', () => {
           .join('\n');
         const offered = new Set((req.tools ?? []).map((t) => t.name));
         if (texts.includes('[Subagent task')) {
-          return Promise.resolve(text('child summary here'));
+          if (options?.childFirst && childCalls === 0) {
+            childCalls += 1;
+            return Promise.resolve(options.childFirst());
+          }
+          return Promise.resolve(
+            text(options?.childText ?? 'child summary here'),
+          );
         }
         // New turn detection: the last user message changes per turn.
         // Transcript-persisted (stale) tool results must not shadow fresh
@@ -2958,7 +2969,7 @@ describe('Conversation (e2e)', () => {
         }
         if (offered.has('delegate_task')) {
           return Promise.resolve(
-            delegateTaskCall('research widgets', nextId()),
+            delegateTaskCall(options?.goal ?? 'research widgets', nextId()),
           );
         }
         return Promise.resolve(text('parent done'));
@@ -3278,5 +3289,72 @@ describe('Conversation (e2e)', () => {
       expect(reply).toContain('list me');
       expect(reply).toContain('[completed]');
     }, 30000);
+
+    it('parks a child approval, then resumes it from the queue alone', async () => {
+      routeParentChild({
+        goal: 'run one command',
+        childFirst: () => terminalCall(nextId()),
+        childText: 'child done after approval',
+      });
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'delegate a terminal errand' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+
+      // The child parks on the approval-gated tool. The queue alone —
+      // approval id + the request id it now carries — is enough to proceed.
+      let approval: { id: string; requestId?: string } | null = null;
+      let childId = '';
+      for (let i = 0; i < 100 && !approval; i++) {
+        const listed = await request(http())
+          .get('/core/sessions?limit=100')
+          .expect(200);
+        childId =
+          (listed.body as { sessions: { sessionId: string }[] }).sessions
+            .map((s) => s.sessionId)
+            .find((id) => id !== parentId) ?? '';
+        if (childId) {
+          const queue = await request(http())
+            .get('/core/approvals')
+            .query({ sessionId: childId, status: 'pending' })
+            .expect(200);
+          approval =
+            (queue.body as { approvals: { id: string; requestId?: string }[] })
+              .approvals[0] ?? null;
+        }
+        if (!approval) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(approval).not.toBeNull();
+      expect(approval?.requestId).toBeDefined();
+
+      await request(http())
+        .post(`/core/approvals/${approval?.id}/approve`)
+        .send({ sessionId: childId })
+        .expect(200);
+      const resumed = await request(http())
+        .post('/core/conversation/resume')
+        .send({ sessionId: childId, requestId: approval?.requestId })
+        .expect(200);
+      expect((resumed.body as ConversationResponse).status).toBe('ok');
+
+      // The delegation reconciles onto the resumed completion.
+      let summary = '';
+      for (let i = 0; i < 20 && !summary; i++) {
+        await request(http())
+          .post('/core/conversation')
+          .send({ message: 'check', sessionId: parentId })
+          .expect(200);
+        const joined = contextsOf(parentId).join('\n');
+        const match =
+          /"state"\s*:\s*"completed"[\s\S]*?"resultSummary"\s*:\s*"([^"]*)"/.exec(
+            joined,
+          );
+        if (match?.[1]) summary = match[1];
+        else await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(summary).toContain('child done after approval');
+    }, 60000);
   });
 });

@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS approvals (
     updated_at TEXT NOT NULL,
     expires_at TEXT,
     resolved_at TEXT,
+    -- M21.3: the tool-round request that parked on this approval, so a
+    -- parked turn is resumable from the queue alone (detached children
+    -- have no client holding the request id).
+    request_id TEXT,
 
     FOREIGN KEY (session_id)
         REFERENCES sessions(id)
@@ -936,6 +940,8 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       `TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written'))`,
     );
     addColumnIfMissing(db, 'agent_runs', 'clarification_id', 'TEXT');
+    // M21.3: live approval rows predate the resume-request linkage.
+    addColumnIfMissing(db, 'approvals', 'request_id', `TEXT`);
     // M21.2: live delegation rows predate the completion-band cursor.
     addColumnIfMissing(db, 'delegations', 'notified_at', `TEXT`);
   }

@@ -70,6 +70,10 @@ export class ApprovalService {
   async resolve(id: string, decision: ApprovalDecision, sessionId: string): Promise<unknown> {
     return this.api.post(`${APPROVALS_ENDPOINT}/${id}/${decision}`, { sessionId });
   }
+
+  async detail(id: string): Promise<Approval> {
+    return this.api.get<Approval>(`${APPROVALS_ENDPOINT}/${id}`);
+  }
 }
 
 /** Pending clarifications + answer/cancel. Auxiliary surface (see above). */

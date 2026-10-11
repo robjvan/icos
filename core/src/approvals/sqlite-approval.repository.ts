@@ -32,6 +32,7 @@ interface ApprovalRow {
   updated_at: string;
   expires_at: string | null;
   resolved_at: string | null;
+  request_id: string | null;
 }
 
 function toRequest(row: ApprovalRow): ApprovalRequest {
@@ -45,6 +46,7 @@ function toRequest(row: ApprovalRow): ApprovalRequest {
     updatedAt: row.updated_at,
     ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
     ...(row.resolved_at ? { resolvedAt: row.resolved_at } : {}),
+    ...(row.request_id ? { requestId: row.request_id } : {}),
   };
 }
 
@@ -66,8 +68,8 @@ export class SqliteApprovalRepository extends ApprovalRepository {
         .prepare(
           `INSERT INTO approvals
              (id, session_id, action, description, status,
-              created_at, updated_at, expires_at)
-           VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+              created_at, updated_at, expires_at, request_id)
+           VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -77,6 +79,7 @@ export class SqliteApprovalRepository extends ApprovalRepository {
           now,
           now,
           input.expiresAt ?? null,
+          input.requestId ?? null,
         );
       this.recordEvent(id, input.sessionId, 'created', now);
     });

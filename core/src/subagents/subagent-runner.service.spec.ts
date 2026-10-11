@@ -346,4 +346,37 @@ describe('SubagentRunner', () => {
     expect(await runner.list('parent-1', 0)).toEqual([]);
     expect(await runner.list('nobody')).toEqual([]);
   });
+
+  it('fans out to the cap concurrently, then drains', async () => {
+    // Blocked children hold their concurrency slots until released.
+    let release!: (value: TurnOutcome) => void;
+    const gate = new Promise<TurnOutcome>((resolve) => {
+      release = resolve;
+    });
+    converse.mockImplementation(() => gate);
+    const capped = new SubagentRunner(
+      testConfig({ subagentMaxConcurrent: 2 }),
+      delegations,
+      sessions,
+      runs,
+      surface,
+      turns,
+    );
+    const a = await capped.spawn({ parentSessionId: 'parent-1', goal: 'a' });
+    const b = await capped.spawn({ parentSessionId: 'parent-1', goal: 'b' });
+    expect(a.spawned).toBe(true);
+    expect(b.spawned).toBe(true);
+    // At the cap: further spawns refuse without queueing.
+    const c = await capped.spawn({ parentSessionId: 'parent-1', goal: 'c' });
+    expect(c.spawned).toBe(false);
+    if (!c.spawned) expect(c.reason).toContain('cap');
+    release(okOutcome('done'));
+    await flush(20);
+    if (!a.spawned || !b.spawned) return;
+    expect((await capped.status(a.taskId))?.state).toBe('completed');
+    expect((await capped.status(b.taskId))?.state).toBe('completed');
+    // Slots freed: spawning works again.
+    const d = await capped.spawn({ parentSessionId: 'parent-1', goal: 'd' });
+    expect(d.spawned).toBe(true);
+  });
 });

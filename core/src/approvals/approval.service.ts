@@ -41,6 +41,7 @@ export class ApprovalService {
     action: string;
     description?: string;
     ttlMs?: number;
+    requestId?: string;
   }): Promise<ApprovalRequest> {
     const session = await this.sessions.getSession(input.sessionId);
     if (!session) {
@@ -55,6 +56,7 @@ export class ApprovalService {
       ...(input.ttlMs !== undefined
         ? { expiresAt: new Date(Date.now() + input.ttlMs).toISOString() }
         : {}),
+      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
     });
     // Notify, never state: handlers re-read through REST. Never throws.
     this.realtime.publish(
