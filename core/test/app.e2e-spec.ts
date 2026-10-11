@@ -22,6 +22,7 @@ import {
   TOOL_STEP_INSTRUCTION,
 } from '../src/conversation/conversation.service';
 import { buildPlanningBlock } from '../src/agent/planning-context';
+import { DelegationRepository } from '../src/subagents/delegation.repository';
 import { ToolRegistry } from '../src/tools/tool-registry';
 import { LlmClient } from '../src/llm/llm.client';
 import { MEMORY_LLM_CLIENT } from '../src/memory/llm-memory-candidate-extractor';
@@ -1772,7 +1773,7 @@ describe('Conversation (e2e)', () => {
         ),
       );
       expect(chained).toBeDefined();
-      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(26);
+      expect((chained?.[0] as { tools?: unknown[] }).tools).toHaveLength(29);
       const toolMessage = (
         chained?.[0] as {
           messages: { role: string; callId?: string; content: string }[];
@@ -2825,5 +2826,273 @@ describe('Conversation (e2e)', () => {
       ).tools.map((t) => t.name);
       expect(secondTools).toContain('session.search');
     });
+  });
+
+  describe('Subagent delegation (e2e)', () => {
+    // NOTE: mock call ids must be unique per proposal like a real
+    // provider's (see the 'tool turns' note on invalid_context).
+    let callSeq = 1000;
+    function nextId(): string {
+      callSeq += 1;
+      return `model-delegate-${callSeq}`;
+    }
+
+    function delegateTaskCall(goal: string, id = 'model-call-1') {
+      const rawArguments = JSON.stringify({ goal });
+      return {
+        kind: 'tool_calls',
+        content: null,
+        model: 'test-model',
+        toolCalls: [
+          {
+            id,
+            name: 'delegate_task',
+            version: 1,
+            rawArguments,
+            args: { goal },
+          },
+        ],
+      };
+    }
+
+    function delegateStatusCall(taskId: string, id = 'model-call-2') {
+      const rawArguments = JSON.stringify({ taskId });
+      return {
+        kind: 'tool_calls',
+        content: null,
+        model: 'test-model',
+        toolCalls: [
+          {
+            id,
+            name: 'delegate_status',
+            version: 1,
+            rawArguments,
+            args: { taskId },
+          },
+        ],
+      };
+    }
+
+    function text(content: string) {
+      return { kind: 'text', content, model: 'test-model' };
+    }
+
+    /**
+     * A competent parent drives the mock from proposal context: tool results
+     * are in-context only (never persisted), so the mock tracks the task id
+     * it saw, polls at most once per turn, and only proposes offered tools —
+     * the same discipline a real model follows.
+     */
+    function routeParentChild(): void {
+      let knownTaskId: string | undefined;
+      let lastUserSeen: string | undefined;
+      let statusProposedThisTurn = false;
+      chatWithTools.mockImplementation((request: unknown) => {
+        const req = request as {
+          sessionId?: string;
+          messages?: { role?: string; content?: unknown }[];
+          tools?: { name: string }[];
+        };
+        const messages = req.messages ?? [];
+        const texts = messages
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        const offered = new Set((req.tools ?? []).map((t) => t.name));
+        if (texts.includes('[Subagent task')) {
+          return Promise.resolve(text('child summary here'));
+        }
+        // New turn detection: the last user message changes per turn.
+        // Transcript-persisted (stale) tool results must not shadow fresh
+        // ones — only the current turn's own status proposal counts.
+        let lastUser = '';
+        for (const m of messages) {
+          if (m.role === 'user' && typeof m.content === 'string') {
+            lastUser = m.content;
+          }
+        }
+        if (lastUser !== lastUserSeen) {
+          lastUserSeen = lastUser;
+          statusProposedThisTurn = false;
+        }
+        if (/"state"\s*:\s*"completed"/.test(texts)) {
+          return Promise.resolve(text('parent done'));
+        }
+        const spawned =
+          /"spawned"\s*:\s*true[\s\S]*?"taskId"\s*:\s*"([^"]+)"/.exec(texts);
+        if (spawned?.[1]) knownTaskId = spawned[1];
+        if (
+          knownTaskId &&
+          offered.has('delegate_status') &&
+          !statusProposedThisTurn
+        ) {
+          statusProposedThisTurn = true;
+          return Promise.resolve(delegateStatusCall(knownTaskId, nextId()));
+        }
+        if (
+          /"state"\s*:\s*"(running|awaiting_approval)"/.test(texts) ||
+          statusProposedThisTurn
+        ) {
+          return Promise.resolve(text('will check later'));
+        }
+        if (offered.has('delegate_task')) {
+          return Promise.resolve(
+            delegateTaskCall('research widgets', nextId()),
+          );
+        }
+        return Promise.resolve(text('parent done'));
+      });
+    }
+
+    function contextsOf(sessionId: string): string[] {
+      const out: string[] = [];
+      for (const call of chatWithTools.mock.calls) {
+        const req = call[0] as {
+          sessionId?: string;
+          messages?: { content?: unknown }[];
+        };
+        if (req.sessionId !== sessionId) continue;
+        for (const m of req.messages ?? []) {
+          if (typeof m.content === 'string') out.push(m.content);
+        }
+      }
+      return out;
+    }
+
+    function offeredOf(sessionId: string): string[][] {
+      const out: string[][] = [];
+      for (const call of chatWithTools.mock.calls) {
+        const req = call[0] as {
+          sessionId?: string;
+          tools?: { name: string }[];
+        };
+        if (req.sessionId !== sessionId) continue;
+        out.push((req.tools ?? []).map((t) => t.name));
+      }
+      return out;
+    }
+
+    it('delegates async, then returns the bounded summary on poll', async () => {
+      routeParentChild();
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'research widgets in the background' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+      expect((turn.body as ConversationResponse).status).toBe('ok');
+
+      // White-box: exactly one delegation was spawned for the parent.
+      const store = app?.get(DelegationRepository, { strict: false });
+      const spawned = await store?.listByParent(parentId);
+      expect(spawned).toHaveLength(1);
+
+      // The delegate tools ride the normal discovery surface.
+      expect(offeredOf(parentId).flat()).toContain('delegate_task');
+
+      // Poll until a completed status result appears in some proposal
+      // context (the detached child resolves near-instantly under stubs).
+      let summary = '';
+      for (let attempt = 0; attempt < 10 && !summary; attempt++) {
+        await request(http())
+          .post('/core/conversation')
+          .send({ message: 'check on the delegation', sessionId: parentId })
+          .expect(200);
+        const joined = contextsOf(parentId).join('\n');
+        const match =
+          /"state"\s*:\s*"completed"[\s\S]*?"resultSummary"\s*:\s*"([^"]*)"/.exec(
+            joined,
+          );
+        if (match?.[1]) summary = match[1];
+        else await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // White-box first (pinpoint the layer): the record itself landed
+      // terminal with the summary.
+      const settled = await store?.listByParent(parentId);
+      expect(settled?.[0]?.state).toBe('completed');
+      expect(settled?.[0]?.resultSummary).toContain('child summary here');
+
+      // Black-box: the parent observed it through delegate_status.
+      expect(summary).toContain('child summary here');
+
+      // Isolation: a second session exists; the child transcript carries the
+      // goal but never the parent's message.
+      const listed = await request(http())
+        .get('/core/sessions?limit=100')
+        .expect(200);
+      const ids = (
+        listed.body as { sessions: { sessionId: string }[] }
+      ).sessions.map((s) => s.sessionId);
+      const childId = ids.find((id) => id !== parentId);
+      expect(childId).toBeDefined();
+      const childHistory = (
+        await request(http()).get(`/core/conversation/${childId}`).expect(200)
+      ).body as HistoryResponse;
+      const childTexts = childHistory.messages.map((m) => m.content).join('\n');
+      expect(childTexts).toContain('research widgets');
+      expect(childTexts).not.toContain('in the background');
+    }, 30000);
+
+    it('refuses nested delegation from a child session', async () => {
+      let spawned = false;
+      let nestedProposed = false;
+      chatWithTools.mockImplementation((request: unknown) => {
+        const req = request as { messages?: { content?: unknown }[] };
+        const texts = (req.messages ?? [])
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        if (!texts.includes('[Subagent task')) {
+          // Parent: propose exactly once, then answer text.
+          if (!spawned) {
+            spawned = true;
+            return Promise.resolve(delegateTaskCall('nested work', nextId()));
+          }
+          return Promise.resolve(text('parent noted'));
+        }
+        // Child: attempt one nested delegation, then observe the refusal.
+        if (texts.includes('"spawned":false')) {
+          return Promise.resolve(text('refusal noted'));
+        }
+        if (!nestedProposed) {
+          nestedProposed = true;
+          return Promise.resolve(delegateTaskCall('deeper work', nextId()));
+        }
+        return Promise.resolve(text('child noted'));
+      });
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'delegate something' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+
+      const listed = await request(http())
+        .get('/core/sessions?limit=100')
+        .expect(200);
+      const ids = (
+        listed.body as { sessions: { sessionId: string }[] }
+      ).sessions.map((s) => s.sessionId);
+      const childId = ids.find((id) => id !== parentId);
+      expect(childId).toBeDefined();
+      if (!childId) throw new Error('child session was not created');
+
+      // Drive a turn directly in the child session: delegate_task refuses
+      // (flat hierarchy), and the refusal is observable in context. Reset
+      // the flag so this turn proposes again rather than answering text.
+      nestedProposed = false;
+      const nested = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'delegate further', sessionId: childId })
+        .expect(200);
+      expect((nested.body as ConversationResponse).status).toBe('ok');
+      const joined = contextsOf(childId).join('\n');
+      expect(joined).toContain('"spawned":false');
+      // And no grandchild session was ever created.
+      const relisted = await request(http())
+        .get('/core/sessions?limit=100')
+        .expect(200);
+      expect((relisted.body as { sessions: unknown[] }).sessions).toHaveLength(
+        2,
+      );
+    }, 30000);
   });
 });

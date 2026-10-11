@@ -293,4 +293,24 @@ describe('AgentRunRepository SQLite', () => {
       status: 'unknown',
     });
   });
+
+  it('returns the newest run per session, if any', () => {
+    const { runs } = open();
+    expect(runs.latestRun('s1')).toBeUndefined();
+    const first = runs.createRun({
+      sessionId: 's1',
+      goal: 'first',
+      limits: { maxIterations: 5, maxToolSteps: 5, maxTurnDurationMs: 900000 },
+    });
+    runs.markTerminal(first.id, 'completed', {
+      reason: 'final_answer',
+      toolSteps: 0,
+    });
+    const second = runs.createRun({
+      sessionId: 's1',
+      goal: 'second',
+      limits: { maxIterations: 5, maxToolSteps: 5, maxTurnDurationMs: 900000 },
+    });
+    expect(runs.latestRun('s1')?.id).toBe(second.id);
+  });
 });

@@ -31,6 +31,7 @@ import type {
   ToolExecutionRecord,
 } from '../tools/tool-execution.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
+import type { DelegationRepository } from '../subagents/delegation.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { ToolPullStore } from '../tools/tool-pull.store';
@@ -224,6 +225,7 @@ function setup(
     import('../tools/tool-execution.repository').ToolExecutionRecord
   >,
   registry: ToolRegistry = new ToolRegistry(),
+  subagents?: DelegationRepository,
 ) {
   const repository = new FakeSessionRepository();
   const store = new SessionStore(repository, config);
@@ -369,6 +371,9 @@ function setup(
         resolve: () => Promise.resolve({ parts: [], description: null }),
       } as unknown as AttachmentImageResolver,
       surface,
+      undefined,
+      undefined,
+      subagents,
     ),
     repository,
     chatWithTools,
@@ -405,6 +410,9 @@ describe('ConversationService', () => {
       'channel.send',
       'clarify',
       'cronjob_manage',
+      'delegate_cancel',
+      'delegate_status',
+      'delegate_task',
       'discord',
       'discord_admin',
       'execute_code',
@@ -451,6 +459,9 @@ describe('ConversationService', () => {
       'web_extract',
       'skills_list',
       'search_platform_tools',
+      'delegate_task',
+      'delegate_status',
+      'delegate_cancel',
       'skill_view',
       'todo',
       'memory',
@@ -1138,6 +1149,9 @@ describe('ConversationService', () => {
         'channel.send',
         'clarify',
         'cronjob_manage',
+        'delegate_cancel',
+        'delegate_status',
+        'delegate_task',
         'discord',
         'discord_admin',
         'execute_code',
@@ -1180,6 +1194,9 @@ describe('ConversationService', () => {
         'web_extract',
         'skills_list',
         'search_platform_tools',
+        'delegate_task',
+        'delegate_status',
+        'delegate_cancel',
         'skill_view',
         'todo',
         'memory',
@@ -2041,6 +2058,52 @@ describe('ConversationService', () => {
         { role: 'user', content: 'find teal' },
         { role: 'assistant', content: 'deduped' },
       ]);
+    });
+
+    it('re-polls delegate_status instead of skipping it as a repeat', async () => {
+      let proposals = 0;
+      const statusProposal = (): Extract<LlmResult, { kind: 'tool_calls' }> => {
+        const rawArguments = JSON.stringify({ taskId: 'task-1' });
+        return {
+          kind: 'tool_calls',
+          content: null,
+          model: 'm',
+          toolCalls: [
+            {
+              id: `model-status-${proposals}`,
+              name: 'delegate_status',
+              version: 1,
+              rawArguments,
+              args: { taskId: 'task-1' },
+            },
+          ],
+        };
+      };
+      const { service, tools } = setup(
+        testConfig(),
+        () =>
+          Promise.resolve(
+            proposals++ < 2 ? statusProposal() : textProposal('done'),
+          ),
+        undefined,
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : searchRecord(input, 'still running'),
+          ),
+      );
+
+      const result = await service.converse('check on the delegation');
+
+      // Identical status polls re-execute (fresh server-side state);
+      // ordinary repeats would consume only once (see above).
+      expect(result.status).toBe('ok');
+      const toolConsumes = tools.consume.mock.calls.filter(
+        ([input]) => input.proposal.kind === 'tool_calls',
+      );
+      expect(toolConsumes).toHaveLength(2);
     });
 
     it('still terminates when the model only repeats', async () => {
@@ -3044,5 +3107,67 @@ describe('ConversationService tool discovery (M20.7.1)', () => {
     expect(first.tools.map((t) => t.name)).not.toContain('read_file');
     const second = chatWithTools.mock.calls[1][0];
     expect(second.tools.map((t) => t.name)).toContain('read_file');
+  });
+});
+
+describe('ConversationService subagent support (M21.1)', () => {
+  it('runs child turns under override budgets', async () => {
+    const { service, chatWithTools } = setup();
+    // Zero budgets force the tools-disabled final call on round one —
+    // observable proof the override threads into the loop, not the record.
+    await service.converse('child work', undefined, {
+      limits: { maxIterations: 0, maxToolSteps: 0 },
+    });
+    const sent = chatWithTools.mock.calls[0][0];
+    expect(sent.tools).toEqual([]);
+    expect(sent.toolChoice).toBe('none');
+  });
+
+  it('uses config budgets when no override is given', async () => {
+    const { service, chatWithTools } = setup();
+    await service.converse('hello');
+    const sent = chatWithTools.mock.calls[0][0];
+    expect(sent.tools.length).toBeGreaterThan(0);
+  });
+
+  it('terminates truthfully when a delegation cancel is requested', async () => {
+    const isCancelRequested = jest.fn(() => Promise.resolve(true));
+    const subagents = {
+      isCancelRequested,
+    } as unknown as DelegationRepository;
+    const { service, chatWithTools } = setup(
+      testConfig(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new ToolRegistry(),
+      subagents,
+    );
+    const outcome = await service.converse('child work');
+    expect(outcome).toMatchObject({ status: 'ok', outcome: 'cancelled' });
+    expect(outcome.reply).toContain('cancelled');
+    // The loop broke before the first proposal — no LLM call was spent.
+    expect(chatWithTools).not.toHaveBeenCalled();
+    expect(isCancelRequested).toHaveBeenCalled();
+  });
+
+  it('ignores the cancel flag for ordinary sessions', async () => {
+    const subagents = {
+      isCancelRequested: jest.fn(() => Promise.resolve(false)),
+    } as unknown as DelegationRepository;
+    const { service, chatWithTools } = setup(
+      testConfig(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new ToolRegistry(),
+      subagents,
+    );
+    const outcome = await service.converse('hello');
+    expect(outcome.status).toBe('ok');
+    expect(outcome.outcome).toBeUndefined();
+    expect(chatWithTools).toHaveBeenCalled();
   });
 });

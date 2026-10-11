@@ -7,6 +7,8 @@ import type { McpConnectionService } from '../mcp/mcp-connection.service';
 import { NoopPublisher } from '../realtime/noop.publisher';
 import { SqliteApprovalRepository } from '../approvals/sqlite-approval.repository';
 import type { CoreConfig } from '../config';
+import type { SubagentRunner } from '../subagents/subagent-runner.service';
+import type { SpawnResult } from '../subagents/subagent-runner.service';
 import { SessionStore } from '../conversation/session.store';
 import { ToolOffer } from '../llm/llm.protocol';
 import type { LlmResult, LlmToolRequest } from '../llm/llm.protocol';
@@ -116,6 +118,7 @@ describe('ToolExecutionService SQLite', () => {
     cron?: CronService,
     rpcTokens?: ToolRpcTokens,
     browser?: BrowserService,
+    subagents?: SubagentRunner,
   ) {
     const config = {
       sessionDbPath: join(dir, 'sessions.sqlite'),
@@ -178,6 +181,9 @@ describe('ToolExecutionService SQLite', () => {
       cron,
       rpcTokens ?? new ToolRpcTokens(),
       browser,
+      undefined,
+      undefined,
+      subagents,
     );
     return {
       database,
@@ -2280,6 +2286,214 @@ describe('ToolExecutionService SQLite', () => {
       },
     });
     expect(sent[0]).toMatchObject({ target: 'operator', body: 'ping' });
+  });
+
+  describe('ToolExecutionService subagent delegation (M21.1)', () => {
+    function toolCall(
+      name: string,
+      args: Record<string, unknown>,
+      requestId = 'req-delegate',
+    ) {
+      return {
+        requestId,
+        sessionId: 's1',
+        context: [{ role: 'user' as const, content: 'delegate it' }],
+        allowedTools: ['delegate_task', 'delegate_status', 'delegate_cancel'],
+        proposal: {
+          kind: 'tool_calls',
+          model: 'test',
+          content: null,
+          toolCalls: [
+            {
+              id: 'call-1',
+              name,
+              version: 1,
+              rawArguments: JSON.stringify(args),
+              args,
+            },
+          ],
+        } as const,
+      };
+    }
+
+    function stubRunner() {
+      const completed = {
+        id: 'task-1',
+        parentSessionId: 's1',
+        childSessionId: 'child-1',
+        parentRunId: null,
+        goal: 'research widgets',
+        state: 'completed',
+        resultSummary: 'found three suppliers',
+        error: null,
+        cancelRequested: false,
+        budgets: { maxIterations: 5, maxToolSteps: 5, maxTurnDurationMs: 1 },
+        createdAt: 't',
+        updatedAt: 't',
+      };
+      const spawn: jest.Mock<Promise<SpawnResult>, []> = jest.fn(() =>
+        Promise.resolve({ spawned: true, taskId: 'task-1' }),
+      );
+      const status = jest.fn((taskId: string) =>
+        Promise.resolve(taskId === 'task-1' ? completed : null),
+      );
+      const cancel = jest.fn((taskId: string) =>
+        Promise.resolve(
+          taskId === 'task-1' ? { id: 'task-1', state: 'cancelled' } : null,
+        ),
+      );
+      const runner = { spawn, status, cancel } as unknown as SubagentRunner;
+      return { runner, spawn, status, cancel };
+    }
+
+    it('spawns through delegate_task and returns the task id', async () => {
+      const { runner: subagents, spawn } = stubRunner();
+      const { sessions, service } = open(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        subagents,
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolCall('delegate_task', {
+          goal: 'research widgets',
+          context: 'focus on pricing',
+        }),
+      );
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        tool: 'delegate_task',
+        result: { spawned: true, taskId: 'task-1' },
+      });
+      expect(spawn).toHaveBeenCalledWith({
+        parentSessionId: 's1',
+        goal: 'research widgets',
+        context: 'focus on pricing',
+      });
+    });
+
+    it('surfaces spawn refusals as results, not failures', async () => {
+      const { runner: subagents, spawn } = stubRunner();
+      spawn.mockResolvedValueOnce({
+        spawned: false,
+        reason: 'Concurrency cap reached (4 running).',
+      });
+      const { sessions, service } = open(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        subagents,
+      );
+      await sessions.createSession('s1');
+
+      const record = await service.consume(
+        toolCall('delegate_task', { goal: 'g' }),
+      );
+      expect(record.state).toBe('succeeded');
+      expect(record.execution).toMatchObject({
+        ok: true,
+        result: { spawned: false },
+      });
+      expect(
+        (
+          record.execution as {
+            result?: { reason?: unknown };
+          }
+        ).result?.reason,
+      ).toEqual(expect.any(String));
+    });
+
+    it('polls and cancels, including unknown tasks', async () => {
+      const { runner: subagents } = stubRunner();
+      const { sessions, service } = open(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        subagents,
+      );
+      await sessions.createSession('s1');
+
+      const polled = await service.consume(
+        toolCall('delegate_status', { taskId: 'task-1' }, 'req-status'),
+      );
+      expect(polled.execution).toMatchObject({
+        ok: true,
+        result: {
+          taskId: 'task-1',
+          state: 'completed',
+          resultSummary: 'found three suppliers',
+        },
+      });
+      const missing = await service.consume(
+        toolCall('delegate_status', { taskId: 'nope' }, 'req-missing'),
+      );
+      expect(missing.execution).toMatchObject({
+        ok: true,
+        result: { taskId: 'nope', state: 'unknown_task' },
+      });
+      const cancelled = await service.consume(
+        toolCall('delegate_cancel', { taskId: 'task-1' }, 'req-cancel'),
+      );
+      expect(cancelled.execution).toMatchObject({
+        ok: true,
+        result: { taskId: 'task-1', state: 'cancelled' },
+      });
+      const missingCancel = await service.consume(
+        toolCall('delegate_cancel', { taskId: 'nope' }, 'req-cancel-missing'),
+      );
+      expect(missingCancel.execution).toMatchObject({
+        ok: true,
+        result: { taskId: 'nope', state: 'unknown_task' },
+      });
+    });
+
+    it('fails closed when the runner is not wired', async () => {
+      const { sessions, service } = open();
+      await sessions.createSession('s1');
+      const record = await service.consume(
+        toolCall('delegate_task', { goal: 'g' }),
+      );
+      expect(record.state).toBe('failed');
+      // *_unavailable handler errors map to the unavailable code (same as
+      // skills_unavailable) — never mistaken for a tool crash.
+      expect(record.execution).toMatchObject({
+        ok: false,
+        failure: { code: 'unavailable' },
+      });
+    });
   });
 });
 
