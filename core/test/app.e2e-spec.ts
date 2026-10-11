@@ -2837,8 +2837,12 @@ describe('Conversation (e2e)', () => {
       return `model-delegate-${callSeq}`;
     }
 
-    function delegateTaskCall(goal: string, id = 'model-call-1') {
-      const rawArguments = JSON.stringify({ goal });
+    function delegateTaskCall(
+      goal: string,
+      id = 'model-call-1',
+      extraArgs: Record<string, unknown> = {},
+    ) {
+      const rawArguments = JSON.stringify({ goal, ...extraArgs });
       return {
         kind: 'tool_calls',
         content: null,
@@ -2849,7 +2853,25 @@ describe('Conversation (e2e)', () => {
             name: 'delegate_task',
             version: 1,
             rawArguments,
-            args: { goal },
+            args: { goal, ...extraArgs },
+          },
+        ],
+      };
+    }
+
+    function terminalCall(id: string) {
+      const rawArguments = JSON.stringify({ command: 'ls' });
+      return {
+        kind: 'tool_calls',
+        content: null,
+        model: 'test-model',
+        toolCalls: [
+          {
+            id,
+            name: 'terminal',
+            version: 1,
+            rawArguments,
+            args: { command: 'ls' },
           },
         ],
       };
@@ -3093,6 +3115,168 @@ describe('Conversation (e2e)', () => {
       expect((relisted.body as { sessions: unknown[] }).sessions).toHaveLength(
         2,
       );
+    }, 30000);
+
+    it('enforces the narrowed toolset inside the child', async () => {
+      let childTurns = 0;
+      let terminalOfferedToChild: boolean | null = null;
+      let memoryOfferedToChild: boolean | null = null;
+      chatWithTools.mockImplementation((request: unknown) => {
+        const req = request as {
+          messages?: { content?: unknown }[];
+          tools?: { name: string }[];
+        };
+        const texts = (req.messages ?? [])
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        const offered = new Set((req.tools ?? []).map((t) => t.name));
+        if (!texts.includes('[Subagent task')) {
+          // Parent: delegate with a memory-only restriction, then done.
+          if (!texts.includes('"spawned"')) {
+            if (!offered.has('delegate_task')) {
+              return Promise.resolve(text('parent done'));
+            }
+            return Promise.resolve(
+              delegateTaskCall('look something up', nextId(), {
+                toolsets: ['memory'],
+              }),
+            );
+          }
+          return Promise.resolve(text('parent done'));
+        }
+        // Child: record visibility, then attempt the excluded tool anyway —
+        // enforcement must fail it closed as unpermitted.
+        childTurns += 1;
+        if (childTurns === 1) {
+          terminalOfferedToChild = offered.has('terminal');
+          memoryOfferedToChild = offered.has('memory');
+          return Promise.resolve(terminalCall(nextId()));
+        }
+        return Promise.resolve(text('child done'));
+      });
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'delegate a lookup' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+
+      // Drive a turn in the child session: the narrowed universe holds,
+      // both in visibility and in enforcement.
+      const listed = await request(http())
+        .get('/core/sessions?limit=100')
+        .expect(200);
+      const ids = (
+        listed.body as { sessions: { sessionId: string }[] }
+      ).sessions.map((s) => s.sessionId);
+      const childId = ids.find((id) => id !== parentId);
+      expect(childId).toBeDefined();
+      await request(http())
+        .post('/core/conversation')
+        .send({ message: 'try the terminal anyway', sessionId: childId })
+        .expect(200);
+      expect(terminalOfferedToChild).toBe(false);
+      expect(memoryOfferedToChild).toBe(true);
+      const joined = contextsOf(childId as string).join('\n');
+      expect(joined).toContain('unpermitted_tool');
+    }, 30000);
+
+    it('surfaces completions in the parent completion band, once', async () => {
+      const parentScript: unknown[] = [
+        delegateTaskCall('research widgets', nextId()),
+        text('parent noted'),
+      ];
+      const childScript: unknown[] = [text('child summary here')];
+      // Scripted (not context-driven): the child answers text immediately,
+      // so it completes during the first turn; later turns see the band.
+      chatWithTools.mockImplementation((request: unknown) => {
+        const req = request as { messages?: { content?: unknown }[] };
+        const texts = (req.messages ?? [])
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        const script = texts.includes('[Subagent task')
+          ? childScript
+          : parentScript;
+        const next = script.shift();
+        return Promise.resolve((next ?? text('parent done')) as never);
+      });
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'research widgets in the background' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+
+      // The next turns' proposal contexts carry the completion band until
+      // the child lands terminal (bounded retries for detached timing)…
+      let withBand = '';
+      for (let attempt = 0; attempt < 10 && !withBand; attempt++) {
+        parentScript.push(text('parent done'));
+        await request(http())
+          .post('/core/conversation')
+          .send({ message: 'anything new?', sessionId: parentId })
+          .expect(200);
+        const joined = contextsOf(parentId).join('\n');
+        if (joined.includes('[subagent completed')) withBand = joined;
+        else await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(withBand).toContain('[subagent completed');
+      expect(withBand).toContain('research widgets');
+      // …exactly once: a further turn has no band (already notified).
+      parentScript.push(text('parent done'));
+      await request(http())
+        .post('/core/conversation')
+        .send({ message: 'anything else?', sessionId: parentId })
+        .expect(200);
+      const calls = chatWithTools.mock.calls as unknown as {
+        sessionId?: string;
+        messages?: { role?: string; content?: unknown }[];
+      }[][];
+      const lastCall = calls
+        .map((c) => c[0])
+        .filter((c) => c.sessionId === parentId)
+        .pop();
+      const lastTexts = (lastCall?.messages ?? [])
+        .filter((m) => m.role === 'system')
+        .map((m) => (typeof m.content === 'string' ? m.content : ''))
+        .join('\n');
+      expect(lastTexts).not.toContain('[subagent completed');
+    }, 30000);
+
+    it('lists delegations through /agents', async () => {
+      chatWithTools.mockImplementation((request: unknown) => {
+        const req = request as { messages?: { content?: unknown }[] };
+        const texts = (req.messages ?? [])
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        if (texts.includes('[Subagent task')) {
+          return Promise.resolve(text('child done'));
+        }
+        if (!texts.includes('"spawned"')) {
+          return Promise.resolve(delegateTaskCall('list me', nextId()));
+        }
+        return Promise.resolve(text('parent done'));
+      });
+
+      const turn = await request(http())
+        .post('/core/conversation')
+        .send({ message: 'delegate something listable' })
+        .expect(200);
+      const parentId = (turn.body as ConversationResponse).sessionId;
+
+      // The child resolves detached; retry until /agents reports it done.
+      let reply = '';
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const listed = await request(http())
+          .post('/core/conversation')
+          .send({ message: '/agents list', sessionId: parentId })
+          .expect(200);
+        reply = (listed.body as ConversationResponse).reply ?? '';
+        if (reply.includes('[completed]')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(reply).toContain('list me');
+      expect(reply).toContain('[completed]');
     }, 30000);
   });
 });

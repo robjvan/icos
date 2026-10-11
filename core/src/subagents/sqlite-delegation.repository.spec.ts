@@ -181,9 +181,7 @@ describe('SqliteDelegationRepository', () => {
     expect(await repository.unnotifiedTerminal('parent-1', 10)).toEqual([]);
     // Unknown ids mark harmlessly.
     await repository.markNotified(['nope']);
-    expect(await repository.unnotifiedTerminal('other-parent', 10)).toEqual(
-      [],
-    );
+    expect(await repository.unnotifiedTerminal('other-parent', 10)).toEqual([]);
     expect(await repository.unnotifiedTerminal('parent-1', 0)).toEqual([]);
   });
 });

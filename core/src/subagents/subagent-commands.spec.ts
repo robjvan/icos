@@ -39,8 +39,8 @@ const ctx: CommandContext = { sessionId: 'parent-1', raw: '/agents' };
 describe('/agents', () => {
   it('lists delegations for the session', async () => {
     const handler = build({
-      list: async () => [delegation(), delegation({ id: 'task-2' })],
-    } as unknown as SubagentRunner);
+      list: () => Promise.resolve([delegation(), delegation({ id: 'task-2' })]),
+    });
     const result = await handler.execute(ctx, ['list']);
     expect(result.kind).toBe('data');
     expect(result.text).toContain('task-1'.slice(0, 8));
@@ -50,8 +50,8 @@ describe('/agents', () => {
 
   it('reports an empty session honestly', async () => {
     const handler = build({
-      list: async () => [],
-    } as unknown as SubagentRunner);
+      list: () => Promise.resolve([]),
+    });
     const result = await handler.execute(ctx, []);
     expect(result.kind).toBe('message');
     expect(result.text).toContain('No delegated');
@@ -59,8 +59,8 @@ describe('/agents', () => {
 
   it('shows status for one delegation', async () => {
     const handler = build({
-      status: async () => delegation(),
-    } as unknown as SubagentRunner);
+      status: () => Promise.resolve(delegation()),
+    });
     const result = await handler.execute(ctx, ['status', 'task-1']);
     expect(result.kind).toBe('data');
     expect(result.data).toEqual({ taskId: 'task-1', state: 'completed' });
@@ -68,9 +68,9 @@ describe('/agents', () => {
 
   it('reports unknown tasks without throwing', async () => {
     const handler = build({
-      status: async () => null,
-      cancel: async () => null,
-    } as unknown as SubagentRunner);
+      status: () => Promise.resolve(null),
+      cancel: () => Promise.resolve(null),
+    });
     expect((await handler.execute(ctx, ['status', 'nope'])).data).toEqual({
       taskId: 'nope',
       state: 'unknown_task',
@@ -83,23 +83,23 @@ describe('/agents', () => {
 
   it('cancels a running delegation', async () => {
     const handler = build({
-      cancel: async () =>
-        delegation({ state: 'running', resultSummary: null }),
-    } as unknown as SubagentRunner);
+      cancel: () =>
+        Promise.resolve(delegation({ state: 'running', resultSummary: null })),
+    });
     const result = await handler.execute(ctx, ['cancel', 'task-1']);
     expect(result.text).toContain('Cancellation requested');
   });
 
   it('states the obvious for already-terminal delegations', async () => {
     const handler = build({
-      cancel: async () => delegation(),
-    } as unknown as SubagentRunner);
+      cancel: () => Promise.resolve(delegation()),
+    });
     const result = await handler.execute(ctx, ['cancel', 'task-1']);
     expect(result.text).toContain('already completed');
   });
 
   it('rejects bad usage and missing sessions', async () => {
-    const handler = build({} as unknown as SubagentRunner);
+    const handler = build({});
     await expect(handler.execute(ctx, ['bogus'])).rejects.toThrow(
       'Usage: /agents',
     );

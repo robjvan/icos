@@ -82,7 +82,9 @@ export abstract class DelegationRepository {
    */
   abstract failNonTerminal(reason: string): Promise<string[]>;
   /** Delegation context for a (possible) child session, if any. */
-  abstract contextForChild(childSessionId: string): Promise<DelegationContext | null>;
+  abstract contextForChild(
+    childSessionId: string,
+  ): Promise<DelegationContext | null>;
   /**
    * Terminal delegations never surfaced in the parent's completion band.
    * Bounded by `limit`; oldest first so a burst drains in order.

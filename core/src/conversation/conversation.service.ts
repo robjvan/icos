@@ -54,7 +54,7 @@ import type {
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
-import type { DelegationRepository } from '../subagents/delegation.repository';
+import { DelegationRepository } from '../subagents/delegation.repository';
 import type { InjectedTools } from '../tools/tool-surface.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';

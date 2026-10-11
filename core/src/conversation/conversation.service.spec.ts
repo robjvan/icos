@@ -3171,3 +3171,122 @@ describe('ConversationService subagent support (M21.1)', () => {
     expect(chatWithTools).toHaveBeenCalled();
   });
 });
+
+describe('ConversationService subagent integration (M21.2)', () => {
+  function subagentStore(
+    context: { taskId: string; goal: string; parentSessionId: string } | null,
+  ): DelegationRepository & {
+    mocks: {
+      isCancelRequested: jest.Mock;
+      contextForChild: jest.Mock;
+      unnotifiedTerminal: jest.Mock;
+      markNotified: jest.Mock;
+    };
+  } {
+    const mocks = {
+      isCancelRequested: jest.fn(() => Promise.resolve(false)),
+      contextForChild: jest.fn(() => Promise.resolve(context)),
+      unnotifiedTerminal: jest.fn(() => Promise.resolve([])),
+      markNotified: jest.fn(() => Promise.resolve()),
+    };
+    return Object.assign(mocks as unknown as DelegationRepository, { mocks });
+  }
+
+  it('tags approval replies from child sessions with the delegation', async () => {
+    const { service } = setup(
+      testConfig(),
+      () => Promise.resolve(renameProposal()),
+      undefined,
+      undefined,
+      (input) => Promise.resolve(pendingRenameRecord(input)),
+      new ToolRegistry(),
+      subagentStore({
+        taskId: 'task-1',
+        goal: 'research widgets',
+        parentSessionId: 'parent-1',
+      }),
+    );
+    const result = await service.converse('call it Ward');
+    expect(result.status).toBe('approval_required');
+    expect(result.reply).toContain('needs approval');
+    expect(result.reply).toContain('task-1'.slice(0, 8));
+    expect(result.reply).toContain('research widgets');
+  });
+
+  it('leaves approval replies untagged for ordinary sessions', async () => {
+    const { service } = setup(
+      testConfig(),
+      () => Promise.resolve(renameProposal()),
+      undefined,
+      undefined,
+      (input) => Promise.resolve(pendingRenameRecord(input)),
+      new ToolRegistry(),
+      subagentStore(null),
+    );
+    const result = await service.converse('call it Ward');
+    expect(result.status).toBe('approval_required');
+    expect(result.reply).toBe(
+      "Tool 'session.rename' needs approval before it can run.",
+    );
+  });
+
+  it('surfaces newly-terminal delegations in a completion band, once', async () => {
+    const store = subagentStore(null);
+    const { service, chatWithTools } = setup(
+      testConfig(),
+      () => Promise.resolve(textProposal('done')),
+      undefined,
+      undefined,
+      undefined,
+      new ToolRegistry(),
+      store,
+    );
+    store.mocks.unnotifiedTerminal.mockResolvedValue([
+      {
+        id: 'task-9',
+        parentSessionId: 's-1',
+        childSessionId: 'child-9',
+        parentRunId: null,
+        goal: 'summarize logs',
+        state: 'completed',
+        resultSummary: 'three errors found',
+        error: null,
+        cancelRequested: false,
+        budgets: { maxIterations: 5, maxToolSteps: 5, maxTurnDurationMs: 1 },
+        createdAt: 't',
+        updatedAt: 't',
+      },
+    ]);
+    await service.converse('hello');
+    const sent = chatWithTools.mock.calls[0][0];
+    const systemTexts = sent.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => textOf(m))
+      .join('\n');
+    expect(systemTexts).toContain('[subagent completed task-9]');
+    expect(systemTexts).toContain('three errors found');
+    expect(store.mocks.markNotified).toHaveBeenCalledWith(['task-9']);
+  });
+
+  it('degrades to no band when the store fails', async () => {
+    const store = subagentStore(null);
+    store.mocks.unnotifiedTerminal.mockRejectedValue(new Error('db down'));
+    const { service, chatWithTools } = setup(
+      testConfig(),
+      () => Promise.resolve(textProposal('done')),
+      undefined,
+      undefined,
+      undefined,
+      new ToolRegistry(),
+      store,
+    );
+    const result = await service.converse('hello');
+    expect(result.status).toBe('ok');
+    const sent = chatWithTools.mock.calls[0][0];
+    const systemTexts = sent.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => textOf(m))
+      .join('\n');
+    expect(systemTexts).not.toContain('[subagent');
+  });
+});

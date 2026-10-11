@@ -128,9 +128,9 @@ describe('ToolSurfaceService', () => {
   it('narrows discovery and injection for the overlaid session', () => {
     const { surface: s } = surface();
     s.setOverlay('child-1', { toolsets: ['memory'] });
-    expect(
-      s.discover('run a terminal command', undefined, 'child-1'),
-    ).toEqual([]);
+    expect(s.discover('run a terminal command', undefined, 'child-1')).toEqual(
+      [],
+    );
     const { allowedTools } = s.injected('child-1', 'run a terminal command');
     expect(allowedTools).not.toContain('terminal');
   });

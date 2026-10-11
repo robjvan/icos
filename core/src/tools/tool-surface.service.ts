@@ -195,11 +195,7 @@ export class ToolSurfaceService {
   }
 
   /** Discover over the universe (meta-tool / `/tools`). Bounded. */
-  discover(
-    query: string,
-    limit?: number,
-    sessionId?: string,
-  ): ToolMatch[] {
+  discover(query: string, limit?: number, sessionId?: string): ToolMatch[] {
     return discoverTools(
       this.universe(sessionId),
       query,

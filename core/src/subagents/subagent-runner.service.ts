@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
-import { ConversationService } from '../conversation/conversation.service';
 import type { TurnOutcome } from '../conversation/conversation.service';
 import { SessionStore } from '../conversation/session.store';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
+import type { ChildTurnRunner } from './child-turn.port';
+import { CHILD_TURN_RUNNER } from './child-turn.port';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import { DelegationRepository } from './delegation.repository';
 import type { Delegation, DelegationBudgets } from './delegation.repository';
@@ -61,9 +61,10 @@ export function truncateSummary(text: string, maxChars: number): string {
  * / budget-exhausted / restart) lands in the delegation record; a rejection
  * must never escape into the parent or crash the process.
  *
- * The conversation service is resolved lazily (the cron scheduler sets this
- * precedent): the tool executor constructs this runner, and the runner needs
- * the turn loop — a direct injection would be a construction cycle.
+ * Child turns run through the injected child-turn port (M21.2): same loop,
+ * delegation budgets. The port exists because a direct dependency would
+ * close a construction cycle (dispatcher → runner → conversation →
+ * dispatcher).
  */
 @Injectable()
 export class SubagentRunner implements OnModuleInit {
@@ -76,7 +77,7 @@ export class SubagentRunner implements OnModuleInit {
     private readonly sessions: SessionStore,
     private readonly runs: AgentRunRepository,
     private readonly surface: ToolSurfaceService,
-    private readonly moduleRef: ModuleRef,
+    @Inject(CHILD_TURN_RUNNER) private readonly turns: ChildTurnRunner,
   ) {}
 
   onModuleInit(): void {
@@ -232,10 +233,7 @@ export class SubagentRunner implements OnModuleInit {
         });
         return;
       }
-      const conversation = this.moduleRef.get(ConversationService, {
-        strict: false,
-      });
-      const outcome = await conversation.converse(
+      const outcome = await this.turns.converse(
         buildChildMessage(record.goal, context),
         record.childSessionId,
         { limits: record.budgets },

@@ -192,8 +192,7 @@ export class SqliteDelegationRepository extends DelegationRepository {
          WHERE child_session_id = ? ORDER BY created_at DESC LIMIT 1`,
       )
       .get(childSessionId) as
-      | { id: string; goal: string; parent_session_id: string }
-      | undefined;
+      { id: string; goal: string; parent_session_id: string } | undefined;
     return row
       ? {
           taskId: row.id,

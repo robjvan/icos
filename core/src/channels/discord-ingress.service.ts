@@ -313,9 +313,7 @@ export class DiscordIngressService implements OnModuleInit {
     // the operator decides with the parent goal in view.
     let delegation = '';
     try {
-      const context = await this.delegations.contextForChild(
-        outcome.sessionId,
-      );
+      const context = await this.delegations.contextForChild(outcome.sessionId);
       if (context) {
         delegation =
           `\n🧵 Delegated subtask ${context.taskId.slice(0, 8)} ` +

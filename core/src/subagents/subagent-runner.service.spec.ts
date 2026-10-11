@@ -52,6 +52,7 @@ describe('SubagentRunner', () => {
   let runs: AgentRunRepository;
   let converse: jest.Mock;
   let surface: ToolSurfaceService;
+  let turns: { converse: jest.Mock };
   let runner: SubagentRunner;
 
   beforeEach(async () => {
@@ -66,19 +67,19 @@ describe('SubagentRunner', () => {
     runs = new AgentRunRepository(database);
     delegations = new SqliteDelegationRepository(database);
     converse = jest.fn(() => Promise.resolve(okOutcome('child did the thing')));
-    const moduleRef = { get: () => ({ converse }) };
     surface = new ToolSurfaceService(
       testConfig(),
       new ToolRegistry(),
       new ToolPullStore(),
     );
+    turns = { converse };
     runner = new SubagentRunner(
       testConfig(),
       delegations,
       sessions,
       runs,
       surface,
-      moduleRef as never,
+      turns,
     );
   });
 
@@ -143,9 +144,9 @@ describe('SubagentRunner', () => {
     expect(open.spawned).toBe(true);
     if (!open.spawned) return;
     const openChild = (await delegations.get(open.taskId))?.childSessionId;
-    expect(
-      surface.universe(openChild as string).map((d) => d.name),
-    ).toContain('terminal');
+    expect(surface.universe(openChild as string).map((d) => d.name)).toContain(
+      'terminal',
+    );
   });
 
   it('refuses when disabled, when capped, and for child callers', async () => {
@@ -155,7 +156,7 @@ describe('SubagentRunner', () => {
       sessions,
       runs,
       surface,
-      { get: () => ({ converse }) } as never,
+      turns,
     );
     const disabledRes = await disabled.spawn({
       parentSessionId: 'parent-1',
@@ -172,7 +173,7 @@ describe('SubagentRunner', () => {
       sessions,
       runs,
       surface,
-      { get: () => ({ converse }) } as never,
+      turns,
     );
     const cappedRes = await capped.spawn({
       parentSessionId: 'parent-1',
@@ -291,7 +292,7 @@ describe('SubagentRunner', () => {
       sessions,
       runs,
       surface,
-      { get: () => ({ converse }) } as never,
+      turns,
     );
     restarted.onModuleInit();
     await flush();
