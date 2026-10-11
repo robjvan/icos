@@ -32,6 +32,23 @@ export interface ResolvedToolPolicy {
 }
 
 /**
+ * Expand toolset selectors through aliases (M19): each selector matches its
+ * own toolset plus any aliased toolsets. Exported for per-session narrowing
+ * (M21.2), which intersects these sets with the operator policy.
+ */
+export function expandToolsetSelectors(
+  selectors: readonly string[],
+  aliases: Readonly<Record<string, readonly string[]>> = {},
+): Set<string> {
+  const out = new Set<string>();
+  for (const selector of selectors) {
+    out.add(selector);
+    for (const target of aliases[selector] ?? []) out.add(target);
+  }
+  return out;
+}
+
+/**
  * Resolve which tools are offered. Default is **opt-out**: every toolset is
  * enabled unless `enabledToolsets` is non-empty (then it is opt-in). Explicit
  * per-tool enables win over disables, so a single tool can be re-enabled
@@ -43,16 +60,14 @@ export function resolveToolPolicy(
   policy: ToolPolicyConfig = {},
 ): ResolvedToolPolicy {
   const aliases = policy.toolsetAliases ?? {};
-  const expand = (selectors: readonly string[]): Set<string> => {
-    const out = new Set<string>();
-    for (const selector of selectors) {
-      out.add(selector);
-      for (const target of aliases[selector] ?? []) out.add(target);
-    }
-    return out;
-  };
-  const enabledToolsets = expand(policy.enabledToolsets ?? []);
-  const disabledToolsets = expand(policy.disabledToolsets ?? []);
+  const enabledToolsets = expandToolsetSelectors(
+    policy.enabledToolsets ?? [],
+    aliases,
+  );
+  const disabledToolsets = expandToolsetSelectors(
+    policy.disabledToolsets ?? [],
+    aliases,
+  );
   const enabledTools = new Set(policy.enabledTools ?? []);
   const disabledTools = new Set(policy.disabledTools ?? []);
   const offered: ToolDescriptor[] = [];

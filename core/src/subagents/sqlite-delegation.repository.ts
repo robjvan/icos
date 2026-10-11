@@ -8,6 +8,7 @@ import { DelegationRepository } from './delegation.repository';
 import type {
   Delegation,
   DelegationBudgets,
+  DelegationContext,
   DelegationState,
   NewDelegation,
 } from './delegation.repository';
@@ -180,5 +181,51 @@ export class SqliteDelegationRepository extends DelegationRepository {
     );
     for (const row of rows) mark.run(reason, now, row.id);
     return rows.map((row) => row.id);
+  }
+
+  async contextForChild(
+    childSessionId: string,
+  ): Promise<DelegationContext | null> {
+    const row = this.database.connection
+      .prepare(
+        `SELECT id, goal, parent_session_id FROM delegations
+         WHERE child_session_id = ? ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(childSessionId) as
+      | { id: string; goal: string; parent_session_id: string }
+      | undefined;
+    return row
+      ? {
+          taskId: row.id,
+          goal: row.goal,
+          parentSessionId: row.parent_session_id,
+        }
+      : null;
+  }
+
+  async unnotifiedTerminal(
+    parentSessionId: string,
+    limit: number,
+  ): Promise<Delegation[]> {
+    if (limit <= 0) return [];
+    const rows = this.database.connection
+      .prepare(
+        `SELECT * FROM delegations
+         WHERE parent_session_id = ?
+           AND notified_at IS NULL
+           AND state IN ('completed', 'failed', 'cancelled', 'budget_exhausted')
+         ORDER BY updated_at ASC LIMIT ?`,
+      )
+      .all(parentSessionId, limit) as Row[];
+    return rows.map(toDelegation);
+  }
+
+  async markNotified(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const now = nowIso();
+    const mark = this.database.connection.prepare(
+      'UPDATE delegations SET notified_at = ? WHERE id = ?',
+    );
+    for (const id of ids) mark.run(now, id);
   }
 }

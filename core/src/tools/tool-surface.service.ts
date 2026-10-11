@@ -3,7 +3,7 @@ import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
 import { ToolRegistry } from './tool-registry';
 import type { ToolDescriptor } from './tool-registry';
-import { resolveToolPolicy } from './tool-policy';
+import { resolveToolPolicy, expandToolsetSelectors } from './tool-policy';
 import type { ToolPolicyConfig } from './tool-policy';
 import { discoverTools } from './tool-discovery';
 import type { ToolMatch } from './tool-discovery';
@@ -17,21 +17,35 @@ export interface InjectedTools {
 }
 
 /**
+ * Per-session capability narrowing (M21.2, subagent delegations). A child
+ * session may use only the named toolsets and/or tools — intersected with
+ * the operator policy, so narrowing only, never widening. Held in memory:
+ * it only ever constrains a running child, and restarts fail all children
+ * anyway. Empty/omitted fields mean no restriction on that axis.
+ */
+export interface ToolsetRestriction {
+  toolsets?: readonly string[];
+  tools?: readonly string[];
+}
+
+/**
  * The tool surface (M20.7). Single source of truth for:
- * - the **universe** — the operator-policy-enabled tools (M17a);
+ * - the **universe** — the operator-policy-enabled tools (M17a), narrowed
+ *   per session by an overlay when one is set (M21.2);
  * - the **injected** set — always-on core ∪ staged pulls ∪ discovered, bounded
  *   per turn (M20.7.1/.2);
  * - discovery over the universe (the `search_platform_tools` meta-tool and
  *   `/tools`).
  *
- * Invariant: `injected ⊆ universe`. Discovery and pulls can only *narrow*
- * visibility within the operator policy — never widen it, never grant
- * execution. Every call still goes through `ToolRegistry.validate`
- * (`allowedTools`) and the normal approval flow.
+ * Invariant: `injected ⊆ universe(session) ⊆ universe()`. Discovery and
+ * pulls can only *narrow* visibility within the operator policy — never
+ * widen it, never grant execution. Every call still goes through
+ * `ToolRegistry.validate` (`allowedTools`) and the normal approval flow.
  */
 @Injectable()
 export class ToolSurfaceService {
   private readonly selector: ToolSelector = new TopBudgetedToolSelector();
+  private readonly overlays = new Map<string, ToolsetRestriction>();
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -39,9 +53,16 @@ export class ToolSurfaceService {
     private readonly pulls: ToolPullStore,
   ) {}
 
-  /** Tools enabled by operator policy. */
-  universe(): readonly ToolDescriptor[] {
-    return resolveToolPolicy(this.registry.list(), this.policy()).offered;
+  /** Tools enabled by operator policy, narrowed by session overlay if any. */
+  universe(sessionId?: string): readonly ToolDescriptor[] {
+    const { offered } = resolveToolPolicy(this.registry.list(), this.policy());
+    const allowed = this.overlayAllows(sessionId);
+    if (!allowed) return offered;
+    return offered.filter(
+      (descriptor) =>
+        allowed.names.has(descriptor.name) ||
+        allowed.toolsets.has(descriptor.toolset),
+    );
   }
 
   /** Whether bounded per-turn discovery is on. */
@@ -67,8 +88,61 @@ export class ToolSurfaceService {
   }
 
   /** Known-but-disabled tools (declared in the planning frame). */
-  disabled(): readonly ToolDescriptor[] {
-    return resolveToolPolicy(this.registry.list(), this.policy()).disabled;
+  disabled(sessionId?: string): readonly ToolDescriptor[] {
+    const { offered, disabled } = resolveToolPolicy(
+      this.registry.list(),
+      this.policy(),
+    );
+    const allowed = this.overlayAllows(sessionId);
+    if (!allowed) return disabled;
+    // Overlay-excluded tools are known but not offered: declare them
+    // alongside policy-disabled ones so absence reads as deliberate.
+    const narrowed = offered.filter(
+      (descriptor) =>
+        !allowed.names.has(descriptor.name) &&
+        !allowed.toolsets.has(descriptor.toolset),
+    );
+    return [...disabled, ...narrowed];
+  }
+
+  /**
+   * Set a per-session capability overlay (M21.2). Empty restriction clears.
+   */
+  setOverlay(sessionId: string, restriction: ToolsetRestriction): void {
+    if (
+      (restriction.toolsets?.length ?? 0) === 0 &&
+      (restriction.tools?.length ?? 0) === 0
+    ) {
+      this.overlays.delete(sessionId);
+      return;
+    }
+    this.overlays.set(sessionId, restriction);
+  }
+
+  /** Drop a session's overlay (e.g. session cleanup). */
+  clearOverlay(sessionId: string): void {
+    this.overlays.delete(sessionId);
+  }
+
+  private overlayAllows(
+    sessionId: string | undefined,
+  ): { names: Set<string>; toolsets: Set<string> } | null {
+    if (!sessionId) return null;
+    const overlay = this.overlays.get(sessionId);
+    if (
+      !overlay ||
+      ((overlay.toolsets?.length ?? 0) === 0 &&
+        (overlay.tools?.length ?? 0) === 0)
+    ) {
+      return null;
+    }
+    return {
+      names: new Set(overlay.tools ?? []),
+      toolsets: expandToolsetSelectors(
+        overlay.toolsets ?? [],
+        this.registry.toolsetAliases(),
+      ),
+    };
   }
 
   /**
@@ -77,7 +151,7 @@ export class ToolSurfaceService {
    * With discovery disabled, the whole universe is injected (pre-M20.7).
    */
   injected(sessionId: string, input: string): InjectedTools {
-    const universe = this.universe();
+    const universe = this.universe(sessionId);
     if (this.config.toolsDiscoveryEnabled === false) {
       return {
         descriptors: [...universe],
@@ -121,9 +195,13 @@ export class ToolSurfaceService {
   }
 
   /** Discover over the universe (meta-tool / `/tools`). Bounded. */
-  discover(query: string, limit?: number): ToolMatch[] {
+  discover(
+    query: string,
+    limit?: number,
+    sessionId?: string,
+  ): ToolMatch[] {
     return discoverTools(
-      this.universe(),
+      this.universe(sessionId),
       query,
       limit ?? this.config.toolsPullMaxResults ?? 5,
     );

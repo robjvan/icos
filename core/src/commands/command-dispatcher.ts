@@ -20,7 +20,9 @@ import { registerRuntimeCommands } from './runtime-commands';
 import { registerSessionCommands } from './session-commands';
 import { registerSkillCommands } from '../skills/command-adapter';
 import { registerToolCommands } from '../tools/tool-commands';
+import { registerSubagentCommands } from '../subagents/subagent-commands';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { SubagentRunner } from '../subagents/subagent-runner.service';
 import { SkillSeedService } from '../skills/skill-seed.service';
 import { ContextBudgetService } from '../conversation/context-budget.service';
 import { ContextCompactionService } from '../conversation/context-compaction.service';
@@ -52,6 +54,7 @@ export class CommandDispatcher {
     private readonly budget?: ContextBudgetService,
     private readonly compaction?: ContextCompactionService,
     private readonly toolSurface?: ToolSurfaceService,
+    private readonly subagents?: SubagentRunner,
   ) {
     const register = (handler: SlashCommandHandler): void => {
       this.registry.register(handler);
@@ -76,6 +79,9 @@ export class CommandDispatcher {
     registerSkillCommands(register, { skills, config, seed });
     if (toolSurface) {
       registerToolCommands(register, { surface: toolSurface });
+    }
+    if (subagents) {
+      registerSubagentCommands(register, { runner: subagents });
     }
   }
 

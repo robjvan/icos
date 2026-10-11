@@ -41,6 +41,19 @@ export interface Delegation {
   updatedAt: string;
 }
 
+/**
+ * Delegation context for approval tagging (M21.2): given a session that may
+ * be a delegated child, return the delegation it belongs to — so approval
+ * cards, replies, and queues can show *why* the approval exists. Lookup,
+ * not a tag column: no migration, and it can never disagree with the
+ * record.
+ */
+export interface DelegationContext {
+  taskId: string;
+  goal: string;
+  parentSessionId: string;
+}
+
 export interface NewDelegation {
   parentSessionId: string;
   childSessionId: string;
@@ -68,4 +81,16 @@ export abstract class DelegationRepository {
    * registry sets the same precedent). Returns the marked ids.
    */
   abstract failNonTerminal(reason: string): Promise<string[]>;
+  /** Delegation context for a (possible) child session, if any. */
+  abstract contextForChild(childSessionId: string): Promise<DelegationContext | null>;
+  /**
+   * Terminal delegations never surfaced in the parent's completion band.
+   * Bounded by `limit`; oldest first so a burst drains in order.
+   */
+  abstract unnotifiedTerminal(
+    parentSessionId: string,
+    limit: number,
+  ): Promise<Delegation[]>;
+  /** Mark completion-band-surfaced delegations as notified. */
+  abstract markNotified(ids: readonly string[]): Promise<void>;
 }

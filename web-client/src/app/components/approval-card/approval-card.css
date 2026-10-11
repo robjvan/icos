@@ -17,6 +17,12 @@
   white-space: pre-wrap;
 }
 
+.approval-card .delegation {
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
 .approval-card .row {
   display: flex;
   gap: 0.5rem;

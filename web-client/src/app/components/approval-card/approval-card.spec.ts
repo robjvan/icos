@@ -39,4 +39,26 @@ describe('ApprovalCard', () => {
       { id: 'a1', decision: 'reject' },
     ]);
   });
+
+  it('should show the delegation goal when the approval comes from a child', () => {
+    fixture.componentRef.setInput('approval', {
+      id: 'a2',
+      sessionId: 'child-1',
+      action: 'terminal',
+      description: 'Run a command',
+      status: 'pending',
+      createdAt: 't',
+      updatedAt: 't',
+      delegation: {
+        taskId: 'task-1',
+        goal: 'research widgets',
+        parentSessionId: 'parent-1',
+      },
+    });
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.delegation')?.textContent).toContain(
+      'research widgets',
+    );
+  });
 });

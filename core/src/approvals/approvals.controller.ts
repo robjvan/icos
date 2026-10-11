@@ -8,6 +8,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApprovalService } from './approval.service';
+import type { DelegationContext } from '../subagents/delegation.repository';
+import { DelegationRepository } from '../subagents/delegation.repository';
 import {
   CreateApprovalDto,
   ListApprovalsQueryDto,
@@ -21,7 +23,32 @@ import {
  */
 @Controller('core/approvals')
 export class ApprovalsController {
-  constructor(private readonly approvals: ApprovalService) {}
+  constructor(
+    private readonly approvals: ApprovalService,
+    private readonly delegations: DelegationRepository,
+  ) {}
+
+  /**
+   * Attach delegation context to approvals arising from a child session
+   * (M21.2) — the queue shows *why* the approval exists. Fail-soft per
+   * item: tagging never breaks the queue.
+   */
+  private async tagged<T extends { sessionId: string }>(
+    items: readonly T[],
+  ): Promise<(T & { delegation?: DelegationContext })[]> {
+    return Promise.all(
+      items.map(async (item) => {
+        try {
+          const delegation = await this.delegations.contextForChild(
+            item.sessionId,
+          );
+          return delegation ? { ...item, delegation } : item;
+        } catch {
+          return item;
+        }
+      }),
+    );
+  }
 
   @Post()
   @HttpCode(201)
@@ -42,12 +69,13 @@ export class ApprovalsController {
       ...(query.sessionId !== undefined ? { sessionId: query.sessionId } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
     });
-    return { approvals };
+    return { approvals: await this.tagged(approvals) };
   }
 
   @Get(':id')
   async get(@Param('id') id: string) {
-    return this.approvals.get(id);
+    const [tagged] = await this.tagged([await this.approvals.get(id)]);
+    return tagged;
   }
 
   @Post(':id/approve')

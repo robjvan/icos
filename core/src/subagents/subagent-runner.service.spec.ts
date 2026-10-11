@@ -8,6 +8,9 @@ import { SessionStore } from '../conversation/session.store';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { TurnOutcome } from '../conversation/conversation.service';
 import { SqliteDelegationRepository } from './sqlite-delegation.repository';
+import { ToolRegistry } from '../tools/tool-registry';
+import { ToolPullStore } from '../tools/tool-pull.store';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { SubagentRunner } from './subagent-runner.service';
 import { buildChildMessage, truncateSummary } from './subagent-runner.service';
 
@@ -48,6 +51,7 @@ describe('SubagentRunner', () => {
   let sessions: SessionStore;
   let runs: AgentRunRepository;
   let converse: jest.Mock;
+  let surface: ToolSurfaceService;
   let runner: SubagentRunner;
 
   beforeEach(async () => {
@@ -63,11 +67,17 @@ describe('SubagentRunner', () => {
     delegations = new SqliteDelegationRepository(database);
     converse = jest.fn(() => Promise.resolve(okOutcome('child did the thing')));
     const moduleRef = { get: () => ({ converse }) };
+    surface = new ToolSurfaceService(
+      testConfig(),
+      new ToolRegistry(),
+      new ToolPullStore(),
+    );
     runner = new SubagentRunner(
       testConfig(),
       delegations,
       sessions,
       runs,
+      surface,
       moduleRef as never,
     );
   });
@@ -113,12 +123,38 @@ describe('SubagentRunner', () => {
     expect(done?.resultSummary).toContain('…[truncated');
   });
 
+  it('narrows the child universe from delegate args', async () => {
+    const spawned = await runner.spawn({
+      parentSessionId: 'parent-1',
+      goal: 'g',
+      toolsets: ['memory'],
+      tools: ['todo'],
+    });
+    expect(spawned.spawned).toBe(true);
+    if (!spawned.spawned) return;
+    const child = (await delegations.get(spawned.taskId))?.childSessionId;
+    expect(child).toBeDefined();
+    const names = surface.universe(child as string).map((d) => d.name);
+    expect(names).toContain('memory');
+    expect(names).toContain('todo');
+    expect(names).not.toContain('terminal');
+    // Unrestricted spawns leave no overlay behind.
+    const open = await runner.spawn({ parentSessionId: 'parent-1', goal: 'h' });
+    expect(open.spawned).toBe(true);
+    if (!open.spawned) return;
+    const openChild = (await delegations.get(open.taskId))?.childSessionId;
+    expect(
+      surface.universe(openChild as string).map((d) => d.name),
+    ).toContain('terminal');
+  });
+
   it('refuses when disabled, when capped, and for child callers', async () => {
     const disabled = new SubagentRunner(
       testConfig({ subagentsEnabled: false }),
       delegations,
       sessions,
       runs,
+      surface,
       { get: () => ({ converse }) } as never,
     );
     const disabledRes = await disabled.spawn({
@@ -135,6 +171,7 @@ describe('SubagentRunner', () => {
       delegations,
       sessions,
       runs,
+      surface,
       { get: () => ({ converse }) } as never,
     );
     const cappedRes = await capped.spawn({
@@ -253,6 +290,7 @@ describe('SubagentRunner', () => {
       delegations,
       sessions,
       runs,
+      surface,
       { get: () => ({ converse }) } as never,
     );
     restarted.onModuleInit();
@@ -288,5 +326,23 @@ describe('SubagentRunner', () => {
     expect(message).toContain('(none provided)');
     expect(truncateSummary('short', 50)).toBe('short');
     expect(truncateSummary('x'.repeat(60), 50)).toContain('…[truncated 10');
+  });
+
+  it('lists newest-first with reconciliation', async () => {
+    expect(await runner.list('parent-1')).toEqual([]);
+    const first = await runner.spawn({
+      parentSessionId: 'parent-1',
+      goal: 'first',
+    });
+    expect(first.spawned).toBe(true);
+    if (!first.spawned) return;
+    await flush();
+    // Completed directly: listed as-is.
+    const listed = await runner.list('parent-1');
+    expect(listed.map((d) => d.id)).toEqual([first.taskId]);
+    expect(listed[0]?.state).toBe('completed');
+    // Bounded.
+    expect(await runner.list('parent-1', 0)).toEqual([]);
+    expect(await runner.list('nobody')).toEqual([]);
   });
 });

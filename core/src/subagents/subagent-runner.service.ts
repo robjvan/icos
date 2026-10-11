@@ -5,6 +5,7 @@ import type { CoreConfig } from '../config';
 import { ConversationService } from '../conversation/conversation.service';
 import type { TurnOutcome } from '../conversation/conversation.service';
 import { SessionStore } from '../conversation/session.store';
+import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import { DelegationRepository } from './delegation.repository';
 import type { Delegation, DelegationBudgets } from './delegation.repository';
@@ -14,6 +15,10 @@ export interface SpawnInput {
   parentRunId?: string | null;
   goal: string;
   context?: string;
+  /** M21.2 capability narrowing (intersected with operator policy). */
+  toolsets?: string[];
+  /** M21.2 capability narrowing (added to the toolset selection). */
+  tools?: string[];
 }
 
 export type SpawnResult =
@@ -70,6 +75,7 @@ export class SubagentRunner implements OnModuleInit {
     private readonly delegations: DelegationRepository,
     private readonly sessions: SessionStore,
     private readonly runs: AgentRunRepository,
+    private readonly surface: ToolSurfaceService,
     private readonly moduleRef: ModuleRef,
   ) {}
 
@@ -155,6 +161,24 @@ export class SubagentRunner implements OnModuleInit {
       this.logger.log(
         `Delegated "${goal.slice(0, 80)}" -> ${record.id} (child session ${childSessionId}).`,
       );
+      // Set the capability overlay synchronously before launching: the
+      // child's first roundTools must already see the narrowed universe —
+      // an await between record creation and launch would race it.
+      const restriction = {
+        ...(input.toolsets !== undefined ? { toolsets: input.toolsets } : {}),
+        ...(input.tools !== undefined ? { tools: input.tools } : {}),
+      };
+      this.surface.setOverlay(childSessionId, restriction);
+      const admitted = this.surface.universe(childSessionId).length;
+      if (
+        ((restriction.toolsets?.length ?? 0) > 0 ||
+          (restriction.tools?.length ?? 0) > 0) &&
+        admitted === 0
+      ) {
+        this.logger.warn(
+          `Delegation ${record.id} narrowed to zero tools — the child can only answer from context.`,
+        );
+      }
       launched = true;
       void this.run(record.id, input.context?.trim() || null);
       return { spawned: true, taskId: record.id };
@@ -172,6 +196,21 @@ export class SubagentRunner implements OnModuleInit {
     const record = await this.delegations.get(taskId);
     if (!record || TERMINAL_STATES.has(record.state)) return record;
     return this.reconcile(record);
+  }
+
+  /**
+   * List a session's delegations, newest first, reconciling the
+   * non-terminal ones (bounded — a burst of delegations stays cheap).
+   */
+  async list(parentSessionId: string, limit = 20): Promise<Delegation[]> {
+    const items = await this.delegations.listByParent(parentSessionId);
+    const out: Delegation[] = [];
+    for (const item of items.slice(0, Math.max(0, limit))) {
+      out.push(
+        TERMINAL_STATES.has(item.state) ? item : await this.reconcile(item),
+      );
+    }
+    return out;
   }
 
   /** Cooperative cancel: the child loop observes the flag and terminates. */

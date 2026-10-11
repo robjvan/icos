@@ -136,4 +136,54 @@ describe('SqliteDelegationRepository', () => {
     expect(await repository.setState('nope', 'failed')).toBeNull();
     expect(await repository.requestCancel('nope')).toBeNull();
   });
+
+  it('resolves delegation context for a child session', async () => {
+    expect(await repository.contextForChild('child-1')).toBeNull();
+    const created = await repository.create({
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-1',
+      parentRunId: null,
+      goal: 'g',
+      budgets,
+    });
+    expect(await repository.contextForChild('child-1')).toEqual({
+      taskId: created.id,
+      goal: 'g',
+      parentSessionId: 'parent-1',
+    });
+    expect(await repository.contextForChild('parent-1')).toBeNull();
+  });
+
+  it('drains unnotified terminal delegations oldest-first', async () => {
+    const running = await repository.create({
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-1',
+      parentRunId: null,
+      goal: 'running',
+      budgets,
+    });
+    const done = await repository.create({
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-2',
+      parentRunId: null,
+      goal: 'done',
+      budgets,
+    });
+    await repository.setState(done.id, 'completed', {
+      resultSummary: 'ok',
+    });
+    // Running rows are never surfaced, however stale.
+    expect(await repository.unnotifiedTerminal('parent-1', 10)).toEqual([
+      expect.objectContaining({ id: done.id }),
+    ]);
+    expect(running.state).toBe('running');
+    await repository.markNotified([done.id]);
+    expect(await repository.unnotifiedTerminal('parent-1', 10)).toEqual([]);
+    // Unknown ids mark harmlessly.
+    await repository.markNotified(['nope']);
+    expect(await repository.unnotifiedTerminal('other-parent', 10)).toEqual(
+      [],
+    );
+    expect(await repository.unnotifiedTerminal('parent-1', 0)).toEqual([]);
+  });
 });

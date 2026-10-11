@@ -11,6 +11,12 @@ export interface Approval {
   readonly updatedAt: string;
   readonly expiresAt?: string;
   readonly resolvedAt?: string;
+  /** Present when the approval arose in a delegated child session (M21.2). */
+  readonly delegation?: {
+    readonly taskId: string;
+    readonly goal: string;
+    readonly parentSessionId: string;
+  };
 }
 
 export interface ListApprovalsResponse {

@@ -93,6 +93,18 @@ export interface DelegateTaskArgs {
    * never copied — if the child must see something, it goes here.
    */
   readonly context?: string;
+  /**
+   * Capability narrowing (M21.2, optional): toolset selectors the child may
+   * use. Intersected with the operator policy — narrowing only, never
+   * widening. Omitted = the parent's full policy universe (minus
+   * delegation itself, which children never receive).
+   */
+  readonly toolsets?: string[];
+  /**
+   * Capability narrowing (M21.2, optional): individual tool names the child
+   * may use, added to the toolset selection. Same narrowing rule.
+   */
+  readonly tools?: string[];
 }
 
 /** `delegate_status` / `delegate_cancel` args (M21.1). */
@@ -447,6 +459,8 @@ const MAX_QUESTION_LENGTH = 500;
 const MIN_CLARIFY_OPTIONS = 2;
 const MAX_CLARIFY_OPTIONS = 4;
 const MAX_OPTION_LENGTH = 200;
+/** Cap on delegate_task capability selectors (narrowing lists stay small). */
+const MAX_DELEGATE_SELECTORS = 20;
 const MIN_CLARIFY_TTL_MS = 1000;
 const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_SIZE_PATTERN = '^[0-9]{2,5}x[0-9]{2,5}$';
@@ -708,6 +722,22 @@ const DELEGATE_TASK_SCHEMA = deepFreeze({
       description:
         'Explicit context the child needs. The parent transcript is never ' +
         'copied; anything the child must see goes here.',
+    },
+    toolsets: {
+      type: 'array',
+      maxItems: MAX_DELEGATE_SELECTORS,
+      items: { type: 'string', minLength: 1, maxLength: MAX_ID_LENGTH },
+      description:
+        'Optional narrowing: toolset selectors the child may use. ' +
+        'Intersected with operator policy — narrowing only, never widening.',
+    },
+    tools: {
+      type: 'array',
+      maxItems: MAX_DELEGATE_SELECTORS,
+      items: { type: 'string', minLength: 1, maxLength: MAX_ID_LENGTH },
+      description:
+        'Optional narrowing: individual tool names the child may use, added ' +
+        'to the toolset selection. Same narrowing rule.',
     },
   },
 } as const);
@@ -1801,7 +1831,12 @@ function validateSearchPlatformToolsArgs(
 function validateDelegateTaskArgs(
   args: Record<string, unknown>,
 ): ParseResult<DelegateTaskArgs> {
-  const unknownField = rejectUnknownFields(args, ['goal', 'context']);
+  const unknownField = rejectUnknownFields(args, [
+    'goal',
+    'context',
+    'toolsets',
+    'tools',
+  ]);
   if (unknownField !== undefined) {
     return { ok: false, message: unknownField };
   }
@@ -1809,18 +1844,43 @@ function validateDelegateTaskArgs(
   if (!goal.ok) {
     return goal;
   }
+  const out: {
+    goal: string;
+    context?: string;
+    toolsets?: string[];
+    tools?: string[];
+  } = { goal: goal.value };
   const rawContext = ownValue(args, 'context');
-  if (rawContext === undefined) {
-    return { ok: true, value: Object.freeze({ goal: goal.value }) };
+  if (rawContext !== undefined) {
+    const context = validText(rawContext, 'context', MAX_BODY_LENGTH);
+    if (!context.ok) {
+      return context;
+    }
+    out.context = context.value;
   }
-  const context = validText(rawContext, 'context', MAX_BODY_LENGTH);
-  if (!context.ok) {
-    return context;
+  for (const field of ['toolsets', 'tools'] as const) {
+    const raw = ownValue(args, field);
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw)) {
+      return { ok: false, message: `${field} must be an array of strings` };
+    }
+    if (raw.length > MAX_DELEGATE_SELECTORS) {
+      return {
+        ok: false,
+        message: `${field} must have at most ${MAX_DELEGATE_SELECTORS} items`,
+      };
+    }
+    const cleaned: string[] = [];
+    for (const item of raw) {
+      const parsed = validText(item, `${field}[]`, MAX_ID_LENGTH);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      cleaned.push(parsed.value);
+    }
+    out[field] = [...new Set(cleaned)];
   }
-  return {
-    ok: true,
-    value: Object.freeze({ goal: goal.value, context: context.value }),
-  };
+  return { ok: true, value: Object.freeze(out) };
 }
 
 function validateDelegateTaskRefArgs(

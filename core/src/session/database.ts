@@ -255,6 +255,7 @@ CREATE TABLE IF NOT EXISTS delegations (
     error TEXT,
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
     budgets_json TEXT NOT NULL DEFAULT '{}',
+    notified_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -935,6 +936,8 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       `TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written'))`,
     );
     addColumnIfMissing(db, 'agent_runs', 'clarification_id', 'TEXT');
+    // M21.2: live delegation rows predate the completion-band cursor.
+    addColumnIfMissing(db, 'delegations', 'notified_at', `TEXT`);
   }
   if (schema === 'memories') {
     // M10b: live ledger files predate the origin stamp.

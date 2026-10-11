@@ -302,6 +302,62 @@ describe('openDatabase', () => {
     ).toThrow();
   });
 
+  it('migrates pre-M21.2 delegations files, adding notified_at', () => {
+    // Simulate a database created by M21.1: delegations without the
+    // completion-band cursor, plus a live row that must survive.
+    const path = join(dir, 'old-delegations.sqlite');
+    const old = new Database(path);
+    try {
+      old.exec(`
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE delegations (
+            id TEXT PRIMARY KEY,
+            parent_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            child_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+            parent_run_id TEXT,
+            goal TEXT NOT NULL,
+            state TEXT NOT NULL,
+            result_summary TEXT,
+            error TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            budgets_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+      `);
+      old
+        .prepare(
+          'INSERT INTO sessions (id, created_at, updated_at) VALUES (?, ?, ?)',
+        )
+        .run('p1', 't', 't');
+      old
+        .prepare(
+          `INSERT INTO delegations
+             (id, parent_session_id, child_session_id, goal, state,
+              budgets_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run('d1', 'p1', null, 'old goal', 'completed', '{}', 't', 't');
+    } finally {
+      old.close();
+    }
+
+    const db = openDatabase(path, 'sessions');
+    const columns = (
+      db.prepare('PRAGMA table_info(delegations)').all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(columns).toContain('notified_at');
+    expect(
+      db.prepare('SELECT goal, notified_at AS n FROM delegations').get(),
+    ).toEqual({ goal: 'old goal', n: null });
+    db.close();
+    openDatabase(path, 'sessions').close();
+  });
+
   it('migrates pre-M6 files with title and exclusion columns', () => {
     // Simulate a database created before M6: old DDL without the new
     // columns, plus live rows that must survive the upgrade.
