@@ -1,9 +1,8 @@
 # M21 — Subagent Support
 
 > Status: **planned** (2026-10-11). Source: roadmap M21 checklist
-> (`.reference/plans/full-roadmap-extended.md`), Hermes Agent's delegation
-> model as a reference point, and operator decisions below. No code yet —
-> this document is the implementation plan.
+> (`.reference/plans/full-roadmap-extended.md`) and operator decisions
+> below. No code yet — this document is the implementation plan.
 
 ## Objective
 
@@ -15,32 +14,28 @@ results. Context isolation is the point: parallel workstreams (research vs.
 implementation, independent subtasks) must not leak into each other or bloat
 the parent's context.
 
-## Where Hermes parity holds, and where ICOS diverges
+## Relationship to prior art
 
-Hermes reference (operator-supplied summary): isolated children via
-`delegate_task`, flat hierarchy (depth 1 default), async with `task_id`,
-`/agents` overlay with steering/cancel, cheaper-model routing, ephemeral
-children.
+Hermes Agent contributed ICOS's skill-file library and general inspiration
+(see the credits in `README.md`). It is **not** part of this architecture:
+nothing is pulled from it, no design is owed to it, and "parity" with it is
+explicitly not a goal. The decisions below stand on ICOS's own constraints
+(approval-gated tools, parked runs, the invocation ledger as system of
+record):
 
-Kept: isolation, async `task_id`, flat-only, status/cancel, bounded
-summaries, ephemeral-by-default children.
-
-Diverged (ICOS constraints win):
-
-- **Approvals are never bypassed.** Hermes inherits the parent's toolset
-  *and credentials*; ICOS routes every approval-gated call (terminal,
-  channel.send, discord_admin, execute_code, process_start) through the
-  normal operator approval path, tagged with the parent goal. A child is
-  *less* privileged in practice, never more.
-- **Memory is shared with provenance, not discarded.** ICOS's ledger is the
+- **Approvals are never bypassed.** Every approval-gated call a child makes
+  (terminal, channel.send, discord_admin, execute_code, process_start) goes
+  through the normal operator approval path, tagged with the parent goal. A
+  child is *less* privileged in practice, never more.
+- **Memory is shared with provenance, not discarded.** The ledger is the
   system of record; child transcripts extract into it stamped with the child
-  session id, and the delegation record links child → parent. Hermes's
-  "work is ephemeral" becomes "work is traceable."
+  session id, and the delegation record links child → parent. Delegated work
+  is traceable, not ephemeral.
 - **No separate model routing in M21.** ICOS has one conversation role;
   cheaper-model delegation waits on the provider/role work, not this
   milestone.
-- **No mid-flight steering in M21** (Hermes "Pantheon" feature). Status +
-  cancel now; steering is a stated future.
+- **No mid-flight steering in M21.** Status + cancel now; steering is a
+  stated future.
 
 ## Design
 
@@ -184,7 +179,8 @@ turn content.
 
 ## Decisions (confirmed 2026-10-11)
 
-1. **Execution:** **async-first** (task_id + poll), Hermes-style.
+1. **Execution:** **async-first** (`task_id` return + poll) — long tool
+   runs must never hang the parent turn.
 2. **Child approvals:** **routed through the normal path, tagged** with
    delegation id + parent goal. No bypass, no auto-deny.
 3. **Child memory:** **shared ledger with provenance** (child session id
