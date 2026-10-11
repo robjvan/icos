@@ -63,6 +63,12 @@ export interface ContextMemory {
    * the model reads it as "what came before". Absent = no compaction yet.
    */
   summaryBand?: string | null;
+  /**
+   * M21.2 subagent completion band: terminal delegations of this session
+   * that finished since the last turn, so a detached child's result reaches
+   * the parent without polling. Absent = nothing new finished.
+   */
+  delegationBand?: string | null;
 }
 
 export function buildContext(
@@ -115,6 +121,9 @@ export function buildContext(
   }
   if (memory?.summaryBand) {
     messages.push({ role: 'system', content: memory.summaryBand });
+  }
+  if (memory?.delegationBand) {
+    messages.push({ role: 'system', content: memory.delegationBand });
   }
   messages.push(...history.slice(-maxHistory));
   messages.push({ role: 'user', content: input });

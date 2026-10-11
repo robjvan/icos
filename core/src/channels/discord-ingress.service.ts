@@ -4,6 +4,7 @@ import type { CoreConfig } from '../config';
 import { ApprovalService } from '../approvals/approval.service';
 import { ConversationService } from '../conversation/conversation.service';
 import type { TurnOutcome } from '../conversation/conversation.service';
+import { DelegationRepository } from '../subagents/delegation.repository';
 import { CommandDispatcher } from '../commands/command-dispatcher';
 import type { CommandResult } from '../commands/command-result';
 import { ChannelDeliveryService } from './channel-delivery.service';
@@ -45,6 +46,7 @@ export class DiscordIngressService implements OnModuleInit {
     private readonly delivery: ChannelDeliveryService,
     private readonly approvals: ApprovalService,
     private readonly commands: CommandDispatcher,
+    private readonly delegations: DelegationRepository,
   ) {}
 
   /** approvalId → where its card lives, so a button press can resume. */
@@ -307,7 +309,20 @@ export class DiscordIngressService implements OnModuleInit {
     } catch {
       detail = '';
     }
-    const content = `🤔 Approval needed — ${detail || approval.tool}`;
+    // M21.2: name the delegation when the approval comes from a child —
+    // the operator decides with the parent goal in view.
+    let delegation = '';
+    try {
+      const context = await this.delegations.contextForChild(outcome.sessionId);
+      if (context) {
+        delegation =
+          `\n🧵 Delegated subtask ${context.taskId.slice(0, 8)} ` +
+          `(goal: ${context.goal})`;
+      }
+    } catch {
+      delegation = '';
+    }
+    const content = `🤔 Approval needed — ${detail || approval.tool}${delegation}`;
     const messageId = await this.adapter.postApproval(
       conversationKey,
       approval.approvalId,

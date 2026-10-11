@@ -54,6 +54,7 @@ import type {
 } from '../tools/tool-execution.repository';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
+import { DelegationRepository } from '../subagents/delegation.repository';
 import type { InjectedTools } from '../tools/tool-surface.service';
 import { AgentRunRepository } from '../agent/agent-run.repository';
 import type { AgentRun } from '../agent/agent-run.repository';
@@ -68,6 +69,7 @@ import type { PlanningProgress } from '../agent/planning-context';
 import type {
   AgentTerminalState,
   AgentTransientState,
+  RunLimits,
   RunTermination,
 } from '../agent/agent-run.repository';
 import { buildContext } from './context.builder';
@@ -254,12 +256,18 @@ export class ConversationService {
     private readonly surface: ToolSurfaceService,
     @Optional() private readonly budget?: ContextBudgetService,
     @Optional() private readonly compaction?: ContextCompactionService,
+    @Optional() private readonly subagents?: DelegationRepository,
   ) {}
 
   async converse(
     message: string,
     sessionId?: string,
-    options?: { sourceBand?: string; attachments?: readonly TurnAttachment[] },
+    options?: {
+      sourceBand?: string;
+      attachments?: readonly TurnAttachment[];
+      /** M21.1: per-turn run-budget override (child delegations). */
+      limits?: Partial<RunLimits>;
+    },
   ): Promise<TurnOutcome> {
     // Slash commands short-circuit before conversation: no LLM, no
     // transcript writes, no memory extraction.
@@ -285,7 +293,14 @@ export class ConversationService {
     // Bounded multi-step loop: each step proposes at most one call.
     // Approval-free searches chain (pair appended, propose again);
     // parks, text, and invalid proposals end the turn as before.
-    const runId = this.startRun(id, message);
+    // M21.1: child delegations run under their own budgets.
+    const limits: RunLimits = {
+      maxIterations: this.config.agentMaxIterations,
+      maxToolSteps: this.config.agentMaxToolSteps,
+      maxTurnDurationMs: this.config.agentMaxTurnDurationMs,
+      ...options?.limits,
+    };
+    const runId = this.startRun(id, message, limits);
     const startedAt = Date.now();
     const pairs: LlmMessage[] = [];
     const priorActions: string[] = [];
@@ -294,24 +309,43 @@ export class ConversationService {
     let boundHit = false;
     let deadlineHit = false;
     for (let step = 0; ; step++) {
+      // M21.1: cooperative cancel — a child session whose delegation was
+      // cancelled terminates truthfully instead of looping to budget.
+      if (await this.subagents?.isCancelRequested(id)) {
+        this.finishRun(runId, 'cancelled', {
+          reason: 'cancelled',
+          toolSteps,
+        });
+        return {
+          status: 'ok',
+          sessionId: id,
+          requestId: randomUUID(),
+          reply: 'Turn cancelled by the operator.',
+          model: this.config.llmModel,
+          outcome: 'cancelled',
+        };
+      }
       // M20.7.2: recompute per round so a `search_platform_tools` pull lands
       // on the next proposal round.
       const { descriptors, allowedTools } = this.roundTools(id, message);
       const requestId = randomUUID();
       const finalAttempt =
-        step >= this.config.agentMaxIterations ||
-        toolSteps >= this.config.agentMaxToolSteps ||
-        turnDeadlineExceeded(
-          startedAt,
-          Date.now(),
-          this.config.agentMaxTurnDurationMs,
-        );
+        step >= limits.maxIterations ||
+        toolSteps >= limits.maxToolSteps ||
+        turnDeadlineExceeded(startedAt, Date.now(), limits.maxTurnDurationMs);
       this.transitionRun(runId, 'reasoning');
-      const context = this.assembleStep(turn, message, descriptors, pairs, {
-        stepsUsed: step,
-        toolCallsUsed: toolSteps,
-        priorActions,
-      });
+      const context = this.assembleStep(
+        turn,
+        message,
+        descriptors,
+        pairs,
+        {
+          stepsUsed: step,
+          toolCallsUsed: toolSteps,
+          priorActions,
+        },
+        id,
+      );
       let proposal: LlmResult;
       try {
         proposal = await this.llm.chatWithTools({
@@ -385,12 +419,11 @@ export class ConversationService {
         // step's durable result through the standard tools-disabled
         // final call.
         boundHit =
-          step >= this.config.agentMaxIterations ||
-          toolSteps >= this.config.agentMaxToolSteps;
+          step >= limits.maxIterations || toolSteps >= limits.maxToolSteps;
         deadlineHit = turnDeadlineExceeded(
           startedAt,
           Date.now(),
-          this.config.agentMaxTurnDurationMs,
+          limits.maxTurnDurationMs,
         );
         try {
           record = await this.tools.resume(requestId, id);
@@ -458,6 +491,21 @@ export class ConversationService {
   async resumeTurn(requestId: string, sessionId: string): Promise<TurnOutcome> {
     const stored = this.findRunRecord(sessionId, requestId);
     const storedId = stored?.id;
+    // M21.1: a child cancelled while parked terminates instead of resuming.
+    if (await this.subagents?.isCancelRequested(sessionId)) {
+      this.finishRun(storedId, 'cancelled', {
+        reason: 'cancelled',
+        toolSteps: 0,
+      });
+      return {
+        status: 'ok',
+        sessionId,
+        requestId,
+        reply: 'Turn cancelled by the operator.',
+        model: this.config.llmModel,
+        outcome: 'cancelled',
+      };
+    }
     this.transitionRun(storedId, 'executing');
     let record: ToolExecutionRecord;
     try {
@@ -590,6 +638,7 @@ export class ConversationService {
           priorActions,
           approval,
         },
+        record.sessionId,
       );
       let proposal: LlmResult;
       try {
@@ -860,11 +909,18 @@ export class ConversationService {
               this.config.agentMaxTurnDurationMs,
             );
           this.transitionRun(runId, 'reasoning');
-          const context = this.assembleStep(turn, message, descriptors, pairs, {
-            stepsUsed: step,
-            toolCallsUsed: toolSteps,
-            priorActions,
-          });
+          const context = this.assembleStep(
+            turn,
+            message,
+            descriptors,
+            pairs,
+            {
+              stepsUsed: step,
+              toolCallsUsed: toolSteps,
+              priorActions,
+            },
+            id,
+          );
           let proposal: LlmResult;
           try {
             proposal = await this.llm.chatStreamWithTools(
@@ -1066,6 +1122,22 @@ export class ConversationService {
       try {
         const stored = this.findRunRecord(sessionId, requestId);
         storedId = stored?.id;
+        // M21.1: a child cancelled while parked terminates instead of
+        // resuming (streaming resume path mirrors resumeTurn).
+        if (await this.subagents?.isCancelRequested(sessionId)) {
+          this.finishRun(storedId, 'cancelled', {
+            reason: 'cancelled',
+            toolSteps: 0,
+          });
+          emit({
+            type: 'done',
+            reply: 'Turn cancelled by the operator.',
+            model: this.config.llmModel,
+            requestId,
+            status: 'ok',
+          });
+          return;
+        }
         this.transitionRun(storedId, 'executing');
         let record: ToolExecutionRecord;
         try {
@@ -1201,6 +1273,7 @@ export class ConversationService {
               priorActions,
               approval,
             },
+            record.sessionId,
           );
           let proposal: LlmResult;
           try {
@@ -1463,6 +1536,11 @@ export class ConversationService {
    * execution, no approval. Undefined when the proposal must flow to
    * validation/execution normally (including under a forced text
    * attempt, where the parser rejects calls outright).
+   *
+   * M21.1: delegate_status polls are repeat-shaped by design — the same
+   * (name, args) re-reads fresh server-side state, so exempt it. Turn
+   * budgets still bound abuse, and spawning (delegate_task) stays
+   * guarded against fan-out.
    */
   private skipRepeatedCall(
     context: readonly LlmMessage[],
@@ -1477,6 +1555,7 @@ export class ConversationService {
       return undefined;
     }
     const call = proposal.toolCalls[0];
+    if (call.name === 'delegate_status') return undefined;
     const priorAttempts = this.priorAttempts(context, call.name, call.args);
     if (priorAttempts === 0) return undefined;
     return {
@@ -1645,6 +1724,7 @@ export class ConversationService {
     descriptors: LlmToolRequest['tools'],
     pairs: LlmMessage[],
     progress: PlanningProgress,
+    sessionId?: string,
   ): LlmMessage[] {
     const block = buildPlanningBlock({
       goal,
@@ -1653,7 +1733,7 @@ export class ConversationService {
       maxIterations: this.config.agentMaxIterations,
       progress,
       unavailable: this.describeUnavailableForeign(),
-      disabled: this.disabledToolNames(),
+      disabled: this.disabledToolNames(sessionId),
     });
     return assembleTurnMessages({
       baseSystem: turn.baseSystem,
@@ -1687,8 +1767,67 @@ export class ConversationService {
   }
 
   /** Tools known but disabled by policy; declared in the planning frame. */
-  private disabledToolNames(): string[] {
-    return this.surface.disabled().map((descriptor) => descriptor.name);
+  private disabledToolNames(sessionId?: string): string[] {
+    return this.surface
+      .disabled(sessionId)
+      .map((descriptor) => descriptor.name);
+  }
+
+  /**
+   * M21.2 approval tag: when this session is a delegated child, name the
+   * delegation so the operator sees *why* the approval exists. Empty for
+   * ordinary sessions (byte-identical replies). Fail-soft — tagging must
+   * never break the approval path.
+   */
+  private async delegationNote(sessionId: string): Promise<string> {
+    try {
+      const context = await this.subagents?.contextForChild(sessionId);
+      if (!context) return '';
+      return (
+        ` This turn runs in delegated child session ${sessionId} ` +
+        `(task ${context.taskId.slice(0, 8)}, goal: ${context.goal}).`
+      );
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * M21.2 completion band: terminal delegations of this session that no
+   * turn has surfaced yet, oldest first, bounded. Fail-soft like recall —
+   * a store error degrades to no band, never a failed turn. Surfaced ids
+   * are marked notified so each completion appears exactly once.
+   */
+  private async delegationBand(sessionId: string): Promise<string | null> {
+    if (!this.subagents) return null;
+    try {
+      const pending = await this.subagents.unnotifiedTerminal(
+        sessionId,
+        DELEGATION_BAND_LIMIT,
+      );
+      if (pending.length === 0) return null;
+      const lines = pending.map((delegation) => {
+        const short = delegation.id.slice(0, 8);
+        const body =
+          delegation.state === 'completed'
+            ? (delegation.resultSummary ?? '(no summary recorded)')
+            : delegation.state === 'failed'
+              ? `failed: ${delegation.error ?? 'unknown error'}`
+              : delegation.state === 'cancelled'
+                ? 'cancelled by the operator'
+                : 'ran out of budget';
+        return `[subagent ${delegation.state} ${short}]: ${delegation.goal}\n${truncateBandEntry(body)}`;
+      });
+      await this.subagents.markNotified(pending.map((d) => d.id));
+      return lines.join('\n\n');
+    } catch (err) {
+      this.logger.warn(
+        `Delegation band failed for session ${sessionId}: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -1763,6 +1902,9 @@ export class ConversationService {
       attachments,
       images.parts.length > 0,
     );
+    // M21.2: newly-terminal delegations ride a completion band so a
+    // detached child's result reaches the parent without polling.
+    const delegationBand = await this.delegationBand(sessionId);
     const textMessages = this.prepareMessages(
       sessionId,
       history,
@@ -1774,6 +1916,7 @@ export class ConversationService {
         sourceBand: sourceBand ?? null,
         attachmentBand,
         ...(summary ? { summaryBand: summaryBandText(summary) } : {}),
+        ...(delegationBand ? { delegationBand } : {}),
       },
     );
     // M20.6.2: if the assembled context crosses the budget trigger, fold the
@@ -1807,6 +1950,7 @@ export class ConversationService {
             sourceBand: sourceBand ?? null,
             attachmentBand,
             summaryBand: summaryBandText(compacted),
+            ...(delegationBand ? { delegationBand } : {}),
           },
         );
         textMessages.splice(0, textMessages.length, ...rebuilt);
@@ -1880,11 +2024,16 @@ export class ConversationService {
     if (record.state === 'awaiting_approval' && record.approvalId) {
       const approval = approvalSummary(record);
       if (!approval) throw new InternalServerErrorException();
+      // M21.2: a child session's approval says so — the operator sees the
+      // delegation it belongs to, not a bare tool request.
+      const delegationNote = await this.delegationNote(sessionId);
       return {
         status: 'approval_required',
         sessionId,
         requestId,
-        reply: `Tool '${approval.tool}' needs approval before it can run.`,
+        reply:
+          `Tool '${approval.tool}' needs approval before it can run.` +
+          delegationNote,
         model: record.input.proposal.model,
         tool: { invocationId: record.invocationId ?? '', name: approval.tool },
         approval,
@@ -2276,7 +2425,11 @@ export class ConversationService {
    * fail a conversation turn, so every tracking call is isolated and
    * failures are logged and dropped.
    */
-  private startRun(sessionId: string, goal: string): string | undefined {
+  private startRun(
+    sessionId: string,
+    goal: string,
+    limits?: RunLimits,
+  ): string | undefined {
     try {
       return this.agentRuns.createRun({
         sessionId,
@@ -2285,6 +2438,7 @@ export class ConversationService {
           maxIterations: this.config.agentMaxIterations,
           maxToolSteps: this.config.agentMaxToolSteps,
           maxTurnDurationMs: this.config.agentMaxTurnDurationMs,
+          ...limits,
         },
       }).id;
     } catch (err) {
@@ -2556,6 +2710,15 @@ export class ConversationService {
 /** The context band carrying a rolling summary (M20.6.2). */
 function summaryBandText(summary: ContextSummary): string {
   return `<conversation_summary>\n${summary.summary}\n</conversation_summary>`;
+}
+
+/** Max delegations per completion band; each entry is char-capped. */
+const DELEGATION_BAND_LIMIT = 5;
+const DELEGATION_BAND_ENTRY_CHARS = 500;
+
+function truncateBandEntry(text: string): string {
+  if (text.length <= DELEGATION_BAND_ENTRY_CHARS) return text;
+  return `${text.slice(0, DELEGATION_BAND_ENTRY_CHARS)}\n…[truncated ${text.length - DELEGATION_BAND_ENTRY_CHARS} chars]`;
 }
 
 /** Ledger pairs become assistant/tool messages with stable durable ids. */

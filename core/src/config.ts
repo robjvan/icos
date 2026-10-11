@@ -375,6 +375,18 @@ export interface CoreConfig {
   toolsPullMaxResults?: number;
   /** `search_platform_tools` attempts allowed per turn. */
   toolsPullMaxPerTurn?: number;
+  /** M21 subagent delegation: master kill-switch (default on). */
+  subagentsEnabled?: boolean;
+  /** Max concurrently running child delegations (M21.1). */
+  subagentMaxConcurrent?: number;
+  /** Max proposal rounds per child turn (M21.1). */
+  subagentMaxIterations?: number;
+  /** Max tool executions per child turn (M21.1). */
+  subagentMaxToolSteps?: number;
+  /** Backstop duration per child turn in ms (M21.1). */
+  subagentMaxTurnDurationMs?: number;
+  /** Max chars of child summary returned to the parent (M21.1). */
+  subagentResultMaxChars?: number;
   /**
    * Filesystem root the file tools may read/search/write (M17b). A path that
    * resolves outside this root is refused. Default `~/.icos/workspace`.
@@ -899,6 +911,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       env.TOOLS_PULL_MAX_PER_TURN,
       2,
       'TOOLS_PULL_MAX_PER_TURN',
+    ),
+    subagentsEnabled: parseBoolean(env.SUBAGENTS_ENABLED, true),
+    subagentMaxConcurrent: parsePositiveInt(
+      env.SUBAGENT_MAX_CONCURRENT,
+      4,
+      'SUBAGENT_MAX_CONCURRENT',
+    ),
+    subagentMaxIterations: parsePositiveInt(
+      env.SUBAGENT_MAX_ITERATIONS,
+      5,
+      'SUBAGENT_MAX_ITERATIONS',
+    ),
+    subagentMaxToolSteps: parsePositiveInt(
+      env.SUBAGENT_MAX_TOOL_STEPS,
+      5,
+      'SUBAGENT_MAX_TOOL_STEPS',
+    ),
+    subagentMaxTurnDurationMs: parsePositiveInt(
+      env.SUBAGENT_MAX_TURN_DURATION_MS,
+      5 * 60 * 1000,
+      'SUBAGENT_MAX_TURN_DURATION_MS',
+    ),
+    subagentResultMaxChars: parsePositiveInt(
+      env.SUBAGENT_RESULT_MAX_CHARS,
+      4000,
+      'SUBAGENT_RESULT_MAX_CHARS',
     ),
     toolsWorkspaceRoot: resolvePath(
       env.TOOLS_WORKSPACE_ROOT,

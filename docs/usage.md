@@ -13,6 +13,7 @@ How to configure, run, and operate ICOS. For what the project *is* and
 - [Using the web client](#using-the-web-client)
 - [Deliberate behaviours](#deliberate-behaviours)
 - [Tool discovery](#tool-discovery)
+- [Subagents](#subagents)
 - [Where data lives](#where-data-lives)
 - [Exposing ICOS](#exposing-icos)
 - [Troubleshooting](#troubleshooting)
@@ -426,6 +427,57 @@ schemas indefinitely.
 Set `TOOLS_DISCOVERY_ENABLED=false` to inject every policy-enabled tool on every
 turn (the pre-M20.7 behaviour). The Tools tab shows the resolved discovery state
 and bounds; `/tools status` reports the same.
+
+---
+
+## Subagents
+
+The model can peel work off into an **isolated child session** that runs
+detached in the background, using the `delegate_task` tool. The child gets a
+fresh transcript (only the goal plus whatever explicit context the parent
+provides — never the parent's transcript), its own iteration budget, and by
+default the same tools the operator policy allows (minus delegation itself);
+it returns only a bounded summary. The parent turn never
+blocks — it gets a `task_id` back immediately.
+
+- `delegate_status <task-id>` — poll state and summary. Never blocks; poll
+  as often as useful (status polls are exempt from the repeat-call guard
+  precisely because re-reading fresh state is their job).
+- `delegate_cancel <task-id>` — cooperative stop. The child terminates
+  truthfully; partial work stays in its transcript.
+- `/agents [list | status <id> | cancel <id>]` — the operator view of this
+  session's delegations (works on Discord too). The **Agents** tab shows the
+  same list with states and summaries.
+
+Two invariants hold throughout:
+
+- **Discovery is not authorization, delegation included.** A narrowed child
+  (`toolsets` / `tools` args on `delegate_task`) sees fewer tools, and
+  anything outside its set fails closed as unpermitted — but nothing inside
+  or outside it bypasses approvals. A child's approval-gated call parks and
+  surfaces through the normal path, tagged with the delegation so you can
+  see *why* it exists.
+- **Isolation is transcript-deep, memory is shared.** The child never sees
+  the parent transcript, but its turns extract into the shared memory ledger
+  like any other session, stamped with the child session id.
+
+Children cannot delegate further (flat hierarchy — a nested attempt is
+refused, not queued). When a child finishes, its summary also arrives in the
+parent's context automatically the next turn, so polling is a choice, not a
+requirement. A restart fails in-flight delegations honestly rather than
+resuming them.
+
+A child parked on an approval-gated tool waits like any parked turn — but no
+client holds its resume handle, so the approval itself carries it: approve
+(or reject) from the queue or a card, and the turn resumes from the approval
+alone. The parked child shows as `awaiting_approval` until then; cancelling
+the delegation meanwhile terminates instead of resuming.
+
+Tuning: `SUBAGENTS_ENABLED=false` disables spawning entirely;
+`SUBAGENT_MAX_CONCURRENT` (default 4), `SUBAGENT_MAX_ITERATIONS` /
+`SUBAGENT_MAX_TOOL_STEPS` (default 5/5), `SUBAGENT_MAX_TURN_DURATION_MS`
+(default 5 min), and `SUBAGENT_RESULT_MAX_CHARS` (default 4000) bound the
+rest. See `core/.env.sample`.
 
 ---
 

@@ -12,6 +12,7 @@ import type {
 import type { TurnAttachment } from '../conversation/attachments';
 import type { ApprovalService } from '../approvals/approval.service';
 import type { CommandDispatcher } from '../commands/command-dispatcher';
+import type { DelegationRepository } from '../subagents/delegation.repository';
 import { ChannelDatabaseService } from './channel-database.service';
 import type { ChannelDeliveryService } from './channel-delivery.service';
 import type { DiscordAdapter } from './discord.adapter';
@@ -201,6 +202,9 @@ describe('DiscordIngressService', () => {
       } as unknown as ChannelDeliveryService,
       approvals as unknown as ApprovalService,
       dispatcher as unknown as CommandDispatcher,
+      {
+        contextForChild: jest.fn(async () => null),
+      } as unknown as DelegationRepository,
     );
 
   describe('accept policy', () => {

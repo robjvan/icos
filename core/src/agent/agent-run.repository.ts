@@ -243,6 +243,21 @@ export class AgentRunRepository {
   }
 
   /**
+   * M21.1: newest run in a session, if any. The delegation reconciler uses
+   * this to converge a parked child's delegation record onto the run's
+   * terminal state once the operator's decision resumes and finishes it.
+   */
+  latestRun(sessionId: string): AgentRun | undefined {
+    const row = this.connection
+      .prepare(
+        `SELECT * FROM agent_runs WHERE session_id = ?
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(sessionId) as AgentRunRow | undefined;
+    return row ? toRun(row) : undefined;
+  }
+
+  /**
    * User-initiated cancellation. Terminal by design: a cancelled run
    * never resumes planning, though already-parked approvals keep their
    * M8-governed semantics (M8 decides execution, never the run row).

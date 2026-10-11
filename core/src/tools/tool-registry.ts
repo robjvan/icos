@@ -17,6 +17,9 @@ export type ToolName =
   | 'web_extract'
   | 'skills_list'
   | 'search_platform_tools'
+  | 'delegate_task'
+  | 'delegate_status'
+  | 'delegate_cancel'
   | 'skill_view'
   | 'todo'
   | 'memory'
@@ -79,6 +82,35 @@ export interface SessionSearchArgs {
 /** `search_platform_tools` args (M20.7.2): what the model wants to do. */
 export interface SearchPlatformToolsArgs {
   readonly query: string;
+}
+
+/** `delegate_task` args (M21.1): peel work off into an isolated child. */
+export interface DelegateTaskArgs {
+  /** What the child should achieve (required, non-blank). */
+  readonly goal: string;
+  /**
+   * Explicit context for the child (optional). The parent transcript is
+   * never copied — if the child must see something, it goes here.
+   */
+  readonly context?: string;
+  /**
+   * Capability narrowing (M21.2, optional): toolset selectors the child may
+   * use. Intersected with the operator policy — narrowing only, never
+   * widening. Omitted = the parent's full policy universe (minus
+   * delegation itself, which children never receive).
+   */
+  readonly toolsets?: string[];
+  /**
+   * Capability narrowing (M21.2, optional): individual tool names the child
+   * may use, added to the toolset selection. Same narrowing rule.
+   */
+  readonly tools?: string[];
+}
+
+/** `delegate_status` / `delegate_cancel` args (M21.1). */
+export interface DelegateTaskRefArgs {
+  /** The task_id returned by `delegate_task`. */
+  readonly taskId: string;
 }
 
 export interface SessionRenameArgs {
@@ -311,6 +343,9 @@ export type ValidatedToolRequest = {
       readonly name: 'search_platform_tools';
       readonly args: SearchPlatformToolsArgs;
     }
+  | { readonly name: 'delegate_task'; readonly args: DelegateTaskArgs }
+  | { readonly name: 'delegate_status'; readonly args: DelegateTaskRefArgs }
+  | { readonly name: 'delegate_cancel'; readonly args: DelegateTaskRefArgs }
   | { readonly name: 'skill_view'; readonly args: SkillViewArgs }
   | { readonly name: 'todo'; readonly args: TodoArgs }
   | { readonly name: 'memory'; readonly args: MemoryArgs }
@@ -424,6 +459,8 @@ const MAX_QUESTION_LENGTH = 500;
 const MIN_CLARIFY_OPTIONS = 2;
 const MAX_CLARIFY_OPTIONS = 4;
 const MAX_OPTION_LENGTH = 200;
+/** Cap on delegate_task capability selectors (narrowing lists stay small). */
+const MAX_DELEGATE_SELECTORS = 20;
 const MIN_CLARIFY_TTL_MS = 1000;
 const MAX_CLARIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_SIZE_PATTERN = '^[0-9]{2,5}x[0-9]{2,5}$';
@@ -660,6 +697,62 @@ const SEARCH_PLATFORM_TOOLS_SCHEMA = deepFreeze({
       description:
         'What you want to do (e.g. "create a github issue"). Matching tool ' +
         'schemas are injected on your next step.',
+    },
+  },
+} as const);
+
+const DELEGATE_TASK_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['goal'],
+  properties: {
+    goal: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_BODY_LENGTH,
+      description:
+        'What the child should achieve. It runs detached in an isolated ' +
+        'session and returns only a bounded summary — never block on it.',
+    },
+    context: {
+      type: 'string',
+      minLength: 1,
+      maxLength: MAX_BODY_LENGTH,
+      description:
+        'Explicit context the child needs. The parent transcript is never ' +
+        'copied; anything the child must see goes here.',
+    },
+    toolsets: {
+      type: 'array',
+      maxItems: MAX_DELEGATE_SELECTORS,
+      items: { type: 'string', minLength: 1, maxLength: MAX_ID_LENGTH },
+      description:
+        'Optional narrowing: toolset selectors the child may use. ' +
+        'Intersected with operator policy — narrowing only, never widening.',
+    },
+    tools: {
+      type: 'array',
+      maxItems: MAX_DELEGATE_SELECTORS,
+      items: { type: 'string', minLength: 1, maxLength: MAX_ID_LENGTH },
+      description:
+        'Optional narrowing: individual tool names the child may use, added ' +
+        'to the toolset selection. Same narrowing rule.',
+    },
+  },
+} as const);
+
+const DELEGATE_TASK_REF_SCHEMA = deepFreeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['taskId'],
+  properties: {
+    taskId: {
+      type: 'string',
+      pattern: NONBLANK_PATTERN,
+      minLength: 1,
+      maxLength: MAX_ID_LENGTH,
+      description: 'The task_id returned by delegate_task.',
     },
   },
 } as const);
@@ -1148,6 +1241,38 @@ const DESCRIPTORS: readonly ToolDescriptor[] = Object.freeze([
     approval: 'none',
     toolset: 'tools',
     argsSchema: SEARCH_PLATFORM_TOOLS_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'delegate_task',
+    version: 1,
+    description:
+      'Peel work off into an isolated subagent running in the background. ' +
+      'Give a goal (and any context it needs); you get a task_id back ' +
+      'immediately and the child returns only a bounded summary. Poll with ' +
+      'delegate_status, stop with delegate_cancel. Children cannot delegate.',
+    approval: 'none',
+    toolset: 'subagents',
+    argsSchema: DELEGATE_TASK_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'delegate_status',
+    version: 1,
+    description:
+      'Check a delegated subagent task: state, and the bounded summary once ' +
+      'it finishes. Never blocks.',
+    approval: 'none',
+    toolset: 'subagents',
+    argsSchema: DELEGATE_TASK_REF_SCHEMA,
+  }),
+  Object.freeze({
+    name: 'delegate_cancel',
+    version: 1,
+    description:
+      'Stop a delegated subagent task. The child terminates truthfully; ' +
+      'partial work stays in its transcript.',
+    approval: 'none',
+    toolset: 'subagents',
+    argsSchema: DELEGATE_TASK_REF_SCHEMA,
   }),
   Object.freeze({
     name: 'skill_view',
@@ -1701,6 +1826,75 @@ function validateSearchPlatformToolsArgs(
     return query;
   }
   return { ok: true, value: Object.freeze({ query: query.value }) };
+}
+
+function validateDelegateTaskArgs(
+  args: Record<string, unknown>,
+): ParseResult<DelegateTaskArgs> {
+  const unknownField = rejectUnknownFields(args, [
+    'goal',
+    'context',
+    'toolsets',
+    'tools',
+  ]);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const goal = validText(ownValue(args, 'goal'), 'goal', MAX_BODY_LENGTH);
+  if (!goal.ok) {
+    return goal;
+  }
+  const out: {
+    goal: string;
+    context?: string;
+    toolsets?: string[];
+    tools?: string[];
+  } = { goal: goal.value };
+  const rawContext = ownValue(args, 'context');
+  if (rawContext !== undefined) {
+    const context = validText(rawContext, 'context', MAX_BODY_LENGTH);
+    if (!context.ok) {
+      return context;
+    }
+    out.context = context.value;
+  }
+  for (const field of ['toolsets', 'tools'] as const) {
+    const raw = ownValue(args, field);
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw)) {
+      return { ok: false, message: `${field} must be an array of strings` };
+    }
+    if (raw.length > MAX_DELEGATE_SELECTORS) {
+      return {
+        ok: false,
+        message: `${field} must have at most ${MAX_DELEGATE_SELECTORS} items`,
+      };
+    }
+    const cleaned: string[] = [];
+    for (const item of raw) {
+      const parsed = validText(item, `${field}[]`, MAX_ID_LENGTH);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      cleaned.push(parsed.value);
+    }
+    out[field] = [...new Set(cleaned)];
+  }
+  return { ok: true, value: Object.freeze(out) };
+}
+
+function validateDelegateTaskRefArgs(
+  args: Record<string, unknown>,
+): ParseResult<DelegateTaskRefArgs> {
+  const unknownField = rejectUnknownFields(args, ['taskId']);
+  if (unknownField !== undefined) {
+    return { ok: false, message: unknownField };
+  }
+  const taskId = validText(ownValue(args, 'taskId'), 'taskId', MAX_ID_LENGTH);
+  if (!taskId.ok) {
+    return taskId;
+  }
+  return { ok: true, value: Object.freeze({ taskId: taskId.value }) };
 }
 
 function validateTodoArgs(
@@ -2733,6 +2927,48 @@ export class ToolRegistry {
         ok: true,
         request: Object.freeze({
           name: 'search_platform_tools',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'delegate_task') {
+      const result = validateDelegateTaskArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'delegate_task',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'delegate_status') {
+      const result = validateDelegateTaskRefArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'delegate_status',
+          ...base,
+          args: result.value,
+        }),
+      };
+    }
+    if (descriptor.name === 'delegate_cancel') {
+      const result = validateDelegateTaskRefArgs(args);
+      if (!result.ok) {
+        return fail('invalid_args', result.message);
+      }
+      return {
+        ok: true,
+        request: Object.freeze({
+          name: 'delegate_cancel',
           ...base,
           args: result.value,
         }),

@@ -16,6 +16,12 @@ export interface ApprovalRequest {
   expiresAt?: string;
   /** ISO timestamp of the terminal transition, if resolved. */
   resolvedAt?: string;
+  /**
+   * The tool-round request that parked on this approval (M21.3). Present
+   * only for tool approvals — lets a parked turn resume from the queue
+   * alone, which is the only handle a detached child leaves behind.
+   */
+  requestId?: string;
 }
 
 export interface ApprovalEvent {
@@ -31,6 +37,7 @@ export interface NewApproval {
   action: string;
   description?: string;
   expiresAt?: string;
+  requestId?: string;
 }
 
 /** Thrown when no approval with the id exists. */

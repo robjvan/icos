@@ -33,6 +33,7 @@ import type { CronJob } from '../cron/cron-job.repository';
 import type { ToolRpcTokens } from './tool-rpc.tokens';
 import type { ToolPrefsService } from './tool-prefs.service';
 import type { ToolSurfaceService } from './tool-surface.service';
+import type { SubagentRunner } from '../subagents/subagent-runner.service';
 import type { ToolDescriptor } from './tool-registry';
 import type { BrowserService } from '../browser/browser.service';
 import type { BrowserAction } from '../browser/browser.service';
@@ -75,6 +76,8 @@ import type {
   ReadFileArgs,
   SearchFilesArgs,
   SearchPlatformToolsArgs,
+  DelegateTaskArgs,
+  DelegateTaskRefArgs,
   SkillManageArgs,
   SkillViewArgs,
   TerminalArgs,
@@ -421,6 +424,7 @@ export class ToolExecutionService {
     private readonly browser?: BrowserService,
     private readonly toolPrefs?: ToolPrefsService,
     private readonly surface?: ToolSurfaceService,
+    private readonly subagents?: SubagentRunner,
   ) {
     this.searchTimeoutMs = options.searchTimeoutMs ?? 2000;
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
@@ -487,6 +491,7 @@ export class ToolExecutionService {
             sessionId: input.sessionId,
             action: approvalActionFor(request),
             description: approvalDescriptionFor(request),
+            requestId: input.requestId,
           });
           parkedApprovalId = approval.id;
         } else if (
@@ -751,6 +756,19 @@ export class ToolExecutionService {
             sessionId,
           ),
         );
+      case 'delegate_task':
+        return this.nativeDelegateTask(
+          args as unknown as DelegateTaskArgs,
+          sessionId,
+        );
+      case 'delegate_status':
+        return this.nativeDelegateStatus(
+          args as unknown as DelegateTaskRefArgs,
+        );
+      case 'delegate_cancel':
+        return this.nativeDelegateCancel(
+          args as unknown as DelegateTaskRefArgs,
+        );
       case 'skill_view':
         return this.nativeSkillView(args as unknown as SkillViewArgs);
       case 'todo':
@@ -982,7 +1000,7 @@ export class ToolExecutionService {
         note: 'Discovery budget reached for this turn; use the tools already offered.',
       };
     }
-    const matches = surface.discover(args.query);
+    const matches = surface.discover(args.query, undefined, sessionId);
     surface.recordPull(sessionId);
     const names = matches.map((match) => match.tool.name);
     surface.stagePullNow(sessionId, names);
@@ -1001,6 +1019,66 @@ export class ToolExecutionService {
           ? 'These tools are now available; call them on your next step.'
           : 'No matching tools. Try different words, or proceed with what you have.',
     };
+  }
+
+  /**
+   * M21.1 async delegation. Spawns an isolated child turn and returns
+   * immediately — the parent never blocks. Refusals (disabled, capped,
+   * nested) are structured results, not throws, so the parent model can
+   * react to them in context.
+   */
+  private async nativeDelegateTask(
+    args: DelegateTaskArgs,
+    sessionId: string,
+  ): Promise<unknown> {
+    if (!this.subagents) throw new Error('subagents_unavailable');
+    const result = await this.subagents.spawn({
+      parentSessionId: sessionId,
+      goal: args.goal,
+      ...(args.context !== undefined ? { context: args.context } : {}),
+      ...(args.toolsets !== undefined ? { toolsets: args.toolsets } : {}),
+      ...(args.tools !== undefined ? { tools: args.tools } : {}),
+    });
+    if (!result.spawned) {
+      return { spawned: false, reason: result.reason };
+    }
+    return {
+      spawned: true,
+      taskId: result.taskId,
+      note: 'The child runs in the background. Poll delegate_status for its summary; do not block on it.',
+    };
+  }
+
+  /** M21.1 delegation poll. Never blocks; reconciles parked children first. */
+  private async nativeDelegateStatus(
+    args: DelegateTaskRefArgs,
+  ): Promise<unknown> {
+    if (!this.subagents) throw new Error('subagents_unavailable');
+    const record = await this.subagents.status(args.taskId);
+    if (!record) {
+      return { taskId: args.taskId, state: 'unknown_task' };
+    }
+    return {
+      taskId: record.id,
+      state: record.state,
+      goal: record.goal,
+      ...(record.resultSummary !== null
+        ? { resultSummary: record.resultSummary }
+        : {}),
+      ...(record.error !== null ? { error: record.error } : {}),
+    };
+  }
+
+  /** M21.1 delegation cancel. Cooperative; terminal states are untouched. */
+  private async nativeDelegateCancel(
+    args: DelegateTaskRefArgs,
+  ): Promise<unknown> {
+    if (!this.subagents) throw new Error('subagents_unavailable');
+    const record = await this.subagents.cancel(args.taskId);
+    if (!record) {
+      return { taskId: args.taskId, state: 'unknown_task' };
+    }
+    return { taskId: record.id, state: record.state };
   }
 
   /** Read a skill's full instructions by name. */

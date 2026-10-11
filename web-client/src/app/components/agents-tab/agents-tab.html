@@ -1,5 +1,41 @@
-<app-tab-placeholder
-  title="Agents"
-  description="Agent orchestration, run state, and persona maintenance UI."
-  milestone="M9/M14"
-/>
+<section class="tab-pane" aria-label="Agents">
+  <div class="tab-pane-header">
+    <h1>Agents</h1>
+    <span class="badge">server-backed</span>
+    <span class="grow"></span>
+    <button type="button" (click)="refresh()">Refresh</button>
+  </div>
+
+  <p class="hint">
+    Delegated subagent tasks for the active session. Children run detached in
+    isolated sessions and return only a bounded summary — spawning stays with
+    the <span class="mono">delegate_task</span> tool, cancelling with
+    <span class="mono">/agents cancel</span>. Currently {{ activeCount() }} active.
+  </p>
+
+  @if (error() !== null) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <ul class="delegation-list" aria-label="Delegated subagent tasks">
+    @for (delegation of delegations(); track delegation.id) {
+      <li class="delegation">
+        <div class="delegation-header">
+          <span class="id mono">{{ shortId(delegation.id) }}</span>
+          <span class="state" [class.active]="delegation.state === 'running' || delegation.state === 'awaiting_approval'">
+            {{ delegation.state }}
+          </span>
+        </div>
+        <p class="goal">{{ delegation.goal }}</p>
+        @if (delegation.resultSummary !== null) {
+          <p class="summary">{{ delegation.resultSummary }}</p>
+        }
+        @if (delegation.error !== null) {
+          <p class="error-text">{{ delegation.error }}</p>
+        }
+      </li>
+    } @empty {
+      <li class="empty">No delegated subagent tasks for this session.</li>
+    }
+  </ul>
+</section>

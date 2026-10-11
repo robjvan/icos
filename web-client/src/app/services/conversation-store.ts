@@ -159,6 +159,17 @@ export class ConversationStore {
     if (parked) {
       this.pendingResumes.delete(id);
       await this.resumeTurn(parked.requestId, parked.sessionId);
+      return;
+    }
+    // M21.3 fallback: a parked turn this client never saw (e.g. a detached
+    // child's) carries its resume request on the approval itself.
+    try {
+      const detail = await this.approvalsApi.detail(id);
+      if (detail.requestId) {
+        await this.resumeTurn(detail.requestId, detail.sessionId);
+      }
+    } catch {
+      // Fall through; failures stay visible as pending.
     }
   }
 

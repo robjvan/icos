@@ -114,8 +114,14 @@ import { ConversationService } from './conversation.service';
 import { ContextBudgetService } from './context-budget.service';
 import { ContextCompactionService } from './context-compaction.service';
 import { ContextController } from './context.controller';
+import { DelegationsController } from '../subagents/delegations.controller';
+import { CHILD_TURN_RUNNER } from '../subagents/child-turn.port';
+import { ConversationTurnAdapter } from './conversation-turn.adapter';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { ToolPullStore } from '../tools/tool-pull.store';
+import { DelegationRepository } from '../subagents/delegation.repository';
+import { SqliteDelegationRepository } from '../subagents/sqlite-delegation.repository';
+import { SubagentRunner } from '../subagents/subagent-runner.service';
 import { SessionStore } from './session.store';
 import { SessionsController } from './sessions.controller';
 
@@ -147,6 +153,7 @@ const toolExecutionServiceProvider = {
     browser: BrowserService,
     toolPrefs: ToolPrefsService,
     surface: ToolSurfaceService,
+    subagents: SubagentRunner,
   ): ToolExecutionService =>
     new ToolExecutionService(
       ledger,
@@ -179,6 +186,7 @@ const toolExecutionServiceProvider = {
       browser,
       toolPrefs,
       surface,
+      subagents,
     ),
   inject: [
     ToolExecutionRepository,
@@ -206,6 +214,7 @@ const toolExecutionServiceProvider = {
     BrowserService,
     ToolPrefsService,
     ToolSurfaceService,
+    SubagentRunner,
   ],
 };
 
@@ -235,6 +244,7 @@ const toolExecutionServiceProvider = {
     HallucinationController,
     CronController,
     ContextController,
+    DelegationsController,
   ],
   providers: [
     coreConfigProvider,
@@ -356,8 +366,16 @@ const toolExecutionServiceProvider = {
     ContextCompactionService,
     ToolSurfaceService,
     ToolPullStore,
+    { provide: DelegationRepository, useClass: SqliteDelegationRepository },
+    { provide: CHILD_TURN_RUNNER, useClass: ConversationTurnAdapter },
+    SubagentRunner,
     SessionStore,
   ],
-  exports: [ConversationService, ApprovalService, CommandDispatcher],
+  exports: [
+    ConversationService,
+    ApprovalService,
+    CommandDispatcher,
+    DelegationRepository,
+  ],
 })
 export class ConversationModule {}

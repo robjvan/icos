@@ -211,6 +211,11 @@ M18) matters more than which YOLO generation ships.
   model holds its memory until unloaded.
 - Offload verification to the CPU when you can; it is bursty and
   latency-tolerant.
+- Subagents multiply LLM calls, not models: each child runs the same loop
+  through the same endpoints, bounded by `SUBAGENT_MAX_CONCURRENT` (default
+  4) and the per-child step/duration budgets. The cost lever is fan-out and
+  budgets, not residency — four concurrent children on a cloud chat model
+  is four concurrent bills.
 
 ## Choosing, quickly
 

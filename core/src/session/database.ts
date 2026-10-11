@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS approvals (
     updated_at TEXT NOT NULL,
     expires_at TEXT,
     resolved_at TEXT,
+    -- M21.3: the tool-round request that parked on this approval, so a
+    -- parked turn is resumable from the queue alone (detached children
+    -- have no client holding the request id).
+    request_id TEXT,
 
     FOREIGN KEY (session_id)
         REFERENCES sessions(id)
@@ -237,6 +241,34 @@ CREATE TABLE IF NOT EXISTS context_summaries (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- M21.1: async subagent delegations. One row per spawned child: the parent
+-- session/run that delegated, the child's own (fresh, isolated) session, the
+-- goal, terminal state, and the bounded result summary. Child sessions are
+-- NOT cascade-deleted (SET NULL): the delegation record must survive session
+-- cleanup so provenance stays walkable. cancel_requested is the cooperative
+-- cancel flag the child loop checks each iteration.
+CREATE TABLE IF NOT EXISTS delegations (
+    id TEXT PRIMARY KEY,
+    parent_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    child_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    parent_run_id TEXT,
+    goal TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('running', 'awaiting_approval', 'completed', 'failed', 'cancelled', 'budget_exhausted')),
+    result_summary TEXT,
+    error TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+    budgets_json TEXT NOT NULL DEFAULT '{}',
+    notified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_delegations_parent
+ON delegations(parent_session_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_delegations_child
+ON delegations(child_session_id);
 `;
 
 /**
@@ -817,6 +849,7 @@ const SCHEMAS: Record<
       'session_todos',
       'cron_jobs',
       'context_summaries',
+      'delegations',
     ],
     triggers: [
       'messages_ai',
@@ -907,6 +940,10 @@ function migrateColumns(db: Database.Database, schema: DatabaseSchema): void {
       `TEXT NOT NULL DEFAULT 'pending' CHECK (transcript_state IN ('pending', 'written'))`,
     );
     addColumnIfMissing(db, 'agent_runs', 'clarification_id', 'TEXT');
+    // M21.3: live approval rows predate the resume-request linkage.
+    addColumnIfMissing(db, 'approvals', 'request_id', `TEXT`);
+    // M21.2: live delegation rows predate the completion-band cursor.
+    addColumnIfMissing(db, 'delegations', 'notified_at', `TEXT`);
   }
   if (schema === 'memories') {
     // M10b: live ledger files predate the origin stamp.

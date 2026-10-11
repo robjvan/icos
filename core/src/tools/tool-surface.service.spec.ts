@@ -85,4 +85,53 @@ describe('ToolSurfaceService', () => {
     pulls.beginTurn('s1');
     expect(s.canPull('s1')).toBe(true);
   });
+
+  it('narrows a session universe through an overlay', () => {
+    const { surface: s } = surface();
+    const full = s.universe('child-1').map((d) => d.name);
+    expect(full).toContain('terminal');
+    expect(full).toContain('memory');
+    s.setOverlay('child-1', { toolsets: ['memory'] });
+    const narrowed = s.universe('child-1').map((d) => d.name);
+    expect(narrowed).toContain('memory');
+    expect(narrowed).not.toContain('terminal');
+    expect(narrowed).not.toContain('read_file');
+    // Other sessions are unaffected.
+    expect(s.universe('other').map((d) => d.name)).toContain('terminal');
+    // Overlay-excluded tools are declared, never silent.
+    expect(s.disabled('child-1').map((d) => d.name)).toContain('terminal');
+  });
+
+  it('adds individual tools to the toolset selection', () => {
+    const { surface: s } = surface();
+    s.setOverlay('child-1', { toolsets: ['memory'], tools: ['todo'] });
+    const names = s.universe('child-1').map((d) => d.name);
+    expect(names).toContain('memory');
+    expect(names).toContain('todo');
+    expect(names).not.toContain('terminal');
+  });
+
+  it('cannot widen past operator policy', () => {
+    const { surface: s } = surface({ toolsDisabled: ['terminal'] });
+    s.setOverlay('child-1', { toolsets: ['terminal'] });
+    expect(s.universe('child-1').map((d) => d.name)).not.toContain('terminal');
+  });
+
+  it('clears empty overlays and unknown sessions', () => {
+    const { surface: s } = surface();
+    s.setOverlay('child-1', { toolsets: [], tools: [] });
+    s.setOverlay('child-1', {});
+    expect(s.universe('child-1')).toEqual(s.universe());
+    s.clearOverlay('missing');
+  });
+
+  it('narrows discovery and injection for the overlaid session', () => {
+    const { surface: s } = surface();
+    s.setOverlay('child-1', { toolsets: ['memory'] });
+    expect(s.discover('run a terminal command', undefined, 'child-1')).toEqual(
+      [],
+    );
+    const { allowedTools } = s.injected('child-1', 'run a terminal command');
+    expect(allowedTools).not.toContain('terminal');
+  });
 });
