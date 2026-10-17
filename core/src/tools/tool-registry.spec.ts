@@ -838,14 +838,14 @@ describe('ToolRegistry', () => {
           {
             name: 'skill_view',
             version: 1,
-            args: { name: 'icos-v3-stack' },
+            args: { name: 'icos-stack' },
           },
           contextWith(ALL_TOOLS),
         ),
       );
       expect(view).toMatchObject({
         name: 'skill_view',
-        args: { name: 'icos-v3-stack' },
+        args: { name: 'icos-stack' },
       });
 
       const bad: unknown[] = [
