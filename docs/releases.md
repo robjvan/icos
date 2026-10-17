@@ -4,7 +4,9 @@
 > the milestone list below it is the changelog. Planned releases are marked
 > **PLANNED**. Released entries carry the commit they were cut from.
 
-## PLANNED - v1.3 Open-Ended Inquiry
+## PLANNED - v3.0
+
+## PLANNED - v2.3-m40_test Open-Ended Inquiry
 
 The agent stops waiting to be asked. It acquires knowledge from open sources,
 directs its own research, and asks questions nobody put to it — while staying
@@ -17,7 +19,7 @@ its next generation.
 - **M38:** Continuity
 - **M40:** Open-Ended Research
 
-## PLANNED - v1.2 Cognitive Expansion
+## PLANNED - v2.2-m32_test Cognitive Expansion
 
 The agent learns from experiment and holds goals over long horizons. It routes
 tasks across specialist models, runs controlled experiments to test hypotheses,
@@ -28,19 +30,37 @@ disagreement between models into signal rather than noise.
 - **M31:** Multi-Model Cognition
 - **M32:** Long-horizon Agency
 
-## PLANNED - v1.1 Perception & Self-Improvement
+## PLANNED - v2.1-m29_test Perception & Self-Improvement
 
 The agent turns its attention inward. It observes its own runtime and behavior,
 measures what it can actually do against what it assumes, maintains itself, and
 — under human approval — proposes and stages changes to its own code. A system
 that can inspect, repair, and reproduce itself.
 
-- **M24:** External sensor support
-- **M25:** Reactionary events (ties to M24)
 - **M26:** Self-Observation and Introspection
 - **M27:** Self-Evaluation and Capability Assessment
 - **M28:** Self-Maintenance
 - **M29:** Autopoiesis
+
+## PLANNED - v2.0 Agency Extended
+
+Beyond conversation, the agent acts. It executes autonomous actions under
+explicit trust and approval boundaries, tends a knowledge base as a living
+structure, listens to the physical world through sensors, and reacts to events
+without being prompted — with kill-switches and a full audit trail.
+
+## PLANNED - v1.3-m25_test
+
+- **M24:** External sensor support
+- **M25:** Reactionary events (ties to M24)
+
+## PLANNED - v1.2-m23_test
+
+- **M23:** Knowledge base stewardship
+
+## PLANNED - v1.1-m22_test
+
+- **M22:** Autonomous agent and action execution
 
 ## PLANNED - v1.0 Release
 
@@ -50,23 +70,13 @@ presents a stable web client — all on a hardened, provider-agnostic core. This
 is the first release we would call finished: the "put the agent into an
 environment" phase, complete.
 
-## PLANNED - v0.7.1 Agency Extended
-
-Beyond conversation, the agent acts. It executes autonomous actions under
-explicit trust and approval boundaries, tends a knowledge base as a living
-structure, listens to the physical world through sensors, and reacts to events
-without being prompted — with kill-switches and a full audit trail.
-
-- **M22:** Autonomous agent and action execution
-- **M23:** Knowledge base stewardship
-
-## PLANNED - v0.7 Agency
+## v0.7 Agency
 
 The agent learns to delegate. Subagents inherit bounded context and capability,
 run in parallel, and return verified results — with their own budgets,
 permissions, and provenance, so a parent agent can trust what comes back.
 
-- **M21:** Subagent support
+- **M21:** Subagent support (dc0dd44805cf06a27b164ea3472f81339e6b7111)
 
 ## v0.6 Tools and Skills Expansion, Feature Rollup
 

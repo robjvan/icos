@@ -1,7 +1,6 @@
 import {
   mkdtempSync,
   mkdirSync,
-  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -15,7 +14,6 @@ import {
   parseSkillFile,
   scanSkillDir,
 } from './skill-loader';
-import { discoverSkills } from './skill-discovery';
 
 const OPTS = { maxBodyChars: 12000 };
 
@@ -265,22 +263,6 @@ describe('scanSkillDir / loadSkillBody', () => {
     });
   });
 
-  it.each([
-    'icos-v3-stack',
-    'persona-anchor',
-    'daily-journal',
-    'comments-pass',
-    'capture-idea',
-  ])('ship seed %s parses clean under the validator', (name) => {
-    const raw = readFileSync(
-      join(__dirname, '..', '..', 'skills', 'legacy', name, SKILL_FILE),
-      'utf8',
-    );
-    const parsed = parseSkillFile(raw, OPTS);
-    expect(parsed.name).toBe(name);
-    expect(parsed.body.length).toBeLessThanOrEqual(2000);
-  });
-
   it('loads the real skill collection under its category layout (M18)', async () => {
     const root = join(__dirname, '..', '..', 'skills');
     const result = await scanSkillDir(root, { maxBodyChars: 64 * 1024 });
@@ -293,25 +275,6 @@ describe('scanSkillDir / loadSkillBody', () => {
       category: 'research',
     });
     const journal = result.descriptors.find((d) => d.name === 'daily-journal');
-    expect(journal?.path).toBe('legacy/daily-journal');
-  });
-
-  it('anchors discovery on the real icos-v3-stack seed', () => {
-    const seeds = join(__dirname, '..', '..', 'skills', 'legacy');
-    const descriptors = (
-      ['icos-v3-stack', 'daily-journal', 'comments-pass'] as const
-    ).map((name) => {
-      const parsed = parseSkillFile(
-        readFileSync(join(seeds, name, SKILL_FILE), 'utf8'),
-        OPTS,
-      );
-      return {
-        name: parsed.name,
-        description: parsed.description,
-        version: parsed.version,
-      };
-    });
-    const matches = discoverSkills(descriptors, 'working on the ICOS v3 stack');
-    expect(matches[0]?.skill.name).toBe('icos-v3-stack');
+    expect(journal?.path).toBe('productivity/daily-journal');
   });
 });

@@ -1,6 +1,10 @@
+/** Where the resolved context window came from (FG6). */
+export type ContextWindowSource = 'provider' | 'env' | 'probe' | 'default';
+
 /** Resolved context budget (M20.6). Mirrors the core `ContextSettings`. */
 export interface ContextSettings {
   contextWindow: number;
+  contextWindowSource: ContextWindowSource;
   maxOutputTokens: number;
   usableTokens: number;
   triggerTokens: number;
@@ -25,5 +29,13 @@ export interface ContextSettingsResponse {
 export interface ContextSummaryResponse {
   sessionId: string;
   summary: ContextSummary | null;
+  settings: ContextSettings;
+  usedTokens: number | null;
+}
+
+/** Live context usage for the gauge (FG9c). */
+export interface ContextUsageResponse {
+  sessionId: string;
+  usedTokens: number | null;
   settings: ContextSettings;
 }

@@ -49,6 +49,7 @@ export class ContextController {
     sessionId: string;
     summary: unknown;
     settings: ReturnType<ContextBudgetService['settings']>;
+    usedTokens: number | null;
   }> {
     if (!sessionId?.trim()) {
       throw new BadRequestException(
@@ -58,6 +59,26 @@ export class ContextController {
     return {
       sessionId,
       summary: await this.compaction.summaryFor(sessionId),
+      settings: this.budget.settings(),
+      usedTokens: this.budget.usageFor(sessionId),
+    };
+  }
+
+  /** Live context usage for the gauge (FG9c). */
+  @Get('usage')
+  usage(@Query('sessionId') sessionId?: string): {
+    sessionId: string;
+    usedTokens: number | null;
+    settings: ReturnType<ContextBudgetService['settings']>;
+  } {
+    if (!sessionId?.trim()) {
+      throw new BadRequestException(
+        'Usage: /core/context/usage?sessionId=<id>',
+      );
+    }
+    return {
+      sessionId,
+      usedTokens: this.budget.usageFor(sessionId),
       settings: this.budget.settings(),
     };
   }

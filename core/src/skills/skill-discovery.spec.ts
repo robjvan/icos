@@ -7,7 +7,7 @@ function descriptor(name: string, description: string): SkillDescriptor {
 
 const CATALOG: SkillDescriptor[] = [
   descriptor(
-    'icos-v3-stack',
+    'icos-stack',
     'Architecture and conventions of the ICOS v3 stack.',
   ),
   descriptor('daily-journal', 'Capture the day as a structured journal entry.'),
@@ -20,11 +20,10 @@ const CATALOG: SkillDescriptor[] = [
 
 describe('tokenizeInput', () => {
   it('lowercases and splits on non-alphanumerics', () => {
-    expect(tokenizeInput('Working on ICOS-v3 stack!')).toEqual([
+    expect(tokenizeInput('Working on icos stack!')).toEqual([
       'working',
       'on',
       'icos',
-      'v3',
       'stack',
     ]);
   });
@@ -39,9 +38,9 @@ describe('tokenizeInput', () => {
 });
 
 describe('discoverSkills', () => {
-  it('matches the demo anchor query to icos-v3-stack', () => {
-    const matches = discoverSkills(CATALOG, 'working on the ICOS v3 stack');
-    expect(matches[0]?.skill.name).toBe('icos-v3-stack');
+  it('matches the demo anchor query to icos-stack', () => {
+    const matches = discoverSkills(CATALOG, 'working on the ICOS stack');
+    expect(matches[0]?.skill.name).toBe('icos-stack');
     expect(matches[0]?.matchedOn).toContain('name');
   });
 

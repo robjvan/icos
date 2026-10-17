@@ -12,6 +12,12 @@
       Active source: <strong>{{ rep.source }}</strong> · conversation
       <span class="mono">{{ rep.active.conversation }}</span> · memory
       <span class="mono">{{ rep.active.memory }}</span>
+      @if (conversationReach(); as reach) {
+        · reachability
+        <span [class]="reach.ok ? 'reach-ok' : 'reach-bad'">{{
+          reach.ok ? 'reachable' : reach.detail
+        }}</span>
+      }
     </p>
   }
 
@@ -21,6 +27,45 @@
   @if (notice() !== null) {
     <p class="notice" role="status">{{ notice() }}</p>
   }
+
+  <fieldset class="active-panel" aria-label="Active selection">
+    <legend>Active selection</legend>
+    @for (role of roles; track role) {
+      <div class="active-row">
+        <span class="mono role">{{ role }}</span>
+        <select
+          [value]="activeDraft()[role].provider"
+          (change)="onActiveProvider(role, $event)"
+          [attr.aria-label]="role + ' provider'"
+        >
+          <option value="">— provider —</option>
+          @for (p of report()?.providers ?? []; track p.id) {
+            <option [value]="p.id">{{ p.id }}</option>
+          }
+        </select>
+        <input
+          [value]="activeDraft()[role].model"
+          (input)="onActiveModel(role, $event)"
+          [attr.list]="'active-models-' + role"
+          placeholder="model"
+          autocomplete="off"
+          [attr.aria-label]="role + ' model'"
+        />
+        <datalist [id]="'active-models-' + role">
+          @for (m of activeModels()[role]; track m.id) {
+            <option [value]="m.id"></option>
+          }
+        </datalist>
+        <button type="button" (click)="applyActive(role)" [disabled]="busy()">
+          Apply
+        </button>
+      </div>
+    }
+    <p class="hint">
+      Pick a provider, then a model from its list (or type one). Takes effect on
+      the next turn.
+    </p>
+  </fieldset>
 
   <table class="grid" aria-label="Configured providers">
     <thead>
@@ -36,7 +81,17 @@
     <tbody>
       @for (status of report()?.providers ?? []; track status.id) {
         <tr>
-          <td class="mono">{{ status.id }}</td>
+          <td class="mono">
+            {{ status.id }}
+            @if (reachableFor(status.id) !== undefined) {
+              <span
+                class="badge"
+                [class.reach-ok]="reachableFor(status.id) === true"
+                [class.reach-bad]="reachableFor(status.id) === false"
+                >{{ reachableFor(status.id) ? 'up' : 'down' }}</span
+              >
+            }
+          </td>
           <td class="mono">{{ status.model }}</td>
           <td class="mono url">{{ status.baseUrl }}</td>
           <td>{{ status.hasKey ? 'present' : (status.enabled ? 'missing' : 'disabled') }}</td>
@@ -86,24 +141,83 @@
       <input id="p-base" formControlName="baseUrl" autocomplete="off" />
 
       <label for="p-model">Model</label>
-      <input id="p-model" formControlName="model" autocomplete="off" />
+      <div class="model-row">
+        <input
+          id="p-model"
+          formControlName="model"
+          autocomplete="off"
+          list="editor-models"
+        />
+        <button type="button" (click)="loadEditorModels()" [disabled]="busy()">
+          Load models
+        </button>
+      </div>
+      <datalist id="editor-models">
+        @for (m of editorModels(); track m.id) {
+          <option [value]="m.id"></option>
+        }
+      </datalist>
 
-      <label for="p-key">API key reference</label>
+      <label for="p-key">API key</label>
       <input
         id="p-key"
         formControlName="apiKeyRef"
         autocomplete="off"
-        placeholder="secret:openrouter"
+        list="vault-secrets"
+        placeholder="paste the key, or secret:NAME / $VAR"
       />
+      <datalist id="vault-secrets">
+        @for (s of secrets(); track s.name) {
+          <option [value]="'secret:' + s.name"></option>
+        }
+      </datalist>
+      <p class="hint">
+        Paste the key — it is stored in the encrypted vault and referenced
+        (never written to the catalog). Or enter
+        <span class="mono">secret:NAME</span> to reuse a stored secret, or
+        <span class="mono">$VAR</span> for an environment variable.
+        @if (!vaultWritable()) {
+          <strong>The vault is disabled — enable it to store keys.</strong>
+        }
+      </p>
 
-      <label for="p-headers">Headers (NAME=$VAR or NAME=secret:NAME)</label>
-      <textarea id="p-headers" formControlName="headers" rows="2" spellcheck="false"></textarea>
+      <label for="p-headers">Headers (optional)</label>
+      <textarea
+        id="p-headers"
+        formControlName="headers"
+        rows="2"
+        spellcheck="false"
+        placeholder="HTTP-Referer=$REFERER"
+      ></textarea>
+      <p class="hint">
+        One per line, <span class="mono">NAME=$VAR</span> or
+        <span class="mono">NAME=secret:NAME</span>. Values are references, never
+        literals. Example (OpenRouter attribution):
+        <span class="mono">HTTP-Referer=$REFERER</span>.
+      </p>
 
-      <label for="p-ua">User agent</label>
-      <input id="p-ua" formControlName="userAgent" autocomplete="off" />
+      <label for="p-ua">User agent (optional)</label>
+      <input
+        id="p-ua"
+        formControlName="userAgent"
+        autocomplete="off"
+        placeholder="icos/&lt;version&gt;"
+      />
+      <p class="hint">
+        Identifies the client to the provider. Defaults to
+        <span class="mono">icos/&lt;version&gt;</span>.
+      </p>
 
       <label for="p-timeout">Timeout (ms)</label>
       <input id="p-timeout" formControlName="timeoutMs" inputmode="numeric" autocomplete="off" />
+
+      <label for="p-window">Context window (tokens)</label>
+      <input
+        id="p-window"
+        formControlName="contextWindow"
+        inputmode="numeric"
+        autocomplete="off"
+      />
 
       <label class="inline">
         <input type="checkbox" formControlName="enabled" />

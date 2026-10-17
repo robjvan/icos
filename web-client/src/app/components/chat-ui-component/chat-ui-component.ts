@@ -14,7 +14,9 @@ import { Composer } from '../composer/composer';
 import { MessageList } from '../message-list/message-list';
 import { QuestionCard } from '../question-card/question-card';
 import { SessionSidebar } from '../session-sidebar/session-sidebar';
+import { ContextGauge } from '../context-gauge/context-gauge';
 import { ConversationStore } from '../../services/conversation-store';
+import { ContextService } from '../../services/context.service';
 import type { ComposerSubmission } from '../../models/attachment';
 import { RealtimeService } from '../../services/realtime.service';
 
@@ -30,6 +32,7 @@ import { RealtimeService } from '../../services/realtime.service';
     ApprovalCard,
     QuestionCard,
     Composer,
+    ContextGauge,
     LucidePlus,
     LucideTrash2,
   ],
@@ -40,14 +43,39 @@ import { RealtimeService } from '../../services/realtime.service';
 export class ChatUiComponent implements OnInit, AfterViewChecked {
   readonly store = inject(ConversationStore);
   private readonly realtime = inject(RealtimeService);
+  private readonly contextApi = inject(ContextService);
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
   private readonly composer = viewChild(Composer);
   private pinnedToBottom = true;
   /** Inline confirm for the deliberate, open-session-only delete (M20i). */
   readonly pendingDelete = signal(false);
+  /** Live context usage for the header gauge (FG9c). */
+  readonly usage = signal<{ used: number | null; budget: number; trigger: number }>(
+    { used: null, budget: 0, trigger: 0 },
+  );
 
   ngOnInit(): void {
     void this.store.refreshSessions();
+    void this.refreshUsage();
+  }
+
+  /** Best-effort context usage for the header gauge (FG9c). */
+  async refreshUsage(): Promise<void> {
+    const id = this.store.sessionId();
+    if (!id) {
+      this.usage.set({ used: null, budget: 0, trigger: 0 });
+      return;
+    }
+    try {
+      const result = await this.contextApi.usage(id);
+      this.usage.set({
+        used: result.usedTokens,
+        budget: result.settings.usableTokens,
+        trigger: result.settings.triggerTokens,
+      });
+    } catch {
+      // Gauge is best-effort; keep the last value on failure.
+    }
   }
 
   ngAfterViewChecked(): void {
@@ -70,12 +98,16 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
     this.realtime.trackSession(id);
     void this.store
       .openSession(id)
-      .finally(() => setTimeout(() => this.focusComposer(), 0));
+      .finally(() => {
+        void this.refreshUsage();
+        setTimeout(() => this.focusComposer(), 0);
+      });
   }
 
   startNewSession(): void {
     this.store.newSession();
     this.realtime.trackSession(null);
+    this.usage.set({ used: null, budget: 0, trigger: 0 });
     this.focusComposer();
   }
 
@@ -106,6 +138,7 @@ export class ChatUiComponent implements OnInit, AfterViewChecked {
         // First turn assigns the session id via stream `meta` — track
         // whatever is current so room filtering follows.
         this.realtime.trackSession(this.store.sessionId());
+        void this.refreshUsage();
         setTimeout(() => this.focusComposer(), 0);
       });
   }

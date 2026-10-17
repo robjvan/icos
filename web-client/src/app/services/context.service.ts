@@ -4,6 +4,7 @@ import type {
   ContextSettings,
   ContextSettingsResponse,
   ContextSummaryResponse,
+  ContextUsageResponse,
 } from '../models/context';
 import { CoreApiService } from './core-api.service';
 
@@ -22,6 +23,13 @@ export class ContextService {
 
   async summary(sessionId: string): Promise<ContextSummaryResponse> {
     return this.api.get<ContextSummaryResponse>(`${CONTEXT_ENDPOINT}/summary`, {
+      sessionId,
+    });
+  }
+
+  /** Live context usage for the gauge (FG9c). */
+  async usage(sessionId: string): Promise<ContextUsageResponse> {
+    return this.api.get<ContextUsageResponse>(`${CONTEXT_ENDPOINT}/usage`, {
       sessionId,
     });
   }

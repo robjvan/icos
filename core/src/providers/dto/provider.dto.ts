@@ -18,6 +18,24 @@ export class SetActiveProviderDto {
   @IsString()
   @MaxLength(64)
   id!: string;
+
+  /** Optional model override for the active provider (FG9c). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  model?: string;
+}
+
+/** Probe an endpoint's model list before a provider is saved (FG9c). */
+export class ProbeModelsDto {
+  @IsString()
+  @MaxLength(2048)
+  baseUrl!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  apiKeyRef?: string;
 }
 
 /**
@@ -53,6 +71,13 @@ export class ProviderDto {
   @Min(1)
   @Max(3_600_000)
   timeoutMs?: number;
+
+  /** Declared context window in tokens (per-model). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000)
+  contextWindow?: number;
 
   @IsOptional()
   @IsBoolean()

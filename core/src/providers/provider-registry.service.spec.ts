@@ -125,6 +125,134 @@ describe('ProviderRegistryService', () => {
     expect(JSON.stringify(report)).not.toContain('sk-vault-key');
   });
 
+  it('exposes the active entry window and notifies on reload (FG6)', () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'local' },
+        providers: [
+          {
+            id: 'local',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'gemma',
+            contextWindow: 16384,
+          },
+        ],
+      }),
+    );
+    const service = registry();
+    expect(service.activeEntry('conversation')?.contextWindow).toBe(16384);
+    expect(service.activeEntry('memory')).toBeNull();
+    expect(service.report().providers[0]?.contextWindow).toBe(16384);
+
+    let notified = 0;
+    service.onChange(() => {
+      notified += 1;
+    });
+    service.reload();
+    expect(notified).toBe(1);
+  });
+
+  it('applies a per-role model override and lists models (FG9c)', async () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'local' },
+        providers: [
+          {
+            id: 'local',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'default',
+          },
+        ],
+      }),
+    );
+    const service = registry();
+    expect(service.conversationEndpoint().llmModel).toBe('default');
+
+    service.setActive('conversation', 'local', 'gemma4:e4b');
+    expect(service.conversationEndpoint().llmModel).toBe('gemma4:e4b');
+    expect(service.activeModelFor('conversation')).toBe('gemma4:e4b');
+    expect(service.report().activeModel).toEqual({
+      conversation: 'gemma4:e4b',
+    });
+
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'gemma4:e4b', context_length: 16384 }],
+        }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const result = await service.listModels('local');
+      expect(result.ok).toBe(true);
+      expect(result.models).toEqual([
+        { id: 'gemma4:e4b', contextWindow: 16384 },
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('reports endpoint reachability and caches the probe (FG9b)', async () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'local' },
+        providers: [
+          { id: 'local', baseUrl: 'http://localhost:11434/v1', model: 'gemma' },
+        ],
+      }),
+    );
+    const service = registry();
+    // A 404 on /models is common (opencode) and still means the endpoint
+    // responded — reachable, not a failure.
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 404 }));
+    try {
+      const result = await service.reachability('conversation');
+      expect(result.ok).toBe(true);
+      expect(result.detail).toContain('404');
+      expect(result.provider).toBe('local');
+      // Second read is served from the cache — no new probe.
+      await service.reachability('conversation');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('reports unreachable on a network error (FG9b)', async () => {
+    const service = registry();
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('ECONNREFUSED'));
+    try {
+      const result = await service.reachability('conversation');
+      expect(result.ok).toBe(false);
+      expect(result.detail).toContain('unreachable');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('treats a 5xx as degraded (FG9b)', async () => {
+    const service = registry();
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 503 }));
+    try {
+      const result = await service.reachability('conversation');
+      expect(result.ok).toBe(false);
+      expect(result.detail).toContain('503');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('falls back per role when the active id is disabled or missing', () => {
     writeFileSync(
       providersPath,

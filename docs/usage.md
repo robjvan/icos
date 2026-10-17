@@ -348,8 +348,8 @@ The security work added three management surfaces (admin-only):
   secret references (`$VAR` or `secret:NAME`), never values.
 - **Models** tab — manage LLM providers: add/edit/remove, choose the active
   provider for the **conversation** and **memory** roles, and **Test** a
-  provider's connection. Key presence is shown; the key itself is never
-  displayed.
+  provider's connection. Each provider may declare its model's **context
+  window** (tokens). Key presence is shown; the key itself is never displayed.
 - **Server settings** tab — store/rotate/delete vault secrets (write-only,
   masked), and see the exposure posture. A red banner appears when the
   instance is bound beyond loopback and unacknowledged.
@@ -357,6 +357,14 @@ The security work added three management surfaces (admin-only):
 **Client settings** holds browser-local preferences (theme, health-poll
 interval) plus the global **context compaction target**. **Memory → Context**
 shows the resolved token budget and the rolling summary for a session.
+
+**Context window.** ICOS resolves the conversation context window from the
+configured model, in order: the active provider's declared window → the
+`LLM_CONTEXT_WINDOW` env value → a best-effort probe of the provider
+(`/models` `context_length`/`max_model_len`, or Ollama's `/api/show` `num_ctx`)
+→ a conservative default (16384) with a warning. Switching the active provider
+re-resolves it without a restart. The Context segment shows the window **and
+where it came from** (`provider` / `env` / `probe` / `default`).
 
 A session that expires mid-use sends you back to the login screen
 automatically.
@@ -427,6 +435,26 @@ schemas indefinitely.
 Set `TOOLS_DISCOVERY_ENABLED=false` to inject every policy-enabled tool on every
 turn (the pre-M20.7 behaviour). The Tools tab shows the resolved discovery state
 and bounds; `/tools status` reports the same.
+
+---
+
+## Switching models
+
+ICOS resolves the conversation model on demand, so you can switch provider and
+model **without a restart** — the change takes effect on the next turn.
+
+- `/model` — show the active conversation and memory provider · model, and the
+  configured providers.
+- `/model <model>` — set the model on the active conversation provider. Model
+  ids may contain slashes (`/model deepseek/deepseek-v4-flash`).
+- `/model <provider> <model>` — switch provider and model together.
+- `/model <provider>` — switch provider (keeping its default model).
+- `/model list` — list the configured providers.
+- `/model list <provider>` — list the models that provider advertises (from
+  `/models`), with context windows where reported.
+
+The **Models** tab does the same with pickers, and the provider's **context
+window** (FG6) re-resolves when the selection changes.
 
 ---
 

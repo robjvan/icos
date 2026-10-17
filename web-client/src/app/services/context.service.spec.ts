@@ -7,6 +7,7 @@ import type { ContextSettings } from '../models/context';
 
 const SETTINGS: ContextSettings = {
   contextWindow: 1_000_000,
+  contextWindowSource: 'env',
   maxOutputTokens: 8192,
   usableTokens: 991_808,
   triggerTokens: 793_446,

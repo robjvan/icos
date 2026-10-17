@@ -256,8 +256,12 @@ describe('Conversation (e2e)', () => {
         realtimeHeartbeatMs: 30000,
         realtimeAllowedOrigins: ['http://localhost:4200'],
         // M20.6 context budget + compaction (large window: no auto-compaction
-        // unless a test lowers it).
+        // unless a test lowers it). Autodetect off keeps the e2e deterministic
+        // (FG6 would otherwise probe the endpoint).
         llmContextWindow: 1_000_000,
+        contextWindowAutodetect: false,
+        // FG9b: no live probe in e2e — the fake endpoint is not reachable.
+        providerReachabilityEnabled: false,
         llmMaxOutputTokens: 8192,
         contextCompactionEnabled: true,
         contextCompactionTarget: 0.8,
@@ -1031,6 +1035,22 @@ describe('Conversation (e2e)', () => {
     // Nothing persisted as conversation.
     const listed = await request(http()).get('/core/sessions').expect(200);
     expect((listed.body as { sessions: unknown[] }).sessions).toHaveLength(0);
+  });
+
+  it('answers /model without an LLM (FG9c S4)', async () => {
+    const res = await request(http())
+      .post('/core/conversation')
+      .send({ message: '/model' })
+      .expect(200);
+
+    const body = res.body as ConversationResponse & {
+      command?: { kind: string };
+    };
+    expect(body.model).toBe('core');
+    expect(body.reply).toContain('Conversation:');
+    expect(body.reply).toContain('/model <provider> <model>');
+    expect(body.command).toMatchObject({ kind: 'data' });
+    expect(chatWithTools).not.toHaveBeenCalled();
   });
 
   it('GET /core/health reports runtime and host without a turn', async () => {
@@ -2667,6 +2687,7 @@ describe('Conversation (e2e)', () => {
     interface ContextSettingsBody {
       settings: {
         contextWindow: number;
+        contextWindowSource: string;
         maxOutputTokens: number;
         usableTokens: number;
         triggerTokens: number;
@@ -2690,6 +2711,7 @@ describe('Conversation (e2e)', () => {
       const initial = await request(server).get('/core/context').expect(200);
       expect((initial.body as ContextSettingsBody).settings).toMatchObject({
         contextWindow: 1_000_000,
+        contextWindowSource: 'env',
         maxOutputTokens: 8192,
         target: 0.8,
         enabled: true,
@@ -2741,6 +2763,15 @@ describe('Conversation (e2e)', () => {
       });
       expect(
         (summary.body as ContextSummaryBody).summary?.coveredUptoMessageId,
+      ).toBeGreaterThan(0);
+
+      // FG9c: live context usage is recorded per session.
+      const usage = await request(server)
+        .get('/core/context/usage')
+        .query({ sessionId })
+        .expect(200);
+      expect(
+        (usage.body as { usedTokens: number | null }).usedTokens,
       ).toBeGreaterThan(0);
 
       // Compaction is context-only: the transcript is untouched.

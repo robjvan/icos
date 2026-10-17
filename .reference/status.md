@@ -43,21 +43,11 @@ or most tasks being checked, is not completion.
 ### Phase 3 - Environment & Agency
 
 - [x] M16: External communication integrations (Discord + email)
-      — [plan](plans/closed/milestone-16-external-comms.md),
-      [evidence](plans/evidence/milestone-16/)
 - [x] M17: Tools Expansion
-      — [plan](plans/closed/milestone-17-tools-expansion.md),
-      [evidence](plans/evidence/milestone-17/)
 - [x] M18: Skills Adoption
-      — [plan](plans/closed/milestone-18-skills-adoption.md),
-      [evidence](plans/evidence/milestone-18/)
 - [x] M19: Dynamic MCP Server toolsets
-      — [plan](plans/closed/milestone-19-mcp-toolsets.md),
-      [evidence](plans/evidence/milestone-19/)
 - [x] M20: Web client catch-up work (incl. Discord slash commands, automatic
       context compaction, tools out of context)
-      — [plan](plans/closed/milestone-20-web-client-catchup.md),
-      [evidence](plans/evidence/milestone-20/)
 
 ---
 
@@ -67,7 +57,7 @@ or most tasks being checked, is not completion.
 
 ### Phase 3 - Environment & Agency (remaining)
 
-- [ ] M21: Subagent support
+- [x] M21: Subagent support
 - [ ] M22: Autonomous agency and action execution
 - [ ] M23: Knowledge-base stewardship
 

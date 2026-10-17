@@ -6,10 +6,39 @@ export interface HealthCheck {
   readonly detail: string;
 }
 
-/** Mirrors core `LlmHealthCheck`: config state only, never a live probe. */
+/** Mirrors core `LlmHealthCheck`: config state + (FG9b) a live probe. */
 export interface LlmHealthCheck extends HealthCheck {
   readonly provider: string;
   readonly model: string;
+  /** Present when the endpoint was probed (FG9b). */
+  readonly reachable?: boolean;
+}
+
+/** A probed LLM endpoint's reachability (FG9b). */
+export interface ProviderReachability {
+  readonly ok: boolean;
+  readonly detail: string;
+  readonly checkedAt: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly baseUrl: string;
+}
+
+/** Mirrors core `ProviderHealth`: ids/models/presence + reachability. */
+export interface ProviderHealth {
+  readonly source: 'catalog' | 'env';
+  readonly active: { conversation: string; memory: string };
+  readonly providers: {
+    readonly id: string;
+    readonly model: string;
+    readonly enabled: boolean;
+    readonly hasKey: boolean;
+    readonly reachable?: boolean;
+  }[];
+  readonly reachability?: {
+    readonly conversation?: ProviderReachability;
+    readonly memory?: ProviderReachability;
+  };
 }
 
 /** Mirrors core `GpuHealth`: null when the host has no NVIDIA GPU. */
@@ -45,5 +74,7 @@ export interface HealthResponse {
     readonly memory: HealthCheck;
     readonly llm: LlmHealthCheck;
   };
+  /** Present when the provider registry is wired (FG9b). */
+  readonly providers?: ProviderHealth;
   readonly host: HostHealth;
 }

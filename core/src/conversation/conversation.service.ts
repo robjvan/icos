@@ -986,10 +986,14 @@ export class ConversationService {
             proposal.kind === 'tool_calls' ? proposal.toolCalls.length : 0,
           );
           // M9i recovery: a rejected proposal feeds its validation
-          // failure back so the model can correct within budget.
+          // failure back so the model can correct within budget. The id
+          // rotates like every other continue path — reusing it would
+          // collide with the stored round in the ledger (request_conflict)
+          // instead of recording the correction as a new round.
           const rejection = this.validationFailurePair(record);
           if (rejection && !finalAttempt) {
             pairs.push(rejection.assistant, ...rejection.tools);
+            currentRequestId = randomUUID();
             continue;
           }
           const pair = this.continuationPair(record);
@@ -1955,6 +1959,10 @@ export class ConversationService {
         );
         textMessages.splice(0, textMessages.length, ...rebuilt);
       }
+    }
+    // FG9c: record the assembled-context estimate for the context gauge.
+    if (this.budget) {
+      this.budget.recordUsage(sessionId, this.budget.estimate(textMessages));
     }
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.

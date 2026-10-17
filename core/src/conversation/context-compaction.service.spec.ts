@@ -1,5 +1,6 @@
 import type { CoreConfig } from '../config';
 import type { ChatMessage, LlmClient } from '../llm/llm.client';
+import type { ProviderRegistryService } from '../providers/provider-registry.service';
 import { SessionStore } from './session.store';
 import { FakeSessionRepository } from './fake-session.repository';
 import { ContextBudgetService } from './context-budget.service';
@@ -8,6 +9,17 @@ import { ContextCompactionService } from './context-compaction.service';
 function config(overrides: Partial<CoreConfig> = {}): CoreConfig {
   return { maxHistory: 50, ...overrides } as unknown as CoreConfig;
 }
+
+const noProviders = {
+  activeEntry: () => null,
+  conversationEndpoint: () => ({
+    provider: 'p',
+    llmBaseUrl: 'http://localhost:9/v1',
+    llmModel: 'm',
+    llmTimeoutMs: 1000,
+  }),
+  onChange: () => () => undefined,
+} as unknown as ProviderRegistryService;
 
 const user = (content: string): ChatMessage => ({ role: 'user', content });
 
@@ -21,6 +33,7 @@ describe('ContextCompactionService', () => {
     store = new SessionStore(new FakeSessionRepository(), config());
     budget = new ContextBudgetService(
       config({ llmContextWindow: 1000, llmMaxOutputTokens: 100 }),
+      noProviders,
     );
     chat = jest.fn(() =>
       Promise.resolve({ content: 'summary text', model: 'm' }),

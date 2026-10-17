@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -11,9 +12,30 @@ import {
 } from '../../services/provider-admin.service';
 import type {
   ProviderEntry,
+  ProviderModel,
   ProviderReport,
   ProviderRole,
 } from '../../services/provider-admin.service';
+import {
+  SecretAdminService,
+} from '../../services/secret-admin.service';
+import type { SecretMetadata } from '../../services/secret-admin.service';
+import { HealthService } from '../../services/health.service';
+import type { ProviderReachability } from '../../models/health';
+
+/** A `$VAR` / `secret:NAME` reference (never a literal). */
+function isSecretReference(value: string): boolean {
+  return (
+    /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(value) ||
+    /^secret:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)
+  );
+}
+
+/** Vault name for a provider's pasted key, e.g. `openrouter-key`. */
+function keySecretName(id: string): string {
+  const base = `${id}-key`.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 64);
+  return /^[A-Za-z0-9]/.test(base) ? base : `p-${base}`.slice(0, 64);
+}
 
 function parseRefLines(text: string): Record<string, string> | null {
   const out: Record<string, string> = {};
@@ -46,6 +68,8 @@ function formatRefLines(map: Record<string, string> | undefined): string {
 })
 export class ModelsTab implements OnInit {
   private readonly api = inject(ProviderAdminService);
+  private readonly secretsApi = inject(SecretAdminService);
+  private readonly healthService = inject(HealthService);
 
   readonly report = signal<ProviderReport | null>(null);
   readonly catalog = signal<readonly ProviderEntry[]>([]);
@@ -64,6 +88,7 @@ export class ModelsTab implements OnInit {
     headers: new FormControl('', { nonNullable: true }),
     userAgent: new FormControl('', { nonNullable: true }),
     timeoutMs: new FormControl('', { nonNullable: true }),
+    contextWindow: new FormControl('', { nonNullable: true }),
     enabled: new FormControl(true, { nonNullable: true }),
   });
 
@@ -74,12 +99,29 @@ export class ModelsTab implements OnInit {
   async refresh(): Promise<void> {
     this.error.set(null);
     try {
-      const [report, catalog] = await Promise.all([
+      const [report, catalog, secretList] = await Promise.all([
         this.api.report(),
         this.api.catalog(),
+        this.secretsApi
+          .list()
+          .catch(() => ({ secrets: [] as SecretMetadata[], writable: false })),
       ]);
       this.report.set(report);
       this.catalog.set(catalog);
+      this.secrets.set(secretList.secrets);
+      this.vaultWritable.set(secretList.writable);
+      // FG9b: refresh reachability (the health report probes + caches it).
+      await this.healthService.refresh();
+      this.activeDraft.set({
+        conversation: {
+          provider: report.active.conversation,
+          model: report.activeModel?.conversation ?? '',
+        },
+        memory: {
+          provider: report.active.memory,
+          model: report.activeModel?.memory ?? '',
+        },
+      });
     } catch (err) {
       this.error.set(this.message(err));
     }
@@ -130,6 +172,7 @@ export class ModelsTab implements OnInit {
       headers: '',
       userAgent: '',
       timeoutMs: '',
+      contextWindow: '',
       enabled: true,
     });
     this.form.controls.id.enable();
@@ -146,6 +189,8 @@ export class ModelsTab implements OnInit {
       headers: formatRefLines(entry.headers),
       userAgent: entry.userAgent ?? '',
       timeoutMs: entry.timeoutMs === undefined ? '' : String(entry.timeoutMs),
+      contextWindow:
+        entry.contextWindow === undefined ? '' : String(entry.contextWindow),
       enabled: entry.enabled !== false,
     });
     this.form.controls.id.disable();
@@ -174,19 +219,56 @@ export class ModelsTab implements OnInit {
       this.error.set('timeout must be a positive integer (ms)');
       return;
     }
+    const contextWindow =
+      value.contextWindow.trim() === '' ? undefined : Number(value.contextWindow);
+    if (
+      contextWindow !== undefined &&
+      (!Number.isInteger(contextWindow) || contextWindow <= 0)
+    ) {
+      this.error.set('context window must be a positive integer (tokens)');
+      return;
+    }
+
+    // A pasted key (not a $VAR/secret:NAME reference) goes into the vault,
+    // then the provider references it — the catalog never holds a literal.
+    let apiKeyRef = value.apiKeyRef.trim();
+    let vaultedName: string | null = null;
+    if (apiKeyRef && !isSecretReference(apiKeyRef)) {
+      if (!this.vaultWritable()) {
+        this.error.set(
+          'the secret vault is disabled — enable it (see docs/security.md), or enter a $VAR / secret:NAME reference',
+        );
+        return;
+      }
+      const name = keySecretName(id);
+      try {
+        await this.secretsApi.put(name, apiKeyRef);
+      } catch (err) {
+        this.error.set(this.message(err));
+        return;
+      }
+      vaultedName = name;
+      apiKeyRef = `secret:${name}`;
+    }
+
     this.busy.set(true);
     this.error.set(null);
     try {
       await this.api.upsert(id, {
         baseUrl: value.baseUrl.trim(),
         model: value.model.trim(),
-        ...(value.apiKeyRef.trim() ? { apiKeyRef: value.apiKeyRef.trim() } : {}),
+        ...(apiKeyRef ? { apiKeyRef } : {}),
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
         ...(value.userAgent.trim() ? { userAgent: value.userAgent.trim() } : {}),
         ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
         enabled: value.enabled,
       });
-      this.notice.set(`Saved provider "${id}".`);
+      this.notice.set(
+        vaultedName
+          ? `Saved provider "${id}"; the key is stored in the vault as "${vaultedName}".`
+          : `Saved provider "${id}".`,
+      );
       this.formOpen.set(false);
       await this.refresh();
     } catch (err) {
@@ -223,6 +305,113 @@ export class ModelsTab implements OnInit {
   entryFor(id: string): ProviderEntry | undefined {
     return this.catalog().find((entry) => entry.id === id);
   }
+
+  /** Load the editor's model list from its (unsaved) endpoint (FG9c). */
+  async loadEditorModels(): Promise<void> {
+    const value = this.form.getRawValue();
+    const baseUrl = value.baseUrl.trim();
+    if (!baseUrl) {
+      this.error.set('enter a base URL before loading models');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.api.probeModels(
+        baseUrl,
+        value.apiKeyRef.trim() || undefined,
+      );
+      if (!result.ok) {
+        this.error.set(`load models failed: ${result.detail}`);
+        return;
+      }
+      this.editorModels.set(result.models);
+      this.notice.set(`Loaded ${result.models.length} models.`);
+    } catch (err) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async onActiveProvider(role: ProviderRole, event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement | null;
+    const id = select?.value ?? '';
+    this.activeDraft.update((map) => ({
+      ...map,
+      [role]: { provider: id, model: '' },
+    }));
+    this.activeModels.update((map) => ({ ...map, [role]: [] }));
+    if (!id) return;
+    try {
+      const result = await this.api.models(id);
+      this.activeModels.update((map) => ({ ...map, [role]: result.models }));
+    } catch (err) {
+      this.error.set(this.message(err));
+    }
+  }
+
+  onActiveModel(role: ProviderRole, event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    const model = input?.value ?? '';
+    this.activeDraft.update((map) => ({
+      ...map,
+      [role]: { ...map[role], model },
+    }));
+  }
+
+  async applyActive(role: ProviderRole): Promise<void> {
+    const { provider, model } = this.activeDraft()[role];
+    if (!provider) {
+      this.error.set(`choose a ${role} provider first`);
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      this.report.set(
+        await this.api.setActive(role, provider, model || undefined),
+      );
+      this.notice.set(
+        `Active ${role}: ${provider}${model ? ` · ${model}` : ''}.`,
+      );
+    } catch (err) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  readonly roles = ['conversation', 'memory'] as const;
+
+  /** Vault secrets available to reference (FG9c UX). */
+  readonly secrets = signal<readonly SecretMetadata[]>([]);
+  readonly vaultWritable = signal(true);
+
+  /** FG9b reachability, read from the health report. */
+  readonly conversationReach = computed<ProviderReachability | undefined>(
+    () => this.healthService.health()?.providers?.reachability?.conversation,
+  );
+  readonly memoryReach = computed<ProviderReachability | undefined>(
+    () => this.healthService.health()?.providers?.reachability?.memory,
+  );
+  reachableFor(id: string): boolean | undefined {
+    return this.healthService
+      .health()
+      ?.providers?.providers.find((provider) => provider.id === id)?.reachable;
+  }
+
+  /** FG9c model pickers. */
+  readonly editorModels = signal<readonly ProviderModel[]>([]);
+  readonly activeModels = signal<
+    Record<ProviderRole, readonly ProviderModel[]>
+  >({ conversation: [], memory: [] });
+  readonly activeDraft = signal<
+    Record<ProviderRole, { provider: string; model: string }>
+  >({
+    conversation: { provider: '', model: '' },
+    memory: { provider: '', model: '' },
+  });
 
   private message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);

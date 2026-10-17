@@ -5,6 +5,25 @@
 
   <h2>Budget</h2>
   @if (settings(); as s) {
+    <div class="gauge-row">
+      <app-context-gauge
+        [used]="usedTokens()"
+        [budget]="s.usableTokens"
+        [trigger]="s.triggerTokens"
+        size="lg"
+      />
+      <div class="gauge-meta">
+        <p class="mono">
+          {{ usedTokens() === null ? 'no context yet' : format(usedTokens()!) }}
+          @if (usedTokens() !== null) {
+            / {{ format(s.usableTokens) }} tokens
+          }
+        </p>
+        <p class="hint">
+          usable budget; compaction triggers at {{ format(s.triggerTokens) }}
+        </p>
+      </div>
+    </div>
     <dl class="settings">
       <div>
         <dt>Compaction</dt>
@@ -13,6 +32,7 @@
       <div>
         <dt>Context window</dt>
         <dd class="mono">{{ format(s.contextWindow) }} tokens</dd>
+        <dd class="hint">{{ sourceLabel(s.contextWindowSource) }}</dd>
       </div>
       <div>
         <dt>Usable budget</dt>

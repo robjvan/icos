@@ -7,7 +7,12 @@ import {
 } from '@angular/core';
 import { ContextService } from '../../services/context.service';
 import { ConversationStore } from '../../services/conversation-store';
-import type { ContextSettings, ContextSummary } from '../../models/context';
+import { ContextGauge } from '../context-gauge/context-gauge';
+import type {
+  ContextSettings,
+  ContextSummary,
+  ContextWindowSource,
+} from '../../models/context';
 
 /**
  * Context segment (M20.6.3): the resolved budget read-out plus the
@@ -16,7 +21,7 @@ import type { ContextSettings, ContextSummary } from '../../models/context';
  */
 @Component({
   selector: 'app-context-panel',
-  imports: [],
+  imports: [ContextGauge],
   templateUrl: './context-panel.html',
   styleUrl: './context-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -27,6 +32,7 @@ export class ContextPanel implements OnInit {
 
   readonly settings = signal<ContextSettings | null>(null);
   readonly summary = signal<ContextSummary | null>(null);
+  readonly usedTokens = signal<number | null>(null);
   readonly sessionId = signal('');
   readonly error = signal<string | null>(null);
   readonly busy = signal(false);
@@ -46,8 +52,10 @@ export class ContextPanel implements OnInit {
       if (id) {
         const result = await this.contextApi.summary(id);
         this.summary.set(result.summary);
+        this.usedTokens.set(result.usedTokens ?? null);
       } else {
         this.summary.set(null);
+        this.usedTokens.set(null);
       }
     } catch (err) {
       this.error.set(this.message(err));
@@ -68,6 +76,19 @@ export class ContextPanel implements OnInit {
 
   format(value: number): string {
     return value.toLocaleString('en-US');
+  }
+
+  sourceLabel(source: ContextWindowSource): string {
+    switch (source) {
+      case 'provider':
+        return 'declared by the active provider';
+      case 'env':
+        return 'from LLM_CONTEXT_WINDOW';
+      case 'probe':
+        return 'detected from the provider';
+      default:
+        return 'conservative default — set LLM_CONTEXT_WINDOW or a provider window';
+    }
   }
 
   private message(err: unknown): string {

@@ -9,7 +9,7 @@ describe('SkillService', () => {
   it('should fetch the skill catalog from the read-only endpoints', async () => {
     const catalog: SkillListResponse = {
       enabled: true,
-      skills: [{ name: 'icos-v3-stack', description: 'Stack guide', version: '0.1.0' }],
+      skills: [{ name: 'icos-stack', description: 'Stack guide', version: '0.1.0' }],
       skipped: [],
     };
     const get = vi.fn().mockResolvedValue(catalog);

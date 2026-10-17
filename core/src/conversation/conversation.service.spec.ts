@@ -2269,6 +2269,67 @@ describe('ConversationService', () => {
   });
 
   describe('converseStream', () => {
+    it('rotates the request id after a validation failure so the correction records cleanly', async () => {
+      // Regression: the recovery path reused the round's request id, so the
+      // corrected proposal collided with the stored invalid round in the
+      // ledger (request_conflict) and killed the turn.
+      let proposals = 0;
+      const { service, tools } = setup(
+        testConfig(),
+        undefined,
+        () => {
+          proposals += 1;
+          if (proposals === 1) {
+            return Promise.resolve({
+              kind: 'tool_calls',
+              content: null,
+              model: 'm',
+              toolCalls: [
+                {
+                  id: 'model-bad-1',
+                  name: 'nope_nonexistent_tool',
+                  version: 1,
+                  rawArguments: '{}',
+                  args: {},
+                },
+              ],
+            } as Extract<LlmResult, { kind: 'tool_calls' }>);
+          }
+          if (proposals === 2) return Promise.resolve(searchProposal());
+          return Promise.resolve(textProposal('teal found'));
+        },
+        undefined,
+        (input) =>
+          Promise.resolve(
+            input.proposal.kind === 'text'
+              ? closedTextRecord(input)
+              : input.proposal.kind === 'tool_calls' &&
+                  input.proposal.toolCalls[0]?.name === 'session.search'
+                ? searchRecord(input, 'teal found')
+                : invalidRecord(input, 'unknown_tool'),
+          ),
+      );
+      const events: ConversationStreamEvent[] = [];
+
+      await service.converseStream('find teal', undefined, (event) =>
+        events.push(event),
+      );
+
+      expect(events[events.length - 1]).toMatchObject({
+        type: 'done',
+        reply: 'teal found',
+        status: 'ok',
+      });
+      const toolConsumes = tools.consume.mock.calls.filter(
+        ([input]) => input.proposal.kind === 'tool_calls',
+      );
+      expect(toolConsumes).toHaveLength(2);
+      const [first, second] = toolConsumes.map(([input]) => input.requestId);
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      expect(second).not.toBe(first);
+    });
+
     it('emits meta, tokens, done in order and stores history', async () => {
       const { service, repository } = setup();
       const events: ConversationStreamEvent[] = [];
