@@ -22,6 +22,45 @@
     <p class="notice" role="status">{{ notice() }}</p>
   }
 
+  <fieldset class="active-panel" aria-label="Active selection">
+    <legend>Active selection</legend>
+    @for (role of roles; track role) {
+      <div class="active-row">
+        <span class="mono role">{{ role }}</span>
+        <select
+          [value]="activeDraft()[role].provider"
+          (change)="onActiveProvider(role, $event)"
+          [attr.aria-label]="role + ' provider'"
+        >
+          <option value="">— provider —</option>
+          @for (p of report()?.providers ?? []; track p.id) {
+            <option [value]="p.id">{{ p.id }}</option>
+          }
+        </select>
+        <input
+          [value]="activeDraft()[role].model"
+          (input)="onActiveModel(role, $event)"
+          [attr.list]="'active-models-' + role"
+          placeholder="model"
+          autocomplete="off"
+          [attr.aria-label]="role + ' model'"
+        />
+        <datalist [id]="'active-models-' + role">
+          @for (m of activeModels()[role]; track m.id) {
+            <option [value]="m.id"></option>
+          }
+        </datalist>
+        <button type="button" (click)="applyActive(role)" [disabled]="busy()">
+          Apply
+        </button>
+      </div>
+    }
+    <p class="hint">
+      Pick a provider, then a model from its list (or type one). Takes effect on
+      the next turn.
+    </p>
+  </fieldset>
+
   <table class="grid" aria-label="Configured providers">
     <thead>
       <tr>
@@ -86,7 +125,22 @@
       <input id="p-base" formControlName="baseUrl" autocomplete="off" />
 
       <label for="p-model">Model</label>
-      <input id="p-model" formControlName="model" autocomplete="off" />
+      <div class="model-row">
+        <input
+          id="p-model"
+          formControlName="model"
+          autocomplete="off"
+          list="editor-models"
+        />
+        <button type="button" (click)="loadEditorModels()" [disabled]="busy()">
+          Load models
+        </button>
+      </div>
+      <datalist id="editor-models">
+        @for (m of editorModels(); track m.id) {
+          <option [value]="m.id"></option>
+        }
+      </datalist>
 
       <label for="p-key">API key reference</label>
       <input

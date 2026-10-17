@@ -14,9 +14,22 @@ export interface ProviderStatus {
 export interface ProviderReport {
   source: 'catalog' | 'env';
   active: { conversation: string; memory: string };
+  activeModel: Partial<Record<ProviderRole, string>>;
   providers: ProviderStatus[];
   errors: string[];
   path: string;
+}
+
+/** One model a provider advertises (FG9c). */
+export interface ProviderModel {
+  id: string;
+  contextWindow?: number;
+}
+
+export interface ModelList {
+  ok: boolean;
+  detail: string;
+  models: ProviderModel[];
 }
 
 export interface ProviderEntry {
@@ -73,10 +86,26 @@ export class ProviderAdminService {
     );
   }
 
-  setActive(role: ProviderRole, id: string): Promise<ProviderReport> {
+  setActive(role: ProviderRole, id: string, model?: string): Promise<ProviderReport> {
     return this.api.post<ProviderReport>(`${PROVIDERS_ENDPOINT}/active`, {
       role,
       id,
+      ...(model ? { model } : {}),
+    });
+  }
+
+  /** List a configured provider's models (FG9c). */
+  models(id: string): Promise<ModelList> {
+    return this.api.get<ModelList>(
+      `${PROVIDERS_ENDPOINT}/${encodeURIComponent(id)}/models`,
+    );
+  }
+
+  /** List models for an ad-hoc endpoint, before a provider is saved (FG9c). */
+  probeModels(baseUrl: string, apiKeyRef?: string): Promise<ModelList> {
+    return this.api.post<ModelList>(`${PROVIDERS_ENDPOINT}/models`, {
+      baseUrl,
+      ...(apiKeyRef ? { apiKeyRef } : {}),
     });
   }
 

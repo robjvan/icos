@@ -9,6 +9,7 @@ describe('ModelsTab', () => {
       Promise.resolve({
         source: 'catalog' as const,
         active: { conversation: 'openrouter', memory: 'local' },
+        activeModel: {},
         providers: [
           {
             id: 'openrouter',
@@ -34,6 +35,10 @@ describe('ModelsTab', () => {
     upsert: vi.fn(() => Promise.resolve({})),
     remove: vi.fn(() => Promise.resolve({})),
     setActive: vi.fn(() => Promise.resolve({})),
+    models: vi.fn(() => Promise.resolve({ ok: true, detail: 'HTTP 200', models: [] })),
+    probeModels: vi.fn(() =>
+      Promise.resolve({ ok: true, detail: 'HTTP 200', models: [] }),
+    ),
     test: vi.fn(() => Promise.resolve({ ok: true, detail: 'HTTP 200' })),
     reload: vi.fn(() => Promise.resolve({})),
   };
@@ -64,5 +69,19 @@ describe('ModelsTab', () => {
     expect(
       (fixture.nativeElement as HTMLElement).querySelector('[formControlName="baseUrl"]'),
     ).not.toBeNull();
+  });
+
+  it('applies a provider + model selection (FG9c)', async () => {
+    const component = fixture.componentInstance;
+    component.activeDraft.set({
+      conversation: { provider: 'openrouter', model: 'deepseek/y' },
+      memory: { provider: 'local', model: '' },
+    });
+    await component.applyActive('conversation');
+    expect(api.setActive).toHaveBeenCalledWith(
+      'conversation',
+      'openrouter',
+      'deepseek/y',
+    );
   });
 });

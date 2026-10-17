@@ -11,6 +11,7 @@ import {
 } from '../../services/provider-admin.service';
 import type {
   ProviderEntry,
+  ProviderModel,
   ProviderReport,
   ProviderRole,
 } from '../../services/provider-admin.service';
@@ -81,6 +82,16 @@ export class ModelsTab implements OnInit {
       ]);
       this.report.set(report);
       this.catalog.set(catalog);
+      this.activeDraft.set({
+        conversation: {
+          provider: report.active.conversation,
+          model: report.activeModel?.conversation ?? '',
+        },
+        memory: {
+          provider: report.active.memory,
+          model: report.activeModel?.memory ?? '',
+        },
+      });
     } catch (err) {
       this.error.set(this.message(err));
     }
@@ -237,6 +248,96 @@ export class ModelsTab implements OnInit {
   entryFor(id: string): ProviderEntry | undefined {
     return this.catalog().find((entry) => entry.id === id);
   }
+
+  /** Load the editor's model list from its (unsaved) endpoint (FG9c). */
+  async loadEditorModels(): Promise<void> {
+    const value = this.form.getRawValue();
+    const baseUrl = value.baseUrl.trim();
+    if (!baseUrl) {
+      this.error.set('enter a base URL before loading models');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.api.probeModels(
+        baseUrl,
+        value.apiKeyRef.trim() || undefined,
+      );
+      if (!result.ok) {
+        this.error.set(`load models failed: ${result.detail}`);
+        return;
+      }
+      this.editorModels.set(result.models);
+      this.notice.set(`Loaded ${result.models.length} models.`);
+    } catch (err) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async onActiveProvider(role: ProviderRole, event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement | null;
+    const id = select?.value ?? '';
+    this.activeDraft.update((map) => ({
+      ...map,
+      [role]: { provider: id, model: '' },
+    }));
+    this.activeModels.update((map) => ({ ...map, [role]: [] }));
+    if (!id) return;
+    try {
+      const result = await this.api.models(id);
+      this.activeModels.update((map) => ({ ...map, [role]: result.models }));
+    } catch (err) {
+      this.error.set(this.message(err));
+    }
+  }
+
+  onActiveModel(role: ProviderRole, event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    const model = input?.value ?? '';
+    this.activeDraft.update((map) => ({
+      ...map,
+      [role]: { ...map[role], model },
+    }));
+  }
+
+  async applyActive(role: ProviderRole): Promise<void> {
+    const { provider, model } = this.activeDraft()[role];
+    if (!provider) {
+      this.error.set(`choose a ${role} provider first`);
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      this.report.set(
+        await this.api.setActive(role, provider, model || undefined),
+      );
+      this.notice.set(
+        `Active ${role}: ${provider}${model ? ` · ${model}` : ''}.`,
+      );
+    } catch (err) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  readonly roles = ['conversation', 'memory'] as const;
+
+  /** FG9c model pickers. */
+  readonly editorModels = signal<readonly ProviderModel[]>([]);
+  readonly activeModels = signal<
+    Record<ProviderRole, readonly ProviderModel[]>
+  >({ conversation: [], memory: [] });
+  readonly activeDraft = signal<
+    Record<ProviderRole, { provider: string; model: string }>
+  >({
+    conversation: { provider: '', model: '' },
+    memory: { provider: '', model: '' },
+  });
 
   private message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
