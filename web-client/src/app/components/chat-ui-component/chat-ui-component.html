@@ -1,6 +1,12 @@
 <div class="chat-shell">
   <header class="chat-header">
     <h1>ICOS</h1>
+    <app-context-gauge
+      [used]="usage().used"
+      [budget]="usage().budget"
+      [trigger]="usage().trigger"
+      size="sm"
+    />
     <span class="session-id mono" aria-label="Current session">{{ sessionLabel() }}</span>
     <span class="grow"></span>
     @if (store.sessionId() !== null) {

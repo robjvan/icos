@@ -16,6 +16,8 @@ const PROBE_TIMEOUT_MS = 3000;
 /** Practical clamp on the compaction target. */
 const MIN_TARGET = 0.5;
 const MAX_TARGET = 0.95;
+/** Cap on the per-session usage cache (live view only). */
+const USAGE_CACHE_MAX = 500;
 
 /**
  * Conservative fallback window (FG6), used only when the window cannot be
@@ -58,6 +60,8 @@ export class ContextBudgetService implements OnModuleInit {
   private resolveToken = 0;
   private targetOverride: number | null = null;
   private enabledOverride: boolean | null = null;
+  /** Last assembled-context estimate per session (FG9c gauge). */
+  private readonly usage = new Map<string, number>();
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -218,6 +222,25 @@ export class ContextBudgetService implements OnModuleInit {
     return (
       this.enabled && this.estimate(messages, extraTokens) > this.triggerTokens
     );
+  }
+
+  /**
+   * Record the last assembled-context estimate for a session (FG9c). This is
+   * the same number the compaction decision acts on, so the gauge matches what
+   * the runtime does. Bounded cache — it is a live view, not persisted state.
+   */
+  recordUsage(sessionId: string, tokens: number): void {
+    this.usage.delete(sessionId);
+    this.usage.set(sessionId, tokens);
+    if (this.usage.size > USAGE_CACHE_MAX) {
+      const [oldest] = this.usage.keys();
+      if (oldest !== undefined) this.usage.delete(oldest);
+    }
+  }
+
+  /** The last assembled-context estimate for a session, or null. */
+  usageFor(sessionId: string): number | null {
+    return this.usage.get(sessionId) ?? null;
   }
 
   private settingsPath(): string | null {

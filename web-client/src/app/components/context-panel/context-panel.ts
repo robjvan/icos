@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { ContextService } from '../../services/context.service';
 import { ConversationStore } from '../../services/conversation-store';
+import { ContextGauge } from '../context-gauge/context-gauge';
 import type {
   ContextSettings,
   ContextSummary,
@@ -20,7 +21,7 @@ import type {
  */
 @Component({
   selector: 'app-context-panel',
-  imports: [],
+  imports: [ContextGauge],
   templateUrl: './context-panel.html',
   styleUrl: './context-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -31,6 +32,7 @@ export class ContextPanel implements OnInit {
 
   readonly settings = signal<ContextSettings | null>(null);
   readonly summary = signal<ContextSummary | null>(null);
+  readonly usedTokens = signal<number | null>(null);
   readonly sessionId = signal('');
   readonly error = signal<string | null>(null);
   readonly busy = signal(false);
@@ -50,8 +52,10 @@ export class ContextPanel implements OnInit {
       if (id) {
         const result = await this.contextApi.summary(id);
         this.summary.set(result.summary);
+        this.usedTokens.set(result.usedTokens ?? null);
       } else {
         this.summary.set(null);
+        this.usedTokens.set(null);
       }
     } catch (err) {
       this.error.set(this.message(err));

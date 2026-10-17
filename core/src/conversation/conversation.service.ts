@@ -1960,6 +1960,10 @@ export class ConversationService {
         textMessages.splice(0, textMessages.length, ...rebuilt);
       }
     }
+    // FG9c: record the assembled-context estimate for the context gauge.
+    if (this.budget) {
+      this.budget.recordUsage(sessionId, this.budget.estimate(textMessages));
+    }
     // buildContext always ends with the new user message; pairs describe
     // earlier turns, so they precede it in recency order.
     const userMessage = this.withTurnImages(

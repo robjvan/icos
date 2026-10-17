@@ -29,7 +29,12 @@ describe('ContextPanel', () => {
   const contextApi = {
     settings: vi.fn(() => Promise.resolve(SETTINGS)),
     summary: vi.fn(() =>
-      Promise.resolve({ sessionId: 's1', summary: SUMMARY, settings: SETTINGS }),
+      Promise.resolve({
+        sessionId: 's1',
+        summary: SUMMARY,
+        settings: SETTINGS,
+        usedTokens: 123_456,
+      }),
     ),
   };
   const conversation = { sessionId: signal<string | null>('s1') };
@@ -58,6 +63,7 @@ describe('ContextPanel', () => {
     expect(text).toContain('793,446');
     expect(text).toContain('#12');
     expect(text).toContain('1M-token model');
+    expect(text).toContain('12%'); // 123,456 / 991,808 ≈ 12%
     expect(contextApi.summary).toHaveBeenCalledWith('s1');
   });
 });

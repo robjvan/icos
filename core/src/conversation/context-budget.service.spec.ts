@@ -239,6 +239,16 @@ describe('ContextBudgetService — accounting', () => {
     expect(budget.shouldCompact([user('x'.repeat(100000))])).toBe(false);
   });
 
+  it('records and reads per-session usage (FG9c)', async () => {
+    const budget = await make({ llmContextWindow: 1000 });
+    expect(budget.usageFor('s1')).toBeNull();
+    budget.recordUsage('s1', 500);
+    expect(budget.usageFor('s1')).toBe(500);
+    budget.recordUsage('s1', 600);
+    expect(budget.usageFor('s1')).toBe(600);
+    expect(budget.usageFor('other')).toBeNull();
+  });
+
   it('estimateText is never zero for non-empty text', () => {
     expect(estimateText('a')).toBe(1);
     expect(estimateText('')).toBe(1);

@@ -2747,6 +2747,15 @@ describe('Conversation (e2e)', () => {
         (summary.body as ContextSummaryBody).summary?.coveredUptoMessageId,
       ).toBeGreaterThan(0);
 
+      // FG9c: live context usage is recorded per session.
+      const usage = await request(server)
+        .get('/core/context/usage')
+        .query({ sessionId })
+        .expect(200);
+      expect(
+        (usage.body as { usedTokens: number | null }).usedTokens,
+      ).toBeGreaterThan(0);
+
       // Compaction is context-only: the transcript is untouched.
       const after = await request(server)
         .get(`/core/conversation/${sessionId}`)

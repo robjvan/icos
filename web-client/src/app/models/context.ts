@@ -30,4 +30,12 @@ export interface ContextSummaryResponse {
   sessionId: string;
   summary: ContextSummary | null;
   settings: ContextSettings;
+  usedTokens: number | null;
+}
+
+/** Live context usage for the gauge (FG9c). */
+export interface ContextUsageResponse {
+  sessionId: string;
+  usedTokens: number | null;
+  settings: ContextSettings;
 }
