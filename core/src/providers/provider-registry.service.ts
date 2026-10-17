@@ -37,9 +37,23 @@ export interface ProviderReport {
   /** Where the active endpoints come from. */
   source: 'catalog' | 'env';
   active: Record<ProviderRole, string>;
+  /** Per-role model override for the active provider (FG9c). */
+  activeModel: Partial<Record<ProviderRole, string>>;
   providers: ProviderStatus[];
   errors: string[];
   path: string;
+}
+
+/** One model a provider advertises (FG9c). */
+export interface ProviderModel {
+  id: string;
+  contextWindow?: number;
+}
+
+export interface ModelList {
+  ok: boolean;
+  detail: string;
+  models: ProviderModel[];
 }
 
 /** Map the LLM_* role configuration to endpoint values. */
@@ -97,6 +111,7 @@ export class ProviderRegistryService implements OnModuleInit {
   private readonly logger = new Logger(ProviderRegistryService.name);
   private catalog: LoadedProviderCatalog = {
     active: {},
+    activeModel: {},
     providers: [],
     errors: [],
     path: '',
@@ -192,6 +207,14 @@ export class ProviderRegistryService implements OnModuleInit {
         conversation: this.activeId('conversation'),
         memory: this.activeId('memory'),
       },
+      activeModel: {
+        ...(this.catalog.activeModel.conversation
+          ? { conversation: this.catalog.activeModel.conversation }
+          : {}),
+        ...(this.catalog.activeModel.memory
+          ? { memory: this.catalog.activeModel.memory }
+          : {}),
+      },
       providers: this.catalog.providers.map((entry) => ({
         id: entry.id,
         model: entry.model,
@@ -210,7 +233,7 @@ export class ProviderRegistryService implements OnModuleInit {
   }
 
   /** Set the active provider for a role and persist it to the catalog. */
-  setActive(role: ProviderRole, id: string): ProviderReport {
+  setActive(role: ProviderRole, id: string, model?: string): ProviderReport {
     const entry = this.catalog.providers.find(
       (candidate) => candidate.id === id && candidate.enabled !== false,
     );
@@ -219,8 +242,24 @@ export class ProviderRegistryService implements OnModuleInit {
     }
     const path = resolveProvidersPath(this.config.providersPath);
     const raw = readProviderRaw(path);
-    writeProviderFile(path, { ...raw.active, [role]: id }, raw.providers);
+    const activeModel = { ...raw.activeModel };
+    if (model !== undefined && model.trim()) {
+      activeModel[role] = model.trim();
+    } else {
+      delete activeModel[role];
+    }
+    writeProviderFile(
+      path,
+      { ...raw.active, [role]: id },
+      raw.providers,
+      activeModel,
+    );
     return this.reload();
+  }
+
+  /** The active model override for a role, if any (FG9c). */
+  activeModelFor(role: ProviderRole): string | undefined {
+    return this.catalog.activeModel[role];
   }
 
   /** Catalog entries for the editor (references only, never values). */
@@ -238,6 +277,7 @@ export class ProviderRegistryService implements OnModuleInit {
       path,
       file.active,
       upsertProviderEntry(file.providers, result.entry),
+      file.activeModel,
     );
     return this.reload();
   }
@@ -247,10 +287,19 @@ export class ProviderRegistryService implements OnModuleInit {
     const path = resolveProvidersPath(this.config.providersPath);
     const file = readProviderRaw(path);
     const active = { ...file.active };
+    const activeModel = { ...file.activeModel };
     for (const role of ['conversation', 'memory'] as const) {
-      if (active[role] === id) delete active[role];
+      if (active[role] === id) {
+        delete active[role];
+        delete activeModel[role];
+      }
     }
-    writeProviderFile(path, active, removeProviderEntry(file.providers, id));
+    writeProviderFile(
+      path,
+      active,
+      removeProviderEntry(file.providers, id),
+      activeModel,
+    );
     return this.reload();
   }
 
@@ -292,6 +341,79 @@ export class ProviderRegistryService implements OnModuleInit {
   }
 
   /**
+   * List the models a configured provider advertises (FG9c). Uses the
+   * resolved key transiently; never returns or stores it.
+   */
+  async listModels(id: string): Promise<ModelList> {
+    const entry = this.catalog.providers.find(
+      (candidate) => candidate.id === id,
+    );
+    if (!entry) {
+      return { ok: false, detail: `unknown provider "${id}"`, models: [] };
+    }
+    return this.fetchModels(this.toEndpoint(entry, 'conversation'));
+  }
+
+  /**
+   * List the models an ad-hoc endpoint advertises, for the editor before a
+   * provider is saved (FG9c). The key reference is resolved transiently.
+   */
+  async probeModels(baseUrl: string, apiKeyRef?: string): Promise<ModelList> {
+    return this.fetchModels({
+      provider: 'probe',
+      llmBaseUrl: baseUrl,
+      llmModel: '',
+      ...(apiKeyRef
+        ? { llmApiKey: this.secrets.resolve(apiKeyRef) ?? undefined }
+        : {}),
+      llmTimeoutMs: this.config.llmTimeoutMs,
+    });
+  }
+
+  private async fetchModels(endpoint: LlmEndpointConfig): Promise<ModelList> {
+    let url: string;
+    try {
+      const parsed = new URL(endpoint.llmBaseUrl);
+      const path = parsed.pathname.replace(/\/+$/, '');
+      parsed.pathname = path.endsWith('/models') ? path : `${path}/models`;
+      url = parsed.toString();
+    } catch {
+      return { ok: false, detail: 'baseUrl is not a URL', models: [] };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), endpoint.llmTimeoutMs);
+    try {
+      const response = await fetch(url, {
+        headers: buildRequestHeaders(endpoint),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return { ok: false, detail: `HTTP ${response.status}`, models: [] };
+      }
+      const body = (await response.json()) as { data?: unknown };
+      const data = Array.isArray(body.data) ? body.data : [];
+      const models: ProviderModel[] = [];
+      for (const item of data) {
+        if (typeof item !== 'object' || item === null) continue;
+        const record = item as Record<string, unknown>;
+        if (typeof record['id'] !== 'string') continue;
+        const raw = record['context_length'] ?? record['max_model_len'];
+        const contextWindow =
+          typeof raw === 'number' && raw > 0 ? raw : undefined;
+        models.push({
+          id: record['id'],
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+        });
+      }
+      return { ok: true, detail: `HTTP ${response.status}`, models };
+    } catch {
+      return { ok: false, detail: 'unreachable', models: [] };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Endpoint for a specific catalog provider id, or null when unknown or
    * disabled. No env fallback — callers use this to target a *named*
    * provider (e.g. an M15.5c verifier) and degrade when it is absent.
@@ -325,7 +447,9 @@ export class ProviderRegistryService implements OnModuleInit {
           (candidate) => candidate.id === id && candidate.enabled !== false,
         )
       : undefined;
-    if (entry) return this.toEndpoint(entry, role);
+    if (entry) {
+      return this.toEndpoint(entry, role, this.catalog.activeModel[role]);
+    }
     return role === 'conversation'
       ? conversationEndpointConfig(this.config)
       : memoryEndpointConfig(this.config);
@@ -334,6 +458,7 @@ export class ProviderRegistryService implements OnModuleInit {
   private toEndpoint(
     entry: ProviderEntry,
     role: ProviderRole,
+    modelOverride?: string,
   ): LlmEndpointConfig {
     const defaultTimeout =
       role === 'conversation'
@@ -342,7 +467,7 @@ export class ProviderRegistryService implements OnModuleInit {
     return {
       provider: entry.id,
       llmBaseUrl: entry.baseUrl,
-      llmModel: entry.model,
+      llmModel: modelOverride ?? entry.model,
       ...(entry.apiKeyRef
         ? { llmApiKey: this.secrets.resolve(entry.apiKeyRef) ?? undefined }
         : {}),

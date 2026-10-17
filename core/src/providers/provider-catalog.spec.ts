@@ -96,6 +96,16 @@ describe('parseProviderCatalog', () => {
     expect(catalog.errors.join(' ')).toContain('ghost');
   });
 
+  it('parses a per-role active model override (FG9c)', () => {
+    const catalog = parseProviderCatalog({
+      active: { conversation: 'local' },
+      activeModel: { conversation: 'gemma4:e4b' },
+      providers: [{ id: 'local', baseUrl: 'http://x/v1', model: 'default' }],
+    });
+    expect(catalog.errors).toEqual([]);
+    expect(catalog.activeModel).toEqual({ conversation: 'gemma4:e4b' });
+  });
+
   it('reports a non-object root or missing providers array', () => {
     expect(parseProviderCatalog([]).errors).toHaveLength(1);
     expect(parseProviderCatalog({}).errors).toContain(
@@ -177,6 +187,7 @@ describe('provider catalog write helpers (S5)', () => {
 
     raw = {
       active: raw.active,
+      activeModel: raw.activeModel,
       providers: upsertProviderEntry(raw.providers, {
         id: 'b',
         baseUrl: 'http://b/v1',
@@ -184,7 +195,7 @@ describe('provider catalog write helpers (S5)', () => {
         apiKeyRef: 'secret:b',
       }),
     };
-    writeProviderFile(path, raw.active, raw.providers);
+    writeProviderFile(path, raw.active, raw.providers, raw.activeModel);
     const loaded = loadProviderCatalog(path);
     expect(loaded.providers.map((p) => p.id)).toEqual(['a', 'b']);
 
@@ -192,6 +203,7 @@ describe('provider catalog write helpers (S5)', () => {
     expect(removed).toHaveLength(1);
     expect(readProviderRaw(join(dir, 'missing.json'))).toEqual({
       active: {},
+      activeModel: {},
       providers: [],
     });
   });

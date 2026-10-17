@@ -15,8 +15,10 @@ import { RequireRole } from '../auth/decorators';
 import { McpExceptionFilter } from '../mcp/mcp-exception.filter';
 import { ProviderRegistryService } from './provider-registry.service';
 import type { ProviderReport } from './provider-registry.service';
+import type { ModelList } from './provider-registry.service';
 import { SetActiveProviderDto } from './dto/provider.dto';
 import { ProviderDto } from './dto/provider.dto';
+import { ProbeModelsDto } from './dto/provider.dto';
 import type { ProviderRole } from './provider-catalog';
 
 /**
@@ -79,7 +81,7 @@ export class ProvidersController {
   @HttpCode(200)
   setActive(@Body() dto: SetActiveProviderDto): ProviderReport {
     try {
-      return this.registry.setActive(dto.role, dto.id);
+      return this.registry.setActive(dto.role, dto.id, dto.model);
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'invalid provider',
@@ -98,6 +100,25 @@ export class ProvidersController {
       throw new NotFoundException(result.detail);
     }
     return result;
+  }
+
+  /** List a configured provider's models (FG9c). */
+  @RequireRole('admin')
+  @Get(':id/models')
+  async models(@Param('id') id: string): Promise<ModelList> {
+    const result = await this.registry.listModels(id);
+    if (!result.ok && result.detail.startsWith('unknown provider')) {
+      throw new NotFoundException(result.detail);
+    }
+    return result;
+  }
+
+  /** List models for an ad-hoc endpoint, before a provider is saved (FG9c). */
+  @RequireRole('admin')
+  @Post('models')
+  @HttpCode(200)
+  probeModels(@Body() dto: ProbeModelsDto): Promise<ModelList> {
+    return this.registry.probeModels(dto.baseUrl, dto.apiKeyRef);
   }
 }
 

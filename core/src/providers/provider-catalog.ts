@@ -32,6 +32,8 @@ export type ProviderRole = 'conversation' | 'memory';
 
 export interface ProviderCatalog {
   active: { conversation?: string; memory?: string };
+  /** Per-role model override for the active provider (FG9c). */
+  activeModel: { conversation?: string; memory?: string };
   providers: ProviderEntry[];
   /** Human-readable validation failures (bad entries are skipped). */
   errors: string[];
@@ -149,12 +151,23 @@ export function parseProviderCatalog(raw: unknown): ProviderCatalog {
   const providers: ProviderEntry[] = [];
   const errors: string[] = [];
   const active: { conversation?: string; memory?: string } = {};
+  const activeModel: { conversation?: string; memory?: string } = {};
   if (!isRecord(raw)) {
-    return { active, providers, errors: ['catalog root must be an object'] };
+    return {
+      active,
+      activeModel,
+      providers,
+      errors: ['catalog root must be an object'],
+    };
   }
   const list = raw['providers'];
   if (!Array.isArray(list)) {
-    return { active, providers, errors: ['"providers" must be an array'] };
+    return {
+      active,
+      activeModel,
+      providers,
+      errors: ['"providers" must be an array'],
+    };
   }
   const seen = new Set<string>();
   for (const item of list) {
@@ -190,7 +203,22 @@ export function parseProviderCatalog(raw: unknown): ProviderCatalog {
       }
     }
   }
-  return { active, providers, errors };
+  if (raw['activeModel'] !== undefined) {
+    if (!isRecord(raw['activeModel'])) {
+      errors.push('"activeModel" must be an object');
+    } else {
+      for (const role of ['conversation', 'memory'] as const) {
+        const value = raw['activeModel'][role];
+        if (value === undefined) continue;
+        if (typeof value !== 'string' || !value.trim()) {
+          errors.push(`activeModel.${role} must be a non-empty string`);
+          continue;
+        }
+        activeModel[role] = value.trim();
+      }
+    }
+  }
+  return { active, activeModel, providers, errors };
 }
 
 /** Default catalog location inside the shared instance data root. */
@@ -207,12 +235,13 @@ export function validateProviderEntry(
 
 interface RawProviderFile {
   active: { conversation?: string; memory?: string };
+  activeModel: { conversation?: string; memory?: string };
   providers: unknown[];
 }
 
 /** Raw file contents (never throws; absent/corrupt = empty). */
 export function readProviderRaw(path: string): RawProviderFile {
-  const empty: RawProviderFile = { active: {}, providers: [] };
+  const empty: RawProviderFile = { active: {}, activeModel: {}, providers: [] };
   if (!existsSync(path)) return empty;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
@@ -224,8 +253,16 @@ export function readProviderRaw(path: string): RawProviderFile {
         if (typeof value === 'string') active[role] = value;
       }
     }
+    const activeModel: { conversation?: string; memory?: string } = {};
+    if (isRecord(parsed['activeModel'])) {
+      for (const role of ['conversation', 'memory'] as const) {
+        const value = parsed['activeModel'][role];
+        if (typeof value === 'string') activeModel[role] = value;
+      }
+    }
     return {
       active,
+      activeModel,
       providers: Array.isArray(parsed['providers']) ? parsed['providers'] : [],
     };
   } catch {
@@ -238,12 +275,14 @@ export function writeProviderFile(
   path: string,
   active: { conversation?: string; memory?: string },
   providers: unknown[],
+  activeModel: { conversation?: string; memory?: string } = {},
 ): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ active, providers }, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  const body: Record<string, unknown> = { active };
+  if (Object.keys(activeModel).length > 0) body['activeModel'] = activeModel;
+  body['providers'] = providers;
+  writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
 }
 
@@ -308,7 +347,7 @@ export function loadProviderCatalog(
 ): LoadedProviderCatalog {
   const resolved = resolveProvidersPath(rawPath);
   if (!existsSync(resolved)) {
-    return { active: {}, providers: [], errors: [], path: '' };
+    return { active: {}, activeModel: {}, providers: [], errors: [], path: '' };
   }
   let parsed: unknown;
   try {
@@ -316,6 +355,7 @@ export function loadProviderCatalog(
   } catch {
     return {
       active: {},
+      activeModel: {},
       providers: [],
       errors: [`provider catalog at ${resolved} is not valid JSON`],
       path: resolved,

@@ -153,6 +153,49 @@ describe('ProviderRegistryService', () => {
     expect(notified).toBe(1);
   });
 
+  it('applies a per-role model override and lists models (FG9c)', async () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'local' },
+        providers: [
+          {
+            id: 'local',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'default',
+          },
+        ],
+      }),
+    );
+    const service = registry();
+    expect(service.conversationEndpoint().llmModel).toBe('default');
+
+    service.setActive('conversation', 'local', 'gemma4:e4b');
+    expect(service.conversationEndpoint().llmModel).toBe('gemma4:e4b');
+    expect(service.activeModelFor('conversation')).toBe('gemma4:e4b');
+    expect(service.report().activeModel).toEqual({
+      conversation: 'gemma4:e4b',
+    });
+
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'gemma4:e4b', context_length: 16384 }],
+        }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const result = await service.listModels('local');
+      expect(result.ok).toBe(true);
+      expect(result.models).toEqual([
+        { id: 'gemma4:e4b', contextWindow: 16384 },
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('falls back per role when the active id is disabled or missing', () => {
     writeFileSync(
       providersPath,
