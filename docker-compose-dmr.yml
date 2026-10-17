@@ -30,4 +30,4 @@ services:
 # ---------------------------------------------------------------------------
 models:
   memory_llm:
-    model: hf.co/unsloth/gemma-4-E4B-it-GGUF:Q4_K_M
+    model: hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
