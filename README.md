@@ -11,12 +11,12 @@
 ![LatestRelease](https://img.shields.io/github/v/release/robjvan/icos?include_prereleases)
 
 ![TestsGreen](https://img.shields.io/badge/Tests-All%20Green-green?logo=jest)
-![FunctionsTestCoverage](https://img.shields.io/badge/Functions%20Coverage-81.3-green?logo=jest)
-![LinesTestCoverage](https://img.shields.io/badge/Lines%20Coverage-80.5-green?logo=jest)
+![FunctionsTestCoverage](https://img.shields.io/badge/Functions%20Coverage-81.9-green?logo=jest)
+![LinesTestCoverage](https://img.shields.io/badge/Lines%20Coverage-80.9-green?logo=jest)
 
-![Tests](https://img.shields.io/badge/Unit%20Tests-1234-green?logo=jest)
-![Tests](https://img.shields.io/badge/E2E%20Tests-68-green?logo=jest)
-![Tests](https://img.shields.io/badge/Web%20Tests-200-green?logo=jest)
+![Tests](https://img.shields.io/badge/Unit%20Tests-1296-green?logo=jest)
+![Tests](https://img.shields.io/badge/E2E%20Tests-75-green?logo=jest)
+![Tests](https://img.shields.io/badge/Web%20Tests-208-green?logo=jest)
 
 ![Node.js](https://img.shields.io/badge/Node.js-24.x-red)
 ![NPM](https://img.shields.io/badge/npm-11.x-CB0200?logo=npm&logoColor=CB0200)
