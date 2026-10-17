@@ -6,7 +6,7 @@ and state honestly what the method can and cannot do.
 
 ## Harness
 
-- **Corpus** (`.reference/notes/m15e-statement-pairs.md`, committed): a
+- **Corpus** (the M15e statement-pairs planning note): a
   rubric plus **21 labelled `(previous → next)` persona-statement pairs** —
   the author's seven and 14 hard cases (negation flip, priority reversal,
   boundary added, scope narrowed, weakened commitment; benign paraphrase,
