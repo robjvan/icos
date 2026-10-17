@@ -90,7 +90,7 @@ function validateEntry(
       !parseSecretReference(raw['apiKeyRef'])
     ) {
       return {
-        error: `provider "${id}": apiKeyRef must be a $VAR or secret: reference`,
+        error: `provider "${id}": apiKeyRef must be a $VAR or secret:NAME reference (paste a literal key in the Models tab to store it in the vault)`,
       };
     }
     entry.apiKeyRef = raw['apiKeyRef'];

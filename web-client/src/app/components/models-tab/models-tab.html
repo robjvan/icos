@@ -142,19 +142,55 @@
         }
       </datalist>
 
-      <label for="p-key">API key reference</label>
+      <label for="p-key">API key</label>
       <input
         id="p-key"
         formControlName="apiKeyRef"
         autocomplete="off"
-        placeholder="secret:openrouter"
+        list="vault-secrets"
+        placeholder="paste the key, or secret:NAME / $VAR"
       />
+      <datalist id="vault-secrets">
+        @for (s of secrets(); track s.name) {
+          <option [value]="'secret:' + s.name"></option>
+        }
+      </datalist>
+      <p class="hint">
+        Paste the key — it is stored in the encrypted vault and referenced
+        (never written to the catalog). Or enter
+        <span class="mono">secret:NAME</span> to reuse a stored secret, or
+        <span class="mono">$VAR</span> for an environment variable.
+        @if (!vaultWritable()) {
+          <strong>The vault is disabled — enable it to store keys.</strong>
+        }
+      </p>
 
-      <label for="p-headers">Headers (NAME=$VAR or NAME=secret:NAME)</label>
-      <textarea id="p-headers" formControlName="headers" rows="2" spellcheck="false"></textarea>
+      <label for="p-headers">Headers (optional)</label>
+      <textarea
+        id="p-headers"
+        formControlName="headers"
+        rows="2"
+        spellcheck="false"
+        placeholder="HTTP-Referer=$REFERER"
+      ></textarea>
+      <p class="hint">
+        One per line, <span class="mono">NAME=$VAR</span> or
+        <span class="mono">NAME=secret:NAME</span>. Values are references, never
+        literals. Example (OpenRouter attribution):
+        <span class="mono">HTTP-Referer=$REFERER</span>.
+      </p>
 
-      <label for="p-ua">User agent</label>
-      <input id="p-ua" formControlName="userAgent" autocomplete="off" />
+      <label for="p-ua">User agent (optional)</label>
+      <input
+        id="p-ua"
+        formControlName="userAgent"
+        autocomplete="off"
+        placeholder="icos/&lt;version&gt;"
+      />
+      <p class="hint">
+        Identifies the client to the provider. Defaults to
+        <span class="mono">icos/&lt;version&gt;</span>.
+      </p>
 
       <label for="p-timeout">Timeout (ms)</label>
       <input id="p-timeout" formControlName="timeoutMs" inputmode="numeric" autocomplete="off" />

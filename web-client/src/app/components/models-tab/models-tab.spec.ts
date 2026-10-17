@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { ModelsTab } from './models-tab';
 import { ProviderAdminService } from '../../services/provider-admin.service';
+import { SecretAdminService } from '../../services/secret-admin.service';
 
 describe('ModelsTab', () => {
   const api = {
@@ -43,13 +44,24 @@ describe('ModelsTab', () => {
     reload: vi.fn(() => Promise.resolve({})),
   };
 
+  const secretsApi = {
+    list: vi.fn(() => Promise.resolve({ secrets: [], writable: true })),
+    put: vi.fn(() =>
+      Promise.resolve({ name: 'x', createdAt: '', updatedAt: '' }),
+    ),
+    remove: vi.fn(() => Promise.resolve({ deleted: true })),
+  };
+
   let fixture: ComponentFixture<ModelsTab>;
 
   beforeEach(async () => {
     api.report.mockClear();
     await TestBed.configureTestingModule({
       imports: [ModelsTab],
-      providers: [{ provide: ProviderAdminService, useValue: api }],
+      providers: [
+        { provide: ProviderAdminService, useValue: api },
+        { provide: SecretAdminService, useValue: secretsApi },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(ModelsTab);
     await fixture.componentInstance.refresh();
@@ -82,6 +94,26 @@ describe('ModelsTab', () => {
       'conversation',
       'openrouter',
       'deepseek/y',
+    );
+  });
+
+  it('stores a pasted key in the vault and references it (FG9c UX)', async () => {
+    const component = fixture.componentInstance;
+    component.startAdd();
+    component.form.patchValue({
+      id: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'deepseek/x',
+      apiKeyRef: 'sk-or-v1-literal',
+    });
+    await component.submit();
+    expect(secretsApi.put).toHaveBeenCalledWith(
+      'openrouter-key',
+      'sk-or-v1-literal',
+    );
+    expect(api.upsert).toHaveBeenCalledWith(
+      'openrouter',
+      expect.objectContaining({ apiKeyRef: 'secret:openrouter-key' }),
     );
   });
 });

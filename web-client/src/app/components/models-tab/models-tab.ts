@@ -15,6 +15,24 @@ import type {
   ProviderReport,
   ProviderRole,
 } from '../../services/provider-admin.service';
+import {
+  SecretAdminService,
+} from '../../services/secret-admin.service';
+import type { SecretMetadata } from '../../services/secret-admin.service';
+
+/** A `$VAR` / `secret:NAME` reference (never a literal). */
+function isSecretReference(value: string): boolean {
+  return (
+    /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(value) ||
+    /^secret:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)
+  );
+}
+
+/** Vault name for a provider's pasted key, e.g. `openrouter-key`. */
+function keySecretName(id: string): string {
+  const base = `${id}-key`.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 64);
+  return /^[A-Za-z0-9]/.test(base) ? base : `p-${base}`.slice(0, 64);
+}
 
 function parseRefLines(text: string): Record<string, string> | null {
   const out: Record<string, string> = {};
@@ -47,6 +65,7 @@ function formatRefLines(map: Record<string, string> | undefined): string {
 })
 export class ModelsTab implements OnInit {
   private readonly api = inject(ProviderAdminService);
+  private readonly secretsApi = inject(SecretAdminService);
 
   readonly report = signal<ProviderReport | null>(null);
   readonly catalog = signal<readonly ProviderEntry[]>([]);
@@ -76,12 +95,17 @@ export class ModelsTab implements OnInit {
   async refresh(): Promise<void> {
     this.error.set(null);
     try {
-      const [report, catalog] = await Promise.all([
+      const [report, catalog, secretList] = await Promise.all([
         this.api.report(),
         this.api.catalog(),
+        this.secretsApi
+          .list()
+          .catch(() => ({ secrets: [] as SecretMetadata[], writable: false })),
       ]);
       this.report.set(report);
       this.catalog.set(catalog);
+      this.secrets.set(secretList.secrets);
+      this.vaultWritable.set(secretList.writable);
       this.activeDraft.set({
         conversation: {
           provider: report.active.conversation,
@@ -198,20 +222,47 @@ export class ModelsTab implements OnInit {
       this.error.set('context window must be a positive integer (tokens)');
       return;
     }
+
+    // A pasted key (not a $VAR/secret:NAME reference) goes into the vault,
+    // then the provider references it — the catalog never holds a literal.
+    let apiKeyRef = value.apiKeyRef.trim();
+    let vaultedName: string | null = null;
+    if (apiKeyRef && !isSecretReference(apiKeyRef)) {
+      if (!this.vaultWritable()) {
+        this.error.set(
+          'the secret vault is disabled — enable it (see docs/security.md), or enter a $VAR / secret:NAME reference',
+        );
+        return;
+      }
+      const name = keySecretName(id);
+      try {
+        await this.secretsApi.put(name, apiKeyRef);
+      } catch (err) {
+        this.error.set(this.message(err));
+        return;
+      }
+      vaultedName = name;
+      apiKeyRef = `secret:${name}`;
+    }
+
     this.busy.set(true);
     this.error.set(null);
     try {
       await this.api.upsert(id, {
         baseUrl: value.baseUrl.trim(),
         model: value.model.trim(),
-        ...(value.apiKeyRef.trim() ? { apiKeyRef: value.apiKeyRef.trim() } : {}),
+        ...(apiKeyRef ? { apiKeyRef } : {}),
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
         ...(value.userAgent.trim() ? { userAgent: value.userAgent.trim() } : {}),
         ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
         ...(contextWindow !== undefined ? { contextWindow } : {}),
         enabled: value.enabled,
       });
-      this.notice.set(`Saved provider "${id}".`);
+      this.notice.set(
+        vaultedName
+          ? `Saved provider "${id}"; the key is stored in the vault as "${vaultedName}".`
+          : `Saved provider "${id}".`,
+      );
       this.formOpen.set(false);
       await this.refresh();
     } catch (err) {
@@ -326,6 +377,10 @@ export class ModelsTab implements OnInit {
   }
 
   readonly roles = ['conversation', 'memory'] as const;
+
+  /** Vault secrets available to reference (FG9c UX). */
+  readonly secrets = signal<readonly SecretMetadata[]>([]);
+  readonly vaultWritable = signal(true);
 
   /** FG9c model pickers. */
   readonly editorModels = signal<readonly ProviderModel[]>([]);
