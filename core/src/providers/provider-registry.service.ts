@@ -56,6 +56,21 @@ export interface ModelList {
   models: ProviderModel[];
 }
 
+/** Cached reachability of an LLM endpoint (FG9b). Never a key. */
+export interface Reachability {
+  ok: boolean;
+  detail: string;
+  checkedAt: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
+}
+
+/** Cache TTL for reachability probes (FG9b). */
+const REACHABILITY_TTL_MS = 30_000;
+/** Probe timeout — best-effort, never blocks a health poll. */
+const REACHABILITY_TIMEOUT_MS = 3000;
+
 /** Map the LLM_* role configuration to endpoint values. */
 export function conversationEndpointConfig(
   config: CoreConfig,
@@ -119,6 +134,9 @@ export class ProviderRegistryService implements OnModuleInit {
 
   /** Listeners fired after each catalog reload (e.g. a model switch). */
   private readonly listeners = new Set<() => void>();
+
+  /** Cached reachability probes (FG9b). */
+  private readonly reachabilityCache = new Map<string, Reachability>();
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
@@ -408,6 +426,91 @@ export class ProviderRegistryService implements OnModuleInit {
       return { ok: true, detail: `HTTP ${response.status}`, models };
     } catch {
       return { ok: false, detail: 'unreachable', models: [] };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Cached reachability of the active endpoint for a role (FG9b). A network
+   * error or timeout reads unreachable; **any** HTTP response means the
+   * endpoint is up — a 404 on `/models` is common and is not a failure. A 5xx
+   * is treated as degraded (the provider answered but is broken).
+   */
+  async reachability(role: ProviderRole): Promise<Reachability> {
+    const endpoint =
+      role === 'conversation'
+        ? this.conversationEndpoint()
+        : this.memoryEndpoint();
+    return this.probeReachability(`role:${role}`, endpoint);
+  }
+
+  /** Cached reachability of a catalog provider (FG9b). */
+  async providerReachability(id: string): Promise<Reachability | null> {
+    const entry = this.catalog.providers.find(
+      (candidate) => candidate.id === id,
+    );
+    if (!entry) return null;
+    return this.probeReachability(
+      `id:${id}`,
+      this.toEndpoint(entry, 'conversation'),
+    );
+  }
+
+  /** The cached reachability value for a provider, without probing (FG9b). */
+  reachabilityOf(id: string): boolean | undefined {
+    return this.reachabilityCache.get(`id:${id}`)?.ok;
+  }
+
+  private async probeReachability(
+    key: string,
+    endpoint: LlmEndpointConfig,
+  ): Promise<Reachability> {
+    const cached = this.reachabilityCache.get(key);
+    if (
+      cached &&
+      Date.now() - Date.parse(cached.checkedAt) < REACHABILITY_TTL_MS
+    ) {
+      return cached;
+    }
+    const stamp = (ok: boolean, detail: string): Reachability => ({
+      ok,
+      detail,
+      checkedAt: new Date().toISOString(),
+      provider: endpoint.provider,
+      model: endpoint.llmModel,
+      baseUrl: endpoint.llmBaseUrl,
+    });
+    const base = (endpoint.llmBaseUrl ?? '').replace(/\/+$/, '');
+    if (!base) {
+      const result = stamp(false, 'no base URL configured');
+      this.reachabilityCache.set(key, result);
+      return result;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${base}/models`, {
+        headers: buildRequestHeaders(endpoint),
+        signal: controller.signal,
+      });
+      const result =
+        response.status >= 500
+          ? stamp(
+              false,
+              `reachable, but server error (HTTP ${String(response.status)})`,
+            )
+          : stamp(true, `reachable (HTTP ${String(response.status)})`);
+      this.reachabilityCache.set(key, result);
+      return result;
+    } catch (err) {
+      const detail =
+        err instanceof Error && err.name === 'AbortError'
+          ? 'unreachable (timeout)'
+          : 'unreachable (connection failed)';
+      const result = stamp(false, detail);
+      this.reachabilityCache.set(key, result);
+      return result;
     } finally {
       clearTimeout(timer);
     }

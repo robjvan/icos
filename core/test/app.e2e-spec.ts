@@ -260,6 +260,8 @@ describe('Conversation (e2e)', () => {
         // (FG6 would otherwise probe the endpoint).
         llmContextWindow: 1_000_000,
         contextWindowAutodetect: false,
+        // FG9b: no live probe in e2e — the fake endpoint is not reachable.
+        providerReachabilityEnabled: false,
         llmMaxOutputTokens: 8192,
         contextCompactionEnabled: true,
         contextCompactionTarget: 0.8,

@@ -331,5 +331,63 @@ describe('buildHealthReport', () => {
         ],
       });
     });
+
+    it('probes the active endpoint and reports reachability (FG9b)', async () => {
+      const { store, candidates, host, config } = setup();
+      const reach = (ok: boolean, detail: string) =>
+        Promise.resolve({
+          ok,
+          detail,
+          checkedAt: 't',
+          provider: 'local',
+          model: 'gemma',
+          baseUrl: 'http://x/v1',
+        });
+      const base = {
+        report: () => ({
+          source: 'catalog' as const,
+          active: { conversation: 'local', memory: 'local' },
+          providers: [
+            {
+              id: 'local',
+              model: 'gemma',
+              baseUrl: 'http://x/v1',
+              enabled: true,
+              hasKey: false,
+            },
+          ],
+        }),
+      };
+
+      const up = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        providers: {
+          ...base,
+          reachability: () => reach(true, 'reachable (HTTP 200)'),
+          providerReachability: () => reach(true, 'reachable (HTTP 200)'),
+        },
+      });
+      expect(up.runtime.llm.status).toBe('healthy');
+      expect(up.runtime.llm.reachable).toBe(true);
+      expect(up.providers?.providers[0]?.reachable).toBe(true);
+      expect(up.providers?.reachability?.conversation?.ok).toBe(true);
+
+      const down = await buildHealthReport({
+        sessions: store,
+        candidates,
+        config,
+        host,
+        providers: {
+          ...base,
+          reachability: () => reach(false, 'unreachable (connection failed)'),
+        },
+      });
+      expect(down.status).toBe('degraded');
+      expect(down.runtime.llm.status).toBe('degraded');
+      expect(down.runtime.llm.reachable).toBe(false);
+    });
   });
 });

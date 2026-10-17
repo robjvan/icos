@@ -8,6 +8,10 @@
     <span [class]="serverStatusClass()" [title]="healthTitle()">{{
       serverStatus()
     }}</span>
+    ·
+    <span [class]="llmStatusClass()" [title]="healthTitle()">{{
+      llmStatus()
+    }}</span>
   </p>
   <div class="flex gap-8">
     <p class="" [title]="healthTitle()">CPU: {{ cpuUsage() }} % | RAM: {{ ramUsage() }} %</p>

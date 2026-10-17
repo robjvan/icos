@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -19,6 +20,8 @@ import {
   SecretAdminService,
 } from '../../services/secret-admin.service';
 import type { SecretMetadata } from '../../services/secret-admin.service';
+import { HealthService } from '../../services/health.service';
+import type { ProviderReachability } from '../../models/health';
 
 /** A `$VAR` / `secret:NAME` reference (never a literal). */
 function isSecretReference(value: string): boolean {
@@ -66,6 +69,7 @@ function formatRefLines(map: Record<string, string> | undefined): string {
 export class ModelsTab implements OnInit {
   private readonly api = inject(ProviderAdminService);
   private readonly secretsApi = inject(SecretAdminService);
+  private readonly healthService = inject(HealthService);
 
   readonly report = signal<ProviderReport | null>(null);
   readonly catalog = signal<readonly ProviderEntry[]>([]);
@@ -106,6 +110,8 @@ export class ModelsTab implements OnInit {
       this.catalog.set(catalog);
       this.secrets.set(secretList.secrets);
       this.vaultWritable.set(secretList.writable);
+      // FG9b: refresh reachability (the health report probes + caches it).
+      await this.healthService.refresh();
       this.activeDraft.set({
         conversation: {
           provider: report.active.conversation,
@@ -381,6 +387,19 @@ export class ModelsTab implements OnInit {
   /** Vault secrets available to reference (FG9c UX). */
   readonly secrets = signal<readonly SecretMetadata[]>([]);
   readonly vaultWritable = signal(true);
+
+  /** FG9b reachability, read from the health report. */
+  readonly conversationReach = computed<ProviderReachability | undefined>(
+    () => this.healthService.health()?.providers?.reachability?.conversation,
+  );
+  readonly memoryReach = computed<ProviderReachability | undefined>(
+    () => this.healthService.health()?.providers?.reachability?.memory,
+  );
+  reachableFor(id: string): boolean | undefined {
+    return this.healthService
+      .health()
+      ?.providers?.providers.find((provider) => provider.id === id)?.reachable;
+  }
 
   /** FG9c model pickers. */
   readonly editorModels = signal<readonly ProviderModel[]>([]);

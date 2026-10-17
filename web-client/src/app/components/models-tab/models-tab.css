@@ -73,3 +73,12 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* FG9b provider reachability badges. */
+.reach-ok {
+  color: var(--badge-sage-text, #4caf7d);
+}
+
+.reach-bad {
+  color: var(--accent-red, #d9534f);
+}

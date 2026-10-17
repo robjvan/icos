@@ -13,6 +13,8 @@ export interface HealthCheck {
 export interface LlmHealthCheck extends HealthCheck {
   provider: string;
   model: string;
+  /** Present when the endpoint was probed (FG9b). */
+  reachable?: boolean;
 }
 
 /** Per-server MCP state as surfaced by health (never secrets). */
@@ -46,11 +48,32 @@ export interface ProviderHealth {
     model: string;
     enabled: boolean;
     hasKey: boolean;
+    /** Present when the provider was probed (FG9b). */
+    reachable?: boolean;
   }[];
+  /** Active-endpoint reachability per role (FG9b). */
+  reachability?: {
+    conversation?: ProviderReachability;
+    memory?: ProviderReachability;
+  };
+}
+
+/** A probed LLM endpoint's reachability (FG9b). Never a key. */
+export interface ProviderReachability {
+  ok: boolean;
+  detail: string;
+  checkedAt: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
 }
 
 export interface ProviderHealthSource {
   report(): ProviderHealth;
+  /** Optional: cached active-endpoint reachability per role (FG9b). */
+  reachability?(role: 'conversation' | 'memory'): Promise<ProviderReachability>;
+  /** Optional: cached per-provider reachability (FG9b). */
+  providerReachability?(id: string): Promise<ProviderReachability | null>;
 }
 
 /**
@@ -116,22 +139,35 @@ export async function buildHealthReport(
       detail: err instanceof Error ? err.message : 'unreachable',
     };
   }
-  // Configured is not healthy: no active probe exists, so reachability
-  // stays `unknown` rather than claiming what was never checked.
+  // FG9b: probe the active endpoint so a misconfigured provider
+  // (host.docker.internal-class) fails visibly instead of reading `unknown`.
+  const probe = config.providerReachabilityEnabled !== false;
+  const llmReachability =
+    probe && deps.providers?.reachability
+      ? await deps.providers.reachability('conversation')
+      : null;
   const llmConfigured = Boolean(config.llmBaseUrl && config.llmModel);
-  const llm: LlmHealthCheck = llmConfigured
+  const llm: LlmHealthCheck = !llmConfigured
     ? {
-        status: 'unknown',
-        detail: `configured (provider=${config.provider}, model=${config.llmModel}); reachability not probed`,
-        provider: config.provider,
-        model: config.llmModel,
-      }
-    : {
         status: 'degraded',
         detail: 'LLM provider not configured',
         provider: config.provider,
         model: config.llmModel,
-      };
+      }
+    : llmReachability
+      ? {
+          status: llmReachability.ok ? 'healthy' : 'degraded',
+          detail: `${llmReachability.provider}/${llmReachability.model}: ${llmReachability.detail}`,
+          provider: llmReachability.provider,
+          model: llmReachability.model,
+          reachable: llmReachability.ok,
+        }
+      : {
+          status: 'unknown',
+          detail: `configured (provider=${config.provider}, model=${config.llmModel}); reachability not probed`,
+          provider: config.provider,
+          model: config.llmModel,
+        };
 
   const hostHealth = await host.collect();
   const status =
@@ -153,24 +189,43 @@ export async function buildHealthReport(
       ? { mcp: buildMcpHealth(config.mcpEnabled, deps.mcp.statusAll()) }
       : {}),
     ...(deps.providers
-      ? { providers: buildProviderHealth(deps.providers) }
+      ? { providers: await buildProviderHealth(deps.providers, probe) }
       : {}),
     host: hostHealth,
   };
 }
 
 /** Active LLM provider state (S4): ids/models/presence, never keys. */
-function buildProviderHealth(source: ProviderHealthSource): ProviderHealth {
+async function buildProviderHealth(
+  source: ProviderHealthSource,
+  probe: boolean,
+): Promise<ProviderHealth> {
   const report = source.report();
-  return {
-    source: report.source,
-    active: report.active,
-    providers: report.providers.map((entry) => ({
+  const providers: ProviderHealth['providers'] = [];
+  for (const entry of report.providers) {
+    const reach =
+      probe && source.providerReachability
+        ? await source.providerReachability(entry.id)
+        : null;
+    providers.push({
       id: entry.id,
       model: entry.model,
       enabled: entry.enabled,
       hasKey: entry.hasKey,
-    })),
+      ...(reach ? { reachable: reach.ok } : {}),
+    });
+  }
+  let reachability: ProviderHealth['reachability'];
+  if (probe && source.reachability) {
+    const conversation = await source.reachability('conversation');
+    const memory = await source.reachability('memory');
+    reachability = { conversation, memory };
+  }
+  return {
+    source: report.source,
+    active: report.active,
+    providers,
+    ...(reachability ? { reachability } : {}),
   };
 }
 

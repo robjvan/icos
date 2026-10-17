@@ -88,6 +88,8 @@ export interface CoreConfig {
   contextCompactionTimeoutMs?: number;
   /** M20.6: best-effort provider context-window probe (default off). */
   contextWindowAutodetect?: boolean;
+  /** FG9b: probe provider reachability for health (default true). */
+  providerReachabilityEnabled?: boolean;
   /** M20.6: persisted context-settings override file (target/enabled). */
   contextSettingsPath?: string;
   systemPrompt: string;
@@ -522,6 +524,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       (env.ICOS_VAULT_KEY_FILE ?? env.VAULT_KEY_FILE ?? '').trim() || undefined,
     vaultKey: (env.ICOS_VAULT_KEY ?? env.VAULT_KEY ?? '').trim() || undefined,
     providersPath: (env.PROVIDERS_PATH ?? '').trim() || undefined,
+    // FG9b: probe the active endpoint's reachability for health. On by
+    // default; `false` keeps the health report config-only (no network).
+    providerReachabilityEnabled: parseBoolean(
+      env.PROVIDER_REACHABILITY_ENABLED,
+      true,
+    ),
     provider: (env.LLM_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama',
     llmBaseUrl,
     llmModel,

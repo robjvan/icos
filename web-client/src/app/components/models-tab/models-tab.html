@@ -12,6 +12,12 @@
       Active source: <strong>{{ rep.source }}</strong> · conversation
       <span class="mono">{{ rep.active.conversation }}</span> · memory
       <span class="mono">{{ rep.active.memory }}</span>
+      @if (conversationReach(); as reach) {
+        · reachability
+        <span [class]="reach.ok ? 'reach-ok' : 'reach-bad'">{{
+          reach.ok ? 'reachable' : reach.detail
+        }}</span>
+      }
     </p>
   }
 
@@ -75,7 +81,17 @@
     <tbody>
       @for (status of report()?.providers ?? []; track status.id) {
         <tr>
-          <td class="mono">{{ status.id }}</td>
+          <td class="mono">
+            {{ status.id }}
+            @if (reachableFor(status.id) !== undefined) {
+              <span
+                class="badge"
+                [class.reach-ok]="reachableFor(status.id) === true"
+                [class.reach-bad]="reachableFor(status.id) === false"
+                >{{ reachableFor(status.id) ? 'up' : 'down' }}</span
+              >
+            }
+          </td>
           <td class="mono">{{ status.model }}</td>
           <td class="mono url">{{ status.baseUrl }}</td>
           <td>{{ status.hasKey ? 'present' : (status.enabled ? 'missing' : 'disabled') }}</td>

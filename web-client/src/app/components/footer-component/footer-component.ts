@@ -79,15 +79,36 @@ export class FooterComponent implements OnInit, OnDestroy {
   });
 
   readonly serverStatus = computed(() => {
-    const restOk =
-      this.healthService.health()?.status === 'healthy' &&
-      this.healthService.error() === null;
-    if (!restOk) {
+    if (this.healthService.error() !== null) {
       return ServerStatus.OFFLINE;
+    }
+    const health = this.healthService.health();
+    if (health === null) {
+      return ServerStatus.OFFLINE;
+    }
+    // A degraded roll-up (e.g. the LLM provider is unreachable) is still an
+    // online core — say "Degraded", not "Offline" (FG9b).
+    if (health.status !== 'healthy') {
+      return ServerStatus.DEGRADED;
     }
     // REST healthy + socket live ⇒ Online; REST healthy + socket down ⇒
     // Degraded (polling fallback covers the gap, and says so).
     return this.realtime.connected() ? ServerStatus.ONLINE : ServerStatus.DEGRADED;
+  });
+
+  /** LLM provider reachability (FG9b) for the footer chip. */
+  readonly llmStatus = computed(() => {
+    const llm = this.healthService.health()?.runtime.llm;
+    if (!llm || llm.reachable === undefined) return 'LLM ?';
+    return llm.reachable ? 'LLM ok' : 'LLM down';
+  });
+
+  readonly llmStatusClass = computed(() => {
+    const llm = this.healthService.health()?.runtime.llm;
+    if (!llm || llm.reachable === undefined) return '';
+    return llm.reachable
+      ? 'text-(--badge-sage-text)'
+      : 'text-(--accent-red)';
   });
 
   readonly serverStatusClass = computed(() => {
@@ -112,7 +133,8 @@ export class FooterComponent implements OnInit, OnDestroy {
       return 'Loading system health…';
     }
     const { os, arch, cpuCores } = health.host;
-    return `${os} · ${arch} · ${cpuCores} cores`;
+    const llm = health.runtime.llm;
+    return `${os} · ${arch} · ${cpuCores} cores\nLLM: ${llm.provider}/${llm.model} — ${llm.detail}`;
   });
 
   ngOnInit(): void {
