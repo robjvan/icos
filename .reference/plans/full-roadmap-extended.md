@@ -223,6 +223,19 @@
   - [x] Subagent failure / cancellation / timeout
   - [x] Result verification and provenance
 
+- [ ] **Prerelease Feature Gap Rollup**
+  - [x] FG1: Root-level `AGENTS.md`
+  - [ ] FG2: Close open Github issues
+  - [ ] FG3: Round out `icos-stack` skillset
+  - [ ] FG4: Check for web inconsistencies
+  - [ ] FG5: "User Stories" test suite
+  - [ ] FG6: Context window auto-detect
+  - [ ] FG7: Core Provenance Integrity
+  - [ ] FG8: Drift Tuning
+  - [ ] FG9: Provider Model Discovery
+  - ~~[-] FG10: Skill Evolution~~ _(deferred)_
+  - [ ] FG11: Memory Candidate Tuning
+
 - [ ] **M22: Autonomous Agency and Action Execution**
   - [ ] Action registry
   - [ ] Action capability discovery
