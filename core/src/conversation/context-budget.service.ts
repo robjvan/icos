@@ -1,10 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { OnModuleInit } from '@nestjs/common';
 import { CORE_CONFIG } from '../config';
 import type { CoreConfig } from '../config';
-import { SecretResolver } from '../secrets/secret-resolver';
-import type { ChatMessage } from '../llm/llm.client';
+import { ProviderRegistryService } from '../providers/provider-registry.service';
+import type { ChatMessage, LlmEndpointConfig } from '../llm/llm.client';
 
 /** Rough characters-per-token heuristic (mirrors `memory/prompt-bands`). */
 const CHARS_PER_TOKEN = 4;
@@ -16,6 +17,17 @@ const PROBE_TIMEOUT_MS = 3000;
 const MIN_TARGET = 0.5;
 const MAX_TARGET = 0.95;
 
+/**
+ * Conservative fallback window (FG6), used only when the window cannot be
+ * resolved from the provider catalog, `LLM_CONTEXT_WINDOW`, or a probe.
+ * Deliberately small: a misconfiguration should over-compact (degraded) rather
+ * than overrun the model's real window.
+ */
+export const DEFAULT_CONTEXT_WINDOW = 16_384;
+
+/** Where the resolved window came from (surfaced to the operator). */
+export type ContextWindowSource = 'provider' | 'env' | 'probe' | 'default';
+
 /** Rough text → token estimate (len/4); never zero for non-empty text. */
 export function estimateText(text: string): number {
   return Math.max(1, Math.ceil(text.length / CHARS_PER_TOKEN));
@@ -23,6 +35,7 @@ export function estimateText(text: string): number {
 
 export interface ContextSettings {
   contextWindow: number;
+  contextWindowSource: ContextWindowSource;
   maxOutputTokens: number;
   usableTokens: number;
   triggerTokens: number;
@@ -33,35 +46,94 @@ export interface ContextSettings {
 /**
  * M20.6.1 context-budget accounting. Owns the resolved context window, the
  * usable budget (window − reserved output), and the compaction trigger.
- * Arithmetic + a documented heuristic — no LLM, no per-turn state. The
- * optional provider probe and the persisted target override are best-effort.
+ * Arithmetic + a documented heuristic — no LLM, no per-turn state. The window
+ * is resolved from the configured model (FG6): provider catalog → env → probe
+ * → conservative default, re-resolved when the active provider changes.
  */
 @Injectable()
-export class ContextBudgetService {
+export class ContextBudgetService implements OnModuleInit {
   private readonly logger = new Logger(ContextBudgetService.name);
-  private resolvedWindow: number;
+  private resolvedWindow = DEFAULT_CONTEXT_WINDOW;
+  private windowSource: ContextWindowSource = 'default';
+  private resolveToken = 0;
   private targetOverride: number | null = null;
   private enabledOverride: boolean | null = null;
 
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
-    @Optional() private readonly secrets?: SecretResolver,
+    private readonly providers: ProviderRegistryService,
   ) {
-    this.resolvedWindow = config.llmContextWindow ?? 1_000_000;
+    // Apply an explicit env window synchronously, so sync callers see it
+    // before `onModuleInit` runs the full (provider/probe) resolution.
+    if (config.llmContextWindow !== undefined) {
+      this.resolvedWindow = config.llmContextWindow;
+      this.windowSource = 'env';
+    }
     this.loadOverrides();
   }
 
   /**
-   * Best-effort context-window probe (M20.6.1). Off by default; when on and a
-   * provider advertises a window (`context_length` / `max_model_len` on
-   * `/models`), adopt it. Failure is silent — the configured value stands.
+   * Resolve the window at boot, and again whenever the active provider
+   * changes — so a model switch takes effect without a restart (FG6).
    */
   async onModuleInit(): Promise<void> {
-    if (this.config.contextWindowAutodetect !== true) return;
-    const detected = await this.probeProviderWindow();
-    if (detected !== null && detected > 0) {
-      this.resolvedWindow = detected;
-      this.logger.log(`Adopted provider context window: ${detected} tokens`);
+    this.providers.onChange(() => {
+      void this.resolveWindow();
+    });
+    await this.resolveWindow();
+  }
+
+  /**
+   * Resolve the conversation window from the configured model, in order:
+   * provider catalog → `LLM_CONTEXT_WINDOW` → provider probe → conservative
+   * default. Never a silent stale default — an unresolved window warns (FG6).
+   */
+  async resolveWindow(): Promise<void> {
+    // A model switch can fire this while an earlier probe is still in flight;
+    // only the newest resolve may apply (otherwise a slow probe of the old
+    // endpoint overwrites the new provider's declared window).
+    const token = ++this.resolveToken;
+    const entry = this.providers.activeEntry('conversation');
+    let window: number | null = null;
+    let source: ContextWindowSource = 'default';
+    if (entry?.contextWindow !== undefined) {
+      window = entry.contextWindow;
+      source = 'provider';
+    } else if (this.config.llmContextWindow !== undefined) {
+      window = this.config.llmContextWindow;
+      source = 'env';
+    } else if (this.config.contextWindowAutodetect !== false) {
+      window = await this.probeProviderWindow(
+        this.providers.conversationEndpoint(),
+      );
+      if (window !== null) source = 'probe';
+    }
+    if (token !== this.resolveToken) return; // superseded by a newer resolve
+    if (window === null) {
+      this.logger.warn(
+        `Context window unresolved: LLM_CONTEXT_WINDOW is unset, the active ` +
+          `provider declares no contextWindow, and the provider probe found ` +
+          `none. Using the conservative default of ${String(
+            DEFAULT_CONTEXT_WINDOW,
+          )} tokens — compaction will run more often than needed. Set ` +
+          `LLM_CONTEXT_WINDOW (or a provider contextWindow) to the model's ` +
+          `real window.`,
+      );
+      this.setWindow(DEFAULT_CONTEXT_WINDOW, 'default');
+      return;
+    }
+    this.setWindow(window, source);
+  }
+
+  private setWindow(window: number, source: ContextWindowSource): void {
+    const changed =
+      window !== this.resolvedWindow || source !== this.windowSource;
+    this.resolvedWindow = window;
+    this.windowSource = source;
+    if (changed) {
+      this.logger.log(
+        `Context window: ${String(window)} tokens (source: ${source})`,
+      );
     }
   }
 
@@ -69,8 +141,17 @@ export class ContextBudgetService {
     return this.resolvedWindow;
   }
 
+  get contextWindowSource(): ContextWindowSource {
+    return this.windowSource;
+  }
+
   get maxOutputTokens(): number {
-    return this.config.llmMaxOutputTokens ?? 8192;
+    // Never let the reply reserve swallow the whole window (FG6): if the
+    // resolved window is small, cap the reserve at half of it.
+    return Math.min(
+      this.config.llmMaxOutputTokens ?? 8192,
+      Math.max(1, Math.floor(this.resolvedWindow / 2)),
+    );
   }
 
   get enabled(): boolean {
@@ -97,6 +178,7 @@ export class ContextBudgetService {
   settings(): ContextSettings {
     return {
       contextWindow: this.contextWindow,
+      contextWindowSource: this.contextWindowSource,
       maxOutputTokens: this.maxOutputTokens,
       usableTokens: this.usableTokens,
       triggerTokens: this.triggerTokens,
@@ -192,40 +274,102 @@ export class ContextBudgetService {
     }
   }
 
-  private async probeProviderWindow(): Promise<number | null> {
-    const base = (this.config.llmBaseUrl ?? '').replace(/\/+$/, '');
+  /**
+   * Best-effort window probe (FG6). Tries the OpenAI-compatible `/models`
+   * (`context_length` / `max_model_len`) and, for an Ollama-style endpoint,
+   * `/api/show` (`num_ctx` / `model_info.*.context_length`). Any failure is
+   * silent — the caller falls back.
+   */
+  private async probeProviderWindow(
+    endpoint: LlmEndpointConfig,
+  ): Promise<number | null> {
+    const base = (endpoint.llmBaseUrl ?? '').replace(/\/+$/, '');
     if (!base) return null;
-    const key = this.resolveKey();
+    const headers: Record<string, string> = {};
+    if (endpoint.llmApiKey) {
+      headers['Authorization'] = `Bearer ${endpoint.llmApiKey}`;
+    }
+    const fromModels = await this.probeModels(base, endpoint.llmModel, headers);
+    if (fromModels !== null) return fromModels;
+    return this.probeOllamaShow(base, endpoint.llmModel, headers);
+  }
+
+  private async probeModels(
+    base: string,
+    model: string,
+    headers: Record<string, string>,
+  ): Promise<number | null> {
+    const body = await this.getJson(`${base}/models`, { headers });
+    if (!body || typeof body !== 'object') return null;
+    const data = (body as { data?: unknown }).data;
+    if (!Array.isArray(data)) return null;
+    const entry = (
+      data as {
+        id?: unknown;
+        context_length?: unknown;
+        max_model_len?: unknown;
+      }[]
+    ).find((candidate) => candidate.id === model);
+    const value = entry?.context_length ?? entry?.max_model_len;
+    return typeof value === 'number' && value > 0 ? value : null;
+  }
+
+  private async probeOllamaShow(
+    base: string,
+    model: string,
+    headers: Record<string, string>,
+  ): Promise<number | null> {
+    // The Ollama API lives at the root, not under the OpenAI `/v1` prefix.
+    const root = base.replace(/\/v1$/, '');
+    const body = await this.getJson(`${root}/api/show`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: model, model }),
+    });
+    if (!body || typeof body !== 'object') return null;
+    const record = body as { model_info?: unknown; parameters?: unknown };
+    if (record.model_info && typeof record.model_info === 'object') {
+      for (const [key, value] of Object.entries(
+        record.model_info as Record<string, unknown>,
+      )) {
+        if (
+          key.endsWith('.context_length') &&
+          typeof value === 'number' &&
+          value > 0
+        ) {
+          return value;
+        }
+      }
+    }
+    if (typeof record.parameters === 'string') {
+      const match = /(?:^|\n)\s*num_ctx\s+(\d+)/.exec(record.parameters);
+      if (match) {
+        const value = Number(match[1]);
+        if (value > 0) return value;
+      }
+    }
+    return null;
+  }
+
+  private async getJson(
+    url: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     try {
-      const response = await fetch(`${base}/models`, {
-        headers: key ? { Authorization: `Bearer ${key}` } : {},
+      const response = await fetch(url, {
+        method: init.method ?? 'GET',
+        ...(init.headers ? { headers: init.headers } : {}),
+        ...(init.body ? { body: init.body } : {}),
         signal: controller.signal,
       });
       if (!response.ok) return null;
-      const body = (await response.json()) as {
-        data?: {
-          id?: string;
-          context_length?: unknown;
-          max_model_len?: unknown;
-        }[];
-      };
-      const entry = (body.data ?? []).find(
-        (model) => model.id === this.config.llmModel,
-      );
-      const value = entry?.context_length ?? entry?.max_model_len;
-      return typeof value === 'number' && value > 0 ? value : null;
+      return (await response.json()) as unknown;
     } catch {
       return null;
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  private resolveKey(): string | null {
-    const raw = this.config.llmApiKey;
-    if (!raw) return null;
-    return this.secrets?.resolve(raw) ?? raw;
   }
 }

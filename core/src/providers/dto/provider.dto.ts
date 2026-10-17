@@ -54,6 +54,13 @@ export class ProviderDto {
   @Max(3_600_000)
   timeoutMs?: number;
 
+  /** Declared context window in tokens (per-model). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000)
+  contextWindow?: number;
+
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;

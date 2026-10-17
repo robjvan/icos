@@ -7,6 +7,7 @@ export interface ProviderStatus {
   model: string;
   baseUrl: string;
   enabled: boolean;
+  contextWindow?: number;
   hasKey: boolean;
 }
 
@@ -26,6 +27,7 @@ export interface ProviderEntry {
   headers?: Record<string, string>;
   userAgent?: string;
   timeoutMs?: number;
+  contextWindow?: number;
   enabled?: boolean;
 }
 
@@ -36,6 +38,7 @@ export interface ProviderInput {
   headers?: Record<string, string>;
   userAgent?: string;
   timeoutMs?: number;
+  contextWindow?: number;
   enabled?: boolean;
 }
 

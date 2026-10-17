@@ -429,6 +429,19 @@ function parsePositiveInt(
   return value;
 }
 
+/** Optional positive integer; undefined when unset/blank, rejects bad input. */
+function parseOptionalPositiveInt(
+  raw: string | undefined,
+  name: string,
+): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
+}
+
 /** Like parsePositiveInt but admits 0 (used for opt-out timers). */
 function parseNonNegativeInt(
   raw: string | undefined,
@@ -516,9 +529,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     llmHeaders: parseHeaders(env.LLM_HEADERS, 'LLM_HEADERS'),
     userAgent: (env.LLM_USER_AGENT ?? '').trim() || undefined,
     llmTimeoutMs: parsePositiveInt(env.LLM_TIMEOUT_MS, 60000, 'LLM_TIMEOUT_MS'),
-    llmContextWindow: parsePositiveInt(
+    llmContextWindow: parseOptionalPositiveInt(
       env.LLM_CONTEXT_WINDOW,
-      1_000_000,
       'LLM_CONTEXT_WINDOW',
     ),
     llmMaxOutputTokens: parsePositiveInt(
@@ -540,7 +552,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       20000,
       'CONTEXT_COMPACTION_TIMEOUT_MS',
     ),
-    contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, false),
+    contextWindowAutodetect: parseBoolean(env.CONTEXT_WINDOW_AUTODETECT, true),
     contextSettingsPath: resolvePath(
       env.CONTEXT_SETTINGS_PATH,
       '~/.icos/context-settings.json',

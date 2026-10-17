@@ -1,6 +1,10 @@
+/** Where the resolved context window came from (FG6). */
+export type ContextWindowSource = 'provider' | 'env' | 'probe' | 'default';
+
 /** Resolved context budget (M20.6). Mirrors the core `ContextSettings`. */
 export interface ContextSettings {
   contextWindow: number;
+  contextWindowSource: ContextWindowSource;
   maxOutputTokens: number;
   usableTokens: number;
   triggerTokens: number;

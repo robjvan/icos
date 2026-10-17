@@ -26,7 +26,12 @@ describe('parseProviderCatalog', () => {
           headers: { 'HTTP-Referer': '$REFERER' },
           timeoutMs: 30000,
         },
-        { id: 'local', baseUrl: 'http://localhost:11434/v1', model: 'gemma' },
+        {
+          id: 'local',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'gemma',
+          contextWindow: 16384,
+        },
       ],
     });
     expect(catalog.errors).toEqual([]);
@@ -35,6 +40,7 @@ describe('parseProviderCatalog', () => {
       memory: 'local',
     });
     expect(catalog.providers.map((p) => p.id)).toEqual(['openrouter', 'local']);
+    expect(catalog.providers[1]?.contextWindow).toBe(16384);
   });
 
   it('rejects bad entries individually and skips them', () => {
@@ -57,6 +63,12 @@ describe('parseProviderCatalog', () => {
           headers: { A: 'literal' },
         },
         { id: 'badtimeout', baseUrl: 'http://x/v1', model: 'm', timeoutMs: 0 },
+        {
+          id: 'badwindow',
+          baseUrl: 'http://x/v1',
+          model: 'm',
+          contextWindow: 0,
+        },
       ],
     });
     expect(catalog.providers.map((p) => p.id)).toEqual(['ok']);

@@ -256,8 +256,10 @@ describe('Conversation (e2e)', () => {
         realtimeHeartbeatMs: 30000,
         realtimeAllowedOrigins: ['http://localhost:4200'],
         // M20.6 context budget + compaction (large window: no auto-compaction
-        // unless a test lowers it).
+        // unless a test lowers it). Autodetect off keeps the e2e deterministic
+        // (FG6 would otherwise probe the endpoint).
         llmContextWindow: 1_000_000,
+        contextWindowAutodetect: false,
         llmMaxOutputTokens: 8192,
         contextCompactionEnabled: true,
         contextCompactionTarget: 0.8,
@@ -2667,6 +2669,7 @@ describe('Conversation (e2e)', () => {
     interface ContextSettingsBody {
       settings: {
         contextWindow: number;
+        contextWindowSource: string;
         maxOutputTokens: number;
         usableTokens: number;
         triggerTokens: number;
@@ -2690,6 +2693,7 @@ describe('Conversation (e2e)', () => {
       const initial = await request(server).get('/core/context').expect(200);
       expect((initial.body as ContextSettingsBody).settings).toMatchObject({
         contextWindow: 1_000_000,
+        contextWindowSource: 'env',
         maxOutputTokens: 8192,
         target: 0.8,
         enabled: true,

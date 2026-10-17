@@ -7,7 +7,11 @@ import {
 } from '@angular/core';
 import { ContextService } from '../../services/context.service';
 import { ConversationStore } from '../../services/conversation-store';
-import type { ContextSettings, ContextSummary } from '../../models/context';
+import type {
+  ContextSettings,
+  ContextSummary,
+  ContextWindowSource,
+} from '../../models/context';
 
 /**
  * Context segment (M20.6.3): the resolved budget read-out plus the
@@ -68,6 +72,19 @@ export class ContextPanel implements OnInit {
 
   format(value: number): string {
     return value.toLocaleString('en-US');
+  }
+
+  sourceLabel(source: ContextWindowSource): string {
+    switch (source) {
+      case 'provider':
+        return 'declared by the active provider';
+      case 'env':
+        return 'from LLM_CONTEXT_WINDOW';
+      case 'probe':
+        return 'detected from the provider';
+      default:
+        return 'conservative default — set LLM_CONTEXT_WINDOW or a provider window';
+    }
   }
 
   private message(err: unknown): string {

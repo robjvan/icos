@@ -64,6 +64,7 @@ export class ModelsTab implements OnInit {
     headers: new FormControl('', { nonNullable: true }),
     userAgent: new FormControl('', { nonNullable: true }),
     timeoutMs: new FormControl('', { nonNullable: true }),
+    contextWindow: new FormControl('', { nonNullable: true }),
     enabled: new FormControl(true, { nonNullable: true }),
   });
 
@@ -130,6 +131,7 @@ export class ModelsTab implements OnInit {
       headers: '',
       userAgent: '',
       timeoutMs: '',
+      contextWindow: '',
       enabled: true,
     });
     this.form.controls.id.enable();
@@ -146,6 +148,8 @@ export class ModelsTab implements OnInit {
       headers: formatRefLines(entry.headers),
       userAgent: entry.userAgent ?? '',
       timeoutMs: entry.timeoutMs === undefined ? '' : String(entry.timeoutMs),
+      contextWindow:
+        entry.contextWindow === undefined ? '' : String(entry.contextWindow),
       enabled: entry.enabled !== false,
     });
     this.form.controls.id.disable();
@@ -174,6 +178,15 @@ export class ModelsTab implements OnInit {
       this.error.set('timeout must be a positive integer (ms)');
       return;
     }
+    const contextWindow =
+      value.contextWindow.trim() === '' ? undefined : Number(value.contextWindow);
+    if (
+      contextWindow !== undefined &&
+      (!Number.isInteger(contextWindow) || contextWindow <= 0)
+    ) {
+      this.error.set('context window must be a positive integer (tokens)');
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {
@@ -184,6 +197,7 @@ export class ModelsTab implements OnInit {
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
         ...(value.userAgent.trim() ? { userAgent: value.userAgent.trim() } : {}),
         ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
         enabled: value.enabled,
       });
       this.notice.set(`Saved provider "${id}".`);

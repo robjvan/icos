@@ -27,6 +27,8 @@ export interface ProviderStatus {
   model: string;
   baseUrl: string;
   enabled: boolean;
+  /** Declared context window in tokens, when set. */
+  contextWindow?: number;
   /** True when the key reference resolves to a value right now. */
   hasKey: boolean;
 }
@@ -100,6 +102,9 @@ export class ProviderRegistryService implements OnModuleInit {
     path: '',
   };
 
+  /** Listeners fired after each catalog reload (e.g. a model switch). */
+  private readonly listeners = new Set<() => void>();
+
   constructor(
     @Inject(CORE_CONFIG) private readonly config: CoreConfig,
     private readonly secrets: SecretResolver,
@@ -120,7 +125,44 @@ export class ProviderRegistryService implements OnModuleInit {
         `Provider catalog loaded (${this.catalog.providers.length} providers).`,
       );
     }
+    this.notify();
     return this.report();
+  }
+
+  /** Register a change listener (fired after each catalog reload). */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (err) {
+        this.logger.warn(
+          `Provider change listener failed: ${
+            err instanceof Error ? err.message : 'unknown'
+          }`,
+        );
+      }
+    }
+  }
+
+  /**
+   * The active catalog entry for a role, or null when the role falls back to
+   * env-configured endpoints. Used by the context budget to read a declared
+   * `contextWindow`.
+   */
+  activeEntry(role: ProviderRole): ProviderEntry | null {
+    const id = this.catalog.active[role];
+    if (!id) return null;
+    const entry = this.catalog.providers.find(
+      (candidate) => candidate.id === id && candidate.enabled !== false,
+    );
+    return entry ?? null;
   }
 
   /** Endpoint for the conversation role (active catalog entry or env). */
@@ -155,6 +197,9 @@ export class ProviderRegistryService implements OnModuleInit {
         model: entry.model,
         baseUrl: entry.baseUrl,
         enabled: entry.enabled !== false,
+        ...(entry.contextWindow !== undefined
+          ? { contextWindow: entry.contextWindow }
+          : {}),
         hasKey: entry.apiKeyRef
           ? this.secrets.resolve(entry.apiKeyRef) !== null
           : false,

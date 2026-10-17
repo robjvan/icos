@@ -23,6 +23,8 @@ export interface ProviderEntry {
   headers?: Record<string, string>;
   userAgent?: string;
   timeoutMs?: number;
+  /** Declared context window in tokens (per-model). */
+  contextWindow?: number;
   enabled?: boolean;
 }
 
@@ -117,6 +119,18 @@ function validateEntry(
       };
     }
     entry.timeoutMs = raw['timeoutMs'];
+  }
+  if (raw['contextWindow'] !== undefined) {
+    if (
+      typeof raw['contextWindow'] !== 'number' ||
+      !Number.isInteger(raw['contextWindow']) ||
+      raw['contextWindow'] <= 0
+    ) {
+      return {
+        error: `provider "${id}": contextWindow must be a positive integer`,
+      };
+    }
+    entry.contextWindow = raw['contextWindow'];
   }
   if (raw['enabled'] !== undefined) {
     if (typeof raw['enabled'] !== 'boolean') {
@@ -242,6 +256,9 @@ function toRawProvider(entry: ProviderEntry): Record<string, unknown> {
     ...(entry.headers !== undefined ? { headers: entry.headers } : {}),
     ...(entry.userAgent !== undefined ? { userAgent: entry.userAgent } : {}),
     ...(entry.timeoutMs !== undefined ? { timeoutMs: entry.timeoutMs } : {}),
+    ...(entry.contextWindow !== undefined
+      ? { contextWindow: entry.contextWindow }
+      : {}),
     ...(entry.enabled !== undefined ? { enabled: entry.enabled } : {}),
   };
 }

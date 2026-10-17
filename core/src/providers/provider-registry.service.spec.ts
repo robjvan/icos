@@ -125,6 +125,34 @@ describe('ProviderRegistryService', () => {
     expect(JSON.stringify(report)).not.toContain('sk-vault-key');
   });
 
+  it('exposes the active entry window and notifies on reload (FG6)', () => {
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        active: { conversation: 'local' },
+        providers: [
+          {
+            id: 'local',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'gemma',
+            contextWindow: 16384,
+          },
+        ],
+      }),
+    );
+    const service = registry();
+    expect(service.activeEntry('conversation')?.contextWindow).toBe(16384);
+    expect(service.activeEntry('memory')).toBeNull();
+    expect(service.report().providers[0]?.contextWindow).toBe(16384);
+
+    let notified = 0;
+    service.onChange(() => {
+      notified += 1;
+    });
+    service.reload();
+    expect(notified).toBe(1);
+  });
+
   it('falls back per role when the active id is disabled or missing', () => {
     writeFileSync(
       providersPath,
