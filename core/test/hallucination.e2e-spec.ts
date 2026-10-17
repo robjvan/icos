@@ -76,6 +76,7 @@ describe('Hallucination (e2e)', () => {
   async function createApp(): Promise<INestApplication<App>> {
     process.env.LLM_MODEL = 'test-model';
     process.env.AUTH_ENABLED = 'false';
+    process.env.AUTH_DIR_PATH = join(dir, 'auth');
     process.env.REALTIME_ENABLED = 'false';
     process.env.SESSION_DB_PATH = join(dir, 'sessions.sqlite');
     process.env.MEMORY_DB_PATH = memoryDbPath;
