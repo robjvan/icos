@@ -100,6 +100,22 @@ icos/
 
 ---
 
+## Where files live
+
+- **Runtime data lives in `~/.icos/`** — databases, auth material, the persona
+  core, the agent workspace, and the runtime skills copy. Anything the running
+  system reads or writes belongs there, not in the repo.
+- **`core/skills/` ships** — it is seeded into the runtime on boot. Everything
+  under `.reference/` is development material and never ships;
+  `.reference/notes/` in particular is local scratch.
+- **A planning doc is not a dependency.** If a file exists only for tuning,
+  calibration, or planning, no system code and no test may require it — and it
+  must never be copied into the shipped tree to satisfy a test. If the system
+  genuinely needs the data at runtime, put it in `~/.icos/`; if a test genuinely
+  needs fixture data, commit a small fixture under the package that owns it.
+
+---
+
 ## Environment
 
 - **Node.js 24.x / npm 11.x.** Core is NestJS 11; the web client is Angular 21;
