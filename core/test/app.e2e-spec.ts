@@ -1035,6 +1035,22 @@ describe('Conversation (e2e)', () => {
     expect((listed.body as { sessions: unknown[] }).sessions).toHaveLength(0);
   });
 
+  it('answers /model without an LLM (FG9c S4)', async () => {
+    const res = await request(http())
+      .post('/core/conversation')
+      .send({ message: '/model' })
+      .expect(200);
+
+    const body = res.body as ConversationResponse & {
+      command?: { kind: string };
+    };
+    expect(body.model).toBe('core');
+    expect(body.reply).toContain('Conversation:');
+    expect(body.reply).toContain('/model <provider> <model>');
+    expect(body.command).toMatchObject({ kind: 'data' });
+    expect(chatWithTools).not.toHaveBeenCalled();
+  });
+
   it('GET /core/health reports runtime and host without a turn', async () => {
     const res = await request(http()).get('/core/health').expect(200);
 

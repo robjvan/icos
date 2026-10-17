@@ -438,6 +438,26 @@ and bounds; `/tools status` reports the same.
 
 ---
 
+## Switching models
+
+ICOS resolves the conversation model on demand, so you can switch provider and
+model **without a restart** — the change takes effect on the next turn.
+
+- `/model` — show the active conversation and memory provider · model, and the
+  configured providers.
+- `/model <model>` — set the model on the active conversation provider. Model
+  ids may contain slashes (`/model deepseek/deepseek-v4-flash`).
+- `/model <provider> <model>` — switch provider and model together.
+- `/model <provider>` — switch provider (keeping its default model).
+- `/model list` — list the configured providers.
+- `/model list <provider>` — list the models that provider advertises (from
+  `/models`), with context windows where reported.
+
+The **Models** tab does the same with pickers, and the provider's **context
+window** (FG6) re-resolves when the selection changes.
+
+---
+
 ## Subagents
 
 The model can peel work off into an **isolated child session** that runs

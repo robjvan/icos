@@ -21,6 +21,8 @@ import { registerSessionCommands } from './session-commands';
 import { registerSkillCommands } from '../skills/command-adapter';
 import { registerToolCommands } from '../tools/tool-commands';
 import { registerSubagentCommands } from '../subagents/subagent-commands';
+import { registerProviderCommands } from '../providers/provider-commands';
+import { ProviderRegistryService } from '../providers/provider-registry.service';
 import { ToolSurfaceService } from '../tools/tool-surface.service';
 import { SubagentRunner } from '../subagents/subagent-runner.service';
 import { SkillSeedService } from '../skills/skill-seed.service';
@@ -55,6 +57,7 @@ export class CommandDispatcher {
     private readonly compaction?: ContextCompactionService,
     private readonly toolSurface?: ToolSurfaceService,
     private readonly subagents?: SubagentRunner,
+    private readonly providers?: ProviderRegistryService,
   ) {
     const register = (handler: SlashCommandHandler): void => {
       this.registry.register(handler);
@@ -82,6 +85,9 @@ export class CommandDispatcher {
     }
     if (subagents) {
       registerSubagentCommands(register, { runner: subagents });
+    }
+    if (providers) {
+      registerProviderCommands(register, { registry: providers });
     }
   }
 
