@@ -140,7 +140,7 @@ fi
 # Flags apply to `up`; `logs [service]` passes its args straight through.
 if [ "$CMD" = "up" ]; then
   while [ "$#" -gt 0 ]; do
-    case "$1" inspect
+    case "$1" in
       --build) BUILD=1 ;;
       --no-verifier) VERIFIER=0 ;;
       *) echo "bin/stack-local: unknown option '$1'" >&2; exit 2 ;;
