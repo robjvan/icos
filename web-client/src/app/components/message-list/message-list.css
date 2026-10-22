@@ -1,6 +1,10 @@
+:host {
+  display: block;
+}
+
+/* Only `.scroll-host` scrolls (GH23): a second scroll container here trapped
+   wheel/trackpad chaining and fought the parent's sticky-bottom logic. */
 .messages {
-  flex: 1;
-  overflow-y: auto;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;

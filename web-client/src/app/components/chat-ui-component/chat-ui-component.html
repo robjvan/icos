@@ -49,12 +49,30 @@
     />
 
     <div class="chat-main">
-      <div #scrollHost class="scroll-host" (scroll)="onScroll($event)">
-        <app-message-list
-          [messages]="store.messages()"
-          [pendingText]="store.pendingText()"
-          [pendingTyping]="store.pendingTyping()"
-        />
+      <div class="scroll-wrap">
+        <div
+          #scrollHost
+          class="scroll-host"
+          tabindex="0"
+          aria-label="Conversation transcript"
+          (scroll)="onScroll($event)"
+          (wheel)="onWheel($event)"
+          (touchstart)="onTouchStart($event)"
+          (touchmove)="onTouchMove($event)"
+        >
+          <app-message-list
+            [messages]="store.messages()"
+            [pendingText]="store.pendingText()"
+            [pendingTyping]="store.pendingTyping()"
+          />
+        </div>
+
+        @if (!pinnedToBottom()) {
+          <button type="button" class="jump-btn" (click)="scrollToBottom()">
+            <svg lucideArrowDown [size]="14" aria-hidden="true"></svg>
+            Jump to latest
+          </button>
+        }
       </div>
 
       @if (store.approvals().length > 0) {
