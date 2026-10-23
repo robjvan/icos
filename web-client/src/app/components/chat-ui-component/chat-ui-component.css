@@ -113,10 +113,47 @@
   min-width: 0;
 }
 
+.scroll-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .scroll-host {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Keyboard users must be able to scroll the transcript (AXE
+   scrollable-region-focusable); the ring makes that focus visible. */
+.scroll-host:focus-visible {
+  outline: 2px solid var(--accent-sage-deep);
+  outline-offset: -2px;
+}
+
+.jump-btn {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-glass);
+}
+
+.jump-btn:hover {
+  border-color: var(--accent-sage-deep);
+  color: var(--accent-sage-deep);
 }
 
 .approvals,
